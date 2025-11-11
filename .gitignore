@@ -1,0 +1,2 @@
+# Ignore large processed data files
+data/processed/road_network.csv

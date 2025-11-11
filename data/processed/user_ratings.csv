@@ -1,0 +1,15 @@
+user_id,via,rating
+u1,Martínez De Rozas,4.5
+u1,San Juan Bosco,4.0
+u1,Avenida Paicaví,3.0
+u2,Avenida Paicaví,4.5
+u2,Martínez De Rozas,2.0
+u2,Otras Vías,3.5
+u3,Otras Vías,4.0
+u3,Avenida Paicaví,3.5
+u3,San Juan Bosco,2.0
+u4,Martínez De Rozas,4.0
+u4,Otras Vías,3.0
+u5,Avenida Paicaví,4.5
+u5,San Juan Bosco,4.0
+u5,Otras Vías,2.5
