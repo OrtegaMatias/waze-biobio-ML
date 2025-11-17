@@ -6,6 +6,7 @@ Utilidades para cargar y transformar los datos del Biobío.
 from __future__ import annotations
 
 from functools import lru_cache
+import json
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
 
@@ -15,6 +16,7 @@ from mlxtend.preprocessing import TransactionEncoder
 from sklearn.neighbors import BallTree
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
+CACHE_DIR = ROOT_DIR / "data" / "cache"
 RAW_DIR = ROOT_DIR / "data" / "raw"
 PROCESSED_DIR = ROOT_DIR / "data" / "processed"
 
@@ -22,6 +24,7 @@ ACCIDENT_PATH = RAW_DIR / "ACCIDENTES.csv"
 CONGESTION_PATH = RAW_DIR / "CONGESTIONES.csv"
 USER_RATINGS_PATH = PROCESSED_DIR / "user_ratings.csv"
 ROAD_NETWORK_PATH = PROCESSED_DIR / "road_network.csv"
+_CURRENT_USER_RATINGS_PATH = USER_RATINGS_PATH
 
 HOUR_BUCKETS: List[Tuple[int, int, str]] = [
     (0, 6, "Madrugada (00-05h)"),
@@ -35,6 +38,49 @@ ACCIDENT_PENALTY = 1.75
 CONGESTION_PENALTY = 1.35
 PENALTY_RADIUS_M = 60
 EARTH_RADIUS_M = 6_371_000
+
+
+def _cache_artifact(name: str) -> Path:
+    return CACHE_DIR / f"{name}.pkl"
+
+
+def _cache_metadata(name: str) -> Path:
+    return CACHE_DIR / f"{name}.meta.json"
+
+
+def _read_cache_signature(path: Path) -> list | None:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text()).get("signature")
+    except Exception:
+        return None
+
+
+def _store_cache_signature(path: Path, signature) -> None:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"signature": list(signature)}))
+
+
+def _load_cached_dataframe(name: str, signature) -> pd.DataFrame | None:
+    artifact = _cache_artifact(name)
+    meta = _cache_metadata(name)
+    if not artifact.exists():
+        return None
+    stored_signature = _read_cache_signature(meta)
+    if stored_signature != list(signature):
+        return None
+    try:
+        return pd.read_pickle(artifact)
+    except Exception:
+        return None
+
+
+def _store_cached_dataframe(name: str, signature, df: pd.DataFrame) -> None:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    artifact = _cache_artifact(name)
+    df.to_pickle(artifact)
+    _store_cache_signature(_cache_metadata(name), signature)
 
 
 def _file_signature(path: Path) -> float:
@@ -59,6 +105,10 @@ def _hour_bucket(hour: float) -> str:
         if start <= hour < end:
             return label
     return "No definido"
+
+
+def hour_bucket(hour: float) -> str:
+    return _hour_bucket(hour)
 
 
 def _duration_bucket(hours: float) -> str:
@@ -195,6 +245,9 @@ def load_raw_events() -> pd.DataFrame:
 
 @lru_cache(maxsize=1)
 def _load_raw_events(signature: Tuple[float, float, float]) -> pd.DataFrame:
+    cached = _load_cached_dataframe("raw_events", signature)
+    if cached is not None:
+        return cached
     accidentes = _prepare_dataframe(pd.read_csv(ACCIDENT_PATH), label="accidente")
     congestiones = _prepare_dataframe(pd.read_csv(CONGESTION_PATH), label="congestion")
     reference = load_reference_network()
@@ -212,7 +265,9 @@ def _load_raw_events(signature: Tuple[float, float, float]) -> pd.DataFrame:
     if not combined_frames:
         return pd.DataFrame(columns=accidentes.columns)
     eventos = pd.concat(combined_frames, ignore_index=True)
-    return eventos.sort_values(["segment_id", "segment_seq"]).reset_index(drop=True)
+    eventos = eventos.sort_values(["segment_id", "segment_seq"]).reset_index(drop=True)
+    _store_cached_dataframe("raw_events", signature, eventos)
+    return eventos
 
 
 def load_reference_network(path: Path | None = None) -> pd.DataFrame:
@@ -254,6 +309,9 @@ def load_segment_summary() -> pd.DataFrame:
 
 @lru_cache(maxsize=1)
 def _load_segment_summary(signature: Tuple[float, float, float]) -> pd.DataFrame:
+    cached = _load_cached_dataframe("segment_summary", signature)
+    if cached is not None:
+        return cached
     eventos = _load_raw_events(signature)
     eventos = eventos[eventos["tipo_evento"] != "Referencia"]
     segmentos = (
@@ -280,6 +338,7 @@ def _load_segment_summary(signature: Tuple[float, float, float]) -> pd.DataFrame
         segmentos["via"].isin(top_vias), segmentos["via"], "Otras vías"
     )
     segmentos["tokens"] = segmentos.apply(lambda row: frozenset(_build_tokens(row)), axis=1)
+    _store_cached_dataframe("segment_summary", signature, segmentos)
     return segmentos
 
 
@@ -289,15 +348,35 @@ def load_transactions() -> pd.DataFrame:
 
 @lru_cache(maxsize=1)
 def _load_transactions(signature: Tuple[float, float, float]) -> pd.DataFrame:
+    cached = _load_cached_dataframe("transactions", signature)
+    if cached is not None:
+        return cached
     segmentos = _load_segment_summary(signature)
     transactions = segmentos["tokens"].apply(list).tolist()
     encoder = TransactionEncoder()
     matrix = encoder.fit(transactions).transform(transactions)
-    return pd.DataFrame(matrix, columns=encoder.columns_)
+    df = pd.DataFrame(matrix, columns=encoder.columns_)
+    _store_cached_dataframe("transactions", signature, df)
+    return df
+
+
+def set_user_ratings_path(path: Path) -> None:
+    global _CURRENT_USER_RATINGS_PATH
+    new_path = Path(path)
+    if not new_path.exists():
+        raise FileNotFoundError(f"No existe el archivo de ratings en {new_path}")
+    if new_path == _CURRENT_USER_RATINGS_PATH:
+        return
+    _CURRENT_USER_RATINGS_PATH = new_path
+    _load_user_ratings.cache_clear()
+
+
+def get_user_ratings_path() -> Path:
+    return _CURRENT_USER_RATINGS_PATH
 
 
 def load_user_ratings(path: Path | None = None) -> pd.DataFrame:
-    csv_path = Path(path) if path else USER_RATINGS_PATH
+    csv_path = Path(path) if path else _CURRENT_USER_RATINGS_PATH
     signature = _file_signature(csv_path)
     return _load_user_ratings(str(csv_path), signature)
 

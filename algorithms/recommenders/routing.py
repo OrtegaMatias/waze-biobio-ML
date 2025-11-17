@@ -30,6 +30,8 @@ class GraphNode:
     via: str
     comuna: str
     penalty_factor: float = 1.0
+    dia_semana: str = ""
+    franja_horaria: str = ""
 
 
 @dataclass
@@ -42,6 +44,10 @@ class RouteStep:
     via: str
     comuna: str
     peso: float
+    tipo_evento: str = "Referencia"
+    duracion_hrs: float = 0.0
+    dia_semana: str = ""
+    franja_horaria: str = ""
 
 
 class RouteGraph:
@@ -82,6 +88,8 @@ class RouteGraph:
                 via=row["via"],
                 comuna=row["comuna"],
                 penalty_factor=float(row.get("penalty_factor", 1.0) or 1.0),
+                dia_semana=str(row.get("dia_semana", "") or ""),
+                franja_horaria=str(row.get("franja_horaria", "") or ""),
             )
             key = (round(float(row["lat"]), 5), round(float(row["lon"]), 5))
             coord_groups[key].append(node_id)
@@ -99,10 +107,10 @@ class RouteGraph:
             for idx in range(len(node_ids) - 1):
                 a = node_ids[idx]
                 b = node_ids[idx + 1]
-                weight = cls._edge_weight(nodes[a], nodes[b])
-                adjacency.setdefault(a, []).append((b, weight))
+                base_dist = cls._base_distance(nodes[a], nodes[b])
+                adjacency.setdefault(a, []).append((b, base_dist))
                 if not is_oneway:
-                    adjacency.setdefault(b, []).append((a, weight))
+                    adjacency.setdefault(b, []).append((a, base_dist))
             if gi % 1000 == 0:
                 notify("segments", gi / total_groups)
 
@@ -115,22 +123,17 @@ class RouteGraph:
                 for j in range(i + 1, len(base_nodes)):
                     a = base_nodes[i]
                     b = base_nodes[j]
-                    weight = cls._edge_weight(a, b) * 0.25
-                    adjacency.setdefault(a.node_id, []).append((b.node_id, weight))
-                    adjacency.setdefault(b.node_id, []).append((a.node_id, weight))
+                    base_dist = cls._base_distance(a, b) * 0.25
+                    adjacency.setdefault(a.node_id, []).append((b.node_id, base_dist))
+                    adjacency.setdefault(b.node_id, []).append((a.node_id, base_dist))
             if ci % 5000 == 0 and coord_items:
                 notify("junctions", ci / len(coord_items))
         return cls(nodes=nodes, adjacency=adjacency)
 
     @staticmethod
-    def _edge_weight(a: GraphNode, b: GraphNode) -> float:
+    def _base_distance(a: GraphNode, b: GraphNode) -> float:
         distance = haversine_km(a.lat, a.lon, b.lat, b.lon)
-        if distance == 0:
-            distance = 0.05
-        penalty = max((a.penalty_factor + b.penalty_factor) / 2, 1.0)
-        avg_speed = (a.velocidad_kmh + b.velocidad_kmh) / 2 or 10
-        speed_factor = max(0.3, 40 / max(avg_speed, 5))
-        return distance * penalty * speed_factor
+        return distance if distance > 0 else 0.05
 
     def nearest_node(self, lat: float, lon: float, exclude: Optional[Set[str]] = None) -> GraphNode:
         exclude = exclude or set()
@@ -147,7 +150,15 @@ class RouteGraph:
             raise ValueError("No se encontraron nodos en el grafo.")
         return best_node
 
-    def shortest_path(self, origin: Tuple[float, float], destination: Tuple[float, float]) -> List[RouteStep]:
+    def shortest_path(
+        self,
+        origin: Tuple[float, float],
+        destination: Tuple[float, float],
+        via_factors: Optional[Dict[str, float]] = None,
+        default_via_factor: float = 1.0,
+        incident_ctx: Optional[Dict[str, str | bool]] = None,
+        apply_penalties: bool = True,
+    ) -> List[RouteStep]:
         source_node = self.nearest_node(*origin)
         try:
             target_node = self.nearest_node(*destination, exclude={source_node.node_id})
@@ -165,14 +176,48 @@ class RouteGraph:
         distances[source] = 0.0
         queue: List[Tuple[float, str]] = [(0.0, source)]
 
+        def preference_factor(via: str) -> float:
+            if via_factors:
+                return float(via_factors.get(via, default_via_factor))
+            return default_via_factor
+
+        def incident_factor(node: GraphNode) -> float:
+            if not incident_ctx or not apply_penalties:
+                return 1.0
+            day = incident_ctx.get("day")
+            hour_bucket = incident_ctx.get("hour_bucket")
+            avoid_congestion = incident_ctx.get("avoid_congestion")
+            avoid_accidents = incident_ctx.get("avoid_accidents")
+            matches_day = bool(day and node.dia_semana and node.dia_semana.lower() == str(day).lower())
+            matches_hour = bool(hour_bucket and node.franja_horaria and node.franja_horaria == hour_bucket)
+            if not (matches_day and matches_hour):
+                return 1.0
+            if avoid_congestion and node.tipo_evento == "Congestión":
+                return 200.0
+            if avoid_accidents and node.tipo_evento == "Accidente":
+                return 80.0
+            return 1.0
+
         while queue:
             current_dist, node_id = heapq.heappop(queue)
             if node_id == target:
                 break
             if current_dist > distances[node_id]:
                 continue
-            for neighbor, weight in self.adjacency.get(node_id, []):
-                new_dist = current_dist + weight
+            for neighbor, base_weight in self.adjacency.get(node_id, []):
+                current_node = self.nodes[node_id]
+                neighbor_node = self.nodes[neighbor]
+                if apply_penalties:
+                    penalty = max((current_node.penalty_factor + neighbor_node.penalty_factor) / 2, 1.0)
+                    avg_speed = (current_node.velocidad_kmh + neighbor_node.velocidad_kmh) / 2 or 10
+                    speed_factor = max(0.3, 40 / max(avg_speed, 5))
+                else:
+                    penalty = 1.0
+                    speed_factor = 1.0
+                preference = preference_factor(neighbor_node.via)
+                incident = incident_factor(neighbor_node)
+                adjusted_weight = base_weight * penalty * speed_factor * preference * incident
+                new_dist = current_dist + adjusted_weight
                 if new_dist < distances[neighbor]:
                     distances[neighbor] = new_dist
                     previous[neighbor] = node_id
@@ -202,6 +247,10 @@ class RouteGraph:
                     via=node.via,
                     comuna=node.comuna,
                     peso=peso,
+                    tipo_evento=node.tipo_evento,
+                    duracion_hrs=node.duracion_hrs,
+                    dia_semana=node.dia_semana,
+                    franja_horaria=node.franja_horaria,
                 )
             )
             current = previous[current]

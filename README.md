@@ -23,7 +23,7 @@ waze-biobio-ML/
 │       └── tests/          # pruebas unitarias
 ├── data/
 │   ├── raw/                # ACCIDENTES.csv, CONGESTIONES.csv
-│   └── processed/          # road_network.csv, user_ratings.csv
+│   └── processed/          # road_network.csv, user_ratings.csv, user_ratings_concepcion.csv
 ├── frontend/
 │   └── streamlit_app/app.py
 ├── scripts/
@@ -53,7 +53,19 @@ waze-biobio-ML/
 
 - `/recommendations/collaborative`: retorna recomendaciones para una estrategia puntual (`ubcf` o `ibcf`).
 - `/recommendations/playground`: ejecuta ambas estrategias (o el subconjunto solicitado) y entrega los resultados lado a lado para comparar puntuaciones.
-- En `frontend/streamlit_app/app.py` la sección “Laboratorio colaborativo” permite elegir `user_id`, vías conocidas, límite y estrategias para visualizar las diferencias entre UBCF e IBCF.
+- En `frontend/streamlit_app/app.py` la sección “Laboratorio colaborativo” permite elegir `user_id`, vías conocidas, límite y estrategias para visualizar las diferencias entre UBCF e IBCF, y las vías mejor rankeadas se envían como preferencias para ajustar los pesos de Dijkstra.
+- La visualización de rutas muestra siempre la trayectoria base (Dijkstra puro, sin penalizaciones) y la ruta personalizada (con preferencias + incidentes); puedes activar/desactivar cada capa en el mapa para comparar.
+- Antes de generar la ruta el usuario define día, hora estimada y si desea evitar congestiones/accidentes; esa información ajusta las penalizaciones del grafo y suma el tiempo de los incidentes que aún no se puedan evitar.
+
+## Perfiles de datos
+
+- El backend expone `/system/dataset` para consultar o cambiar el perfil activo (`regional` o `concepcion`).
+- El selector en Streamlit actualiza el perfil sin reiniciar el backend y borra la cache del playground.
+
+## Cache persistente
+
+- `data/cache/` almacena artefactos derivados (`raw_events`, `segment_summary`, `transactions` y `route_graph`).
+- Cada archivo se etiqueta con `data_version()`: si los CSV base no cambian, FastAPI carga todo desde disco y el bootstrap es prácticamente inmediato.
 
 ## Datos y pipelines
 
@@ -61,6 +73,11 @@ waze-biobio-ML/
 - Usa los CSV de `data/raw` y `data/processed`. Para actualizar la red vial ejecuta:
   ```bash
   python scripts/dev/build_road_network.py --place "Región del Biobío, Chile"
+  ```
+- Para regenerar ratings sintéticos coherentes con el `road_network` (regional o solo Concepción):
+  ```bash
+  python scripts/dev/build_user_ratings.py --mode regional
+  python scripts/dev/build_user_ratings.py --mode concepcion
   ```
 
 ## Pruebas
