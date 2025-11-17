@@ -9,20 +9,23 @@ import logging
 import threading
 import time
 from functools import lru_cache
-from pathlib import Path
+from typing import List, Tuple
 
+import pandas as pd
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .schemas.recommendations import (
-    AssociationRequest,
-    AssociationResponse,
     CollaborativeRequest,
     CollaborativeResponse,
+    PlaygroundRequest,
+    PlaygroundResponse,
 )
 from .schemas.routes import HotspotResponse, MetadataResponse, RouteRequest, RouteResponse
+from .schemas.system import DatasetChangeRequest, DatasetStatus, DatasetInfo
 from .services.recommendation_service import RecommendationService, get_recommendation_service
 from .services.routing_service import RoutingService, get_routing_service
+from .core import dataset
 from algorithms.recommenders import data_loader
 
 LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
@@ -65,25 +68,22 @@ def metadata(service: RecommendationService = Depends(get_recommendation_service
     return MetadataResponse(**options)
 
 
-@app.post(
-    "/recommendations/association",
-    response_model=AssociationResponse,
-    tags=["recommendations"],
-)
-def association_recommendations(
-    payload: AssociationRequest,
-    service: RecommendationService = Depends(get_recommendation_service),
-) -> AssociationResponse:
-    start = time.perf_counter()
-    recs = service.association_recommendations(payload)
-    duration = (time.perf_counter() - start) * 1000
-    logger.info(
-        "POST /recommendations/association -> %d recs (events=%s) in %.1f ms",
-        len(recs),
-        ",".join(payload.event_types),
-        duration,
-    )
-    return AssociationResponse(recommendations=recs)
+def _build_dataset_status() -> DatasetStatus:
+    available = [DatasetInfo(key=key, label=label) for key, label in dataset.available_profiles()]
+    return DatasetStatus(current=dataset.get_profile(), available=available)
+
+
+@app.get("/system/dataset", response_model=DatasetStatus, tags=["meta"])
+def dataset_status() -> DatasetStatus:
+    return _build_dataset_status()
+
+
+@app.post("/system/dataset", response_model=DatasetStatus, tags=["meta"])
+def dataset_switch(payload: DatasetChangeRequest) -> DatasetStatus:
+    dataset.set_profile(payload.profile)
+    get_recommendation_service.cache_clear()
+    logger.info("Perfil de datos actualizado a %s", payload.profile)
+    return _build_dataset_status()
 
 
 @app.post(
@@ -110,21 +110,50 @@ def collaborative_recommendations(
     return CollaborativeResponse(recommendations=recs)
 
 
+@app.post(
+    "/recommendations/playground",
+    response_model=PlaygroundResponse,
+    tags=["recommendations"],
+)
+def collaborative_playground(
+    payload: PlaygroundRequest,
+    service: RecommendationService = Depends(get_recommendation_service),
+) -> PlaygroundResponse:
+    start = time.perf_counter()
+    recs = service.playground_recommendations(payload)
+    duration = (time.perf_counter() - start) * 1000
+    logger.info(
+        "POST /recommendations/playground -> ubcf=%d ibcf=%d (user=%s) in %.1f ms",
+        len(recs.get("ubcf", [])),
+        len(recs.get("ibcf", [])),
+        payload.user_id,
+        duration,
+    )
+    return PlaygroundResponse(
+        ubcf=recs.get("ubcf", []),
+        ibcf=recs.get("ibcf", []),
+    )
+
+
 @app.post("/routes/optimal", response_model=RouteResponse, tags=["routes"])
 def optimal_route(
     payload: RouteRequest,
     service: RoutingService = Depends(get_routing_service),
 ) -> RouteResponse:
     start = time.perf_counter()
-    path = service.compute_route(payload)
+    route = service.compute_route(payload)
     duration = (time.perf_counter() - start) * 1000
+    reference = route.reference
+    personalized = route.personalized
+    distance_base = reference.distance_km if reference else 0.0
+    distance_personalized = personalized.distance_km if personalized else distance_base
     logger.info(
-        "POST /routes/optimal -> %.2f km (%d steps) in %.1f ms",
-        path.distance_km,
-        len(path.steps),
+        "POST /routes/optimal -> base=%.2f km personalizada=%.2f km en %.1f ms",
+        distance_base,
+        distance_personalized,
         duration,
     )
-    return path
+    return route
 bootstrap_lock = threading.Lock()
 bootstrap_state = {
     "status": "idle",
@@ -188,17 +217,33 @@ def bootstrap_status() -> dict:
     return bootstrap_state
 
 
-@lru_cache(maxsize=8)
-def _cached_hotspots(limit: int) -> List[tuple]:
+def _cached_hotspots(limit: int) -> List[dict]:
     events = data_loader.load_raw_events()
     congestions = events[events["tipo_evento"] == "Congestión"].dropna(subset=["lat", "lon"])
     if congestions.empty:
         return []
-    if len(congestions) > limit:
-        congestions = congestions.sample(n=limit, random_state=42)
-    speeds = congestions["velocidad_kmh"].clip(lower=5, upper=60).fillna(20)
-    weights = (1 / speeds).values
-    return list(zip(congestions["lat"].values, congestions["lon"].values, weights))
+    bucketed = []
+    for _, row in congestions.iterrows():
+        try:
+            hora_inicio = pd.to_datetime(row.get("hora_inicio"), format="%H:%M", errors="coerce")
+            hora_fin = pd.to_datetime(row.get("hora_fin"), format="%H:%M", errors="coerce")
+        except Exception:
+            hora_inicio = hora_fin = None
+        start_float = float(hora_inicio.hour + hora_inicio.minute / 60) if hora_inicio is not None else None
+        end_float = float(hora_fin.hour + hora_fin.minute / 60) if hora_fin is not None else None
+        bucketed.append(
+            {
+                "lat": float(row["lat"]),
+                "lon": float(row["lon"]),
+                "weight": float((1 / max(row["velocidad_kmh"], 5)) if row["velocidad_kmh"] else 0.2),
+                "day": str(row.get("dia_semana") or ""),
+                "bucket": str(row.get("franja_horaria") or ""),
+                "segment_id": str(row.get("segment_id") or ""),
+                "hora_inicio_float": start_float,
+                "hora_fin_float": end_float,
+            }
+        )
+    return bucketed[:limit]
 
 
 @app.get("/metadata/hotspots", response_model=HotspotResponse, tags=["meta"])
@@ -206,9 +251,4 @@ def metadata_hotspots(limit: int = 2000) -> HotspotResponse:
     limit = max(200, min(limit, 10000))
     points = _cached_hotspots(limit)
     logger.info("Hotspots solicitados -> %d puntos", len(points))
-    return HotspotResponse(
-        points=[
-            {"lat": float(lat), "lon": float(lon), "weight": float(weight)}
-            for lat, lon, weight in points
-        ]
-    )
+    return HotspotResponse(points=points)

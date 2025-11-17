@@ -1,19 +1,66 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import json
 import logging
+import math
+import pickle
 from functools import lru_cache
+from pathlib import Path
 from threading import Lock
 from typing import Dict, List, Tuple
 
-import math
 import pandas as pd
 
 from algorithms.recommenders import data_loader, routing
 
-from ..schemas.routes import RouteRequest, RouteResponse, RouteStepResponse
+from ..schemas.routes import RouteRequest, RouteResponse, RouteStepResponse, RouteVariant
 
 logger = logging.getLogger(__name__)
+CACHE_DIR = Path(__file__).resolve().parents[4] / "data" / "cache"
+GRAPH_CACHE = CACHE_DIR / "route_graph.pkl"
+GRAPH_META = CACHE_DIR / "route_graph.meta.json"
+DAY_ALIASES = {
+    "lunes": "Monday",
+    "martes": "Tuesday",
+    "miércoles": "Wednesday",
+    "miercoles": "Wednesday",
+    "jueves": "Thursday",
+    "viernes": "Friday",
+    "sábado": "Saturday",
+    "sabado": "Saturday",
+    "domingo": "Sunday",
+}
+
+
+def _load_graph_cache(signature):
+    if not GRAPH_CACHE.exists() or not GRAPH_META.exists():
+        return None
+    try:
+        meta = json.loads(GRAPH_META.read_text())
+    except Exception:
+        return None
+    if meta.get("signature") != list(signature):
+        return None
+    try:
+        with GRAPH_CACHE.open("rb") as fh:
+            return pickle.load(fh)
+    except Exception:
+        return None
+
+
+def _store_graph_cache(signature, bundle):
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    with GRAPH_CACHE.open("wb") as fh:
+        pickle.dump(bundle, fh)
+    GRAPH_META.write_text(json.dumps({"signature": list(signature)}))
+
+
+def _normalize_day(value: str | None) -> str:
+    if not value:
+        return "Monday"
+    cleaned = value.strip().lower()
+    return DAY_ALIASES.get(cleaned, value.strip().title())
 
 class RoutingService:
     def __init__(self, progress=None) -> None:
@@ -37,6 +84,19 @@ class RoutingService:
             self.events = data_loader.load_raw_events()
             if progress:
                 progress("Eventos cargados", 0.4)
+            signature = self._data_version or data_loader.data_version()
+            cached = _load_graph_cache(signature)
+            if cached:
+                self.graph = cached["graph"]
+                self.segment_lookup = cached["segment_lookup"]
+                logger.info(
+                    "Grafo cargado desde cache: %d nodos, %d segmentos",
+                    len(self.graph.nodes),
+                    len(self.segment_lookup),
+                )
+                if progress:
+                    progress("Grafo listo (cache)", 1.0)
+                return
 
             def rg_progress(stage: str, ratio: float) -> None:
                 base = {"nodes": 0.4, "segments": 0.8, "junctions": 0.95}.get(stage, 0.4)
@@ -52,6 +112,7 @@ class RoutingService:
                 len(self.graph.nodes),
                 len(self.segment_lookup),
             )
+            _store_graph_cache(signature, {"graph": self.graph, "segment_lookup": self.segment_lookup})
             if progress:
                 progress("Grafo listo", 1.0)
 
@@ -101,6 +162,15 @@ class RoutingService:
         self._ensure_fresh_data()
         if self.graph is None:
             raise ValueError("El grafo de rutas aún no está listo. Intenta nuevamente en unos segundos.")
+        context = None
+        needs_context = payload.avoid_congestion or payload.avoid_accidents
+        if needs_context:
+            context = {
+                "day": _normalize_day(payload.day_of_week),
+                "hour_bucket": data_loader.hour_bucket(payload.departure_hour),
+                "avoid_congestion": payload.avoid_congestion,
+                "avoid_accidents": payload.avoid_accidents,
+            }
         logger.info(
             "Calculando ruta origen=(%.5f, %.5f) destino=(%.5f, %.5f)",
             payload.origin.lat,
@@ -108,12 +178,46 @@ class RoutingService:
             payload.destination.lat,
             payload.destination.lon,
         )
-        path = self.graph.shortest_path(
+        via_factors: Dict[str, float] = {}
+        for pref in payload.preferences:
+            pref_norm = max(0.0, min(1.0, pref.weight))
+            # 1.0 -> factor 0.2 (muy preferida), 0.0 -> 2.0 (desaconsejada)
+            factor = 0.2 + (1.0 - pref_norm) * 1.8
+            via_factors[pref.via] = round(max(0.15, min(2.2, factor)), 3)
+        default_factor = 1.0
+        if needs_context:
+            default_factor = 1.5
+        if via_factors:
+            default_factor = max(default_factor, 3.0)
+        reference_path = self.graph.shortest_path(
             (payload.origin.lat, payload.origin.lon),
             (payload.destination.lat, payload.destination.lon),
+            apply_penalties=False,
         )
-        if not path:
+        if not reference_path:
             raise ValueError("No se pudo construir una ruta con los datos disponibles.")
+        need_personalized = bool(via_factors) or needs_context
+        if need_personalized:
+            personalized_path = self.graph.shortest_path(
+                (payload.origin.lat, payload.origin.lon),
+                (payload.destination.lat, payload.destination.lon),
+                via_factors=via_factors if via_factors else None,
+                default_via_factor=default_factor,
+                incident_ctx=context,
+                apply_penalties=True,
+            )
+        else:
+            personalized_path = reference_path
+        reference_variant = self._build_response_variant(payload, reference_path, None)
+        personalized_variant = self._build_response_variant(payload, personalized_path, context if need_personalized else None)
+        return RouteResponse(reference=reference_variant, personalized=personalized_variant)
+
+    def _build_response_variant(
+        self,
+        payload: RouteRequest,
+        path: List[routing.RouteStep],
+        context: Dict[str, str | bool] | None,
+    ):
         first_graph = path[0]
         last_graph = path[-1]
         origin_step = routing.RouteStep(
@@ -125,6 +229,10 @@ class RoutingService:
             via=first_graph.via,
             comuna=first_graph.comuna,
             peso=0.0,
+            tipo_evento="Usuario",
+            duracion_hrs=0.0,
+            dia_semana=_normalize_day(payload.day_of_week),
+            franja_horaria=data_loader.hour_bucket(payload.departure_hour),
         )
         dest_step = routing.RouteStep(
             node_id="user_destination",
@@ -135,6 +243,10 @@ class RoutingService:
             via=last_graph.via,
             comuna=last_graph.comuna,
             peso=path[-1].peso,
+            tipo_evento="Usuario",
+            duracion_hrs=0.0,
+            dia_semana=_normalize_day(payload.day_of_week),
+            franja_horaria=data_loader.hour_bucket(payload.departure_hour),
         )
         full_path = [origin_step] + path + [dest_step]
 
@@ -158,11 +270,43 @@ class RoutingService:
             )
         avg_speed = 35
         estimated_minutes = (distance / max(avg_speed, 5)) * 60
-        return RouteResponse(
+        extra_minutes = 0.0
+        if context:
+            buckets: Dict[Tuple[str, str, str], List[float]] = {}
+            for step in path:
+                if step.tipo_evento not in {"Congestión", "Accidente"}:
+                    continue
+                matches_day = (
+                    context.get("day")
+                    and step.dia_semana
+                    and step.dia_semana.lower() == str(context["day"]).lower()
+                )
+                matches_hour = (
+                    context.get("hour_bucket")
+                    and step.franja_horaria
+                    and step.franja_horaria == context["hour_bucket"]
+                )
+                if not (matches_day and matches_hour):
+                    continue
+                if step.tipo_evento == "Congestión" and not context.get("avoid_congestion"):
+                    continue
+                if step.tipo_evento == "Accidente" and not context.get("avoid_accidents"):
+                    continue
+                key = (step.segment_id, step.tipo_evento, step.franja_horaria or "")
+                minutes = max(step.duracion_hrs, 0.1) * 60
+                buckets.setdefault(key, []).append(minutes)
+            for key, values in buckets.items():
+                promedio = sum(values) / len(values)
+                extra_minutes += promedio
+                if key[1] == "Congestión":
+                    extra_minutes += 5
+        estimated_minutes += extra_minutes
+        return RouteVariant(
             distance_km=round(distance, 2),
             estimated_duration_min=round(estimated_minutes, 1),
             steps=steps,
             geometry=self._build_geometry(full_path),
+            extra_delay_min=round(extra_minutes, 1),
         )
 
     def _build_geometry(self, path: List[routing.RouteStep]) -> List[Dict[str, float]]:

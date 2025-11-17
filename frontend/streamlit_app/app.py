@@ -13,6 +13,7 @@ from typing import Dict, List, Tuple
 
 import folium
 from folium.plugins import BeautifyIcon, MiniMap, HeatMap
+import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
@@ -30,7 +31,31 @@ DEFAULT_BOUNDS = {
     "lon_min": DEFAULT_LON_RANGE[0],
     "lon_max": DEFAULT_LON_RANGE[1],
 }
-COMMUNE_PATTERN = re.compile(r"^[A-Za-zÁÉÍÓÚÑáéíóúñ ]+$")
+DAY_CHOICES = [
+    ("Monday", "Lunes"),
+    ("Tuesday", "Martes"),
+    ("Wednesday", "Miércoles"),
+    ("Thursday", "Jueves"),
+    ("Friday", "Viernes"),
+    ("Saturday", "Sábado"),
+    ("Sunday", "Domingo"),
+]
+DAY_LABELS = {code: label for code, label in DAY_CHOICES}
+HOUR_BUCKETS = [
+    (0, 6, "Madrugada (00-05h)"),
+    (6, 10, "Punta AM (06-09h)"),
+    (10, 16, "Horario Medio (10-15h)"),
+    (16, 21, "Punta PM (16-20h)"),
+    (21, 24, "Nocturno (21-23h)"),
+]
+
+
+def get_hour_bucket_label(hour: float) -> str:
+    hour = float(hour or 0)
+    for start, end, label in HOUR_BUCKETS:
+        if start <= hour < end:
+            return label
+    return HOUR_BUCKETS[0][2]
 
 
 def get_bounds() -> Dict[str, float]:
@@ -159,6 +184,18 @@ def set_page_style() -> None:
             font-size: 1.6rem;
             font-weight: 600;
         }
+        .streamlit-folium, .streamlit-folium iframe {
+            width: 100% !important;
+        }
+        .streamlit-folium {
+            min-height: 680px !important;
+            height: 680px !important;
+        }
+        .streamlit-folium iframe {
+            min-height: 680px !important;
+            height: 680px !important;
+            border-radius: 0.75rem;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -201,6 +238,29 @@ def fetch_hotspots(limit: int = 2000) -> List[Dict[str, float]]:
         return []
 
 
+def fetch_dataset_status() -> dict | None:
+    try:
+        resp = requests.get(f"{BACKEND_URL}/system/dataset", timeout=REQUEST_TIMEOUT)
+        resp.raise_for_status()
+        return resp.json()
+    except requests.RequestException:
+        return None
+
+
+def update_dataset_profile(profile: str) -> dict | None:
+    try:
+        resp = requests.post(
+            f"{BACKEND_URL}/system/dataset",
+            json={"profile": profile},
+            timeout=REQUEST_TIMEOUT,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except requests.RequestException as err:
+        st.error(f"No se pudo actualizar el perfil de datos: {err}")
+        return None
+
+
 def call_backend(endpoint: str, payload: dict) -> dict | None:
     try:
         resp = requests.post(f"{BACKEND_URL}{endpoint}", json=payload, timeout=REQUEST_TIMEOUT)
@@ -219,27 +279,23 @@ def init_state() -> None:
     st.session_state.setdefault("route_origin", DEFAULT_ORIGIN.copy())
     st.session_state.setdefault("route_destination", DEFAULT_DESTINATION.copy())
     st.session_state.setdefault("assign_target", "Origen")
-    st.session_state.setdefault("origin_lat_input", st.session_state["route_origin"]["lat"])
-    st.session_state.setdefault("origin_lon_input", st.session_state["route_origin"]["lon"])
-    st.session_state.setdefault("dest_lat_input", st.session_state["route_destination"]["lat"])
-    st.session_state.setdefault("dest_lon_input", st.session_state["route_destination"]["lon"])
     st.session_state.setdefault("last_route_result", None)
-    st.session_state.setdefault("last_recommendations", [])
     st.session_state.setdefault("bounds", DEFAULT_BOUNDS.copy())
     st.session_state.setdefault("metadata", None)
     st.session_state.setdefault("app_ready", False)
     st.session_state.setdefault("hotspots", [])
+    st.session_state.setdefault("playground_results", None)
+    st.session_state.setdefault("dataset_status", None)
+    st.session_state.setdefault("trip_day", "Monday")
+    st.session_state.setdefault("trip_hour", 8)
+    st.session_state.setdefault("avoid_congestion", True)
+    st.session_state.setdefault("avoid_accidents", False)
 
 
 def reset_locations() -> None:
     st.session_state["route_origin"] = DEFAULT_ORIGIN.copy()
     st.session_state["route_destination"] = DEFAULT_DESTINATION.copy()
-    st.session_state["origin_lat_input"] = DEFAULT_ORIGIN["lat"]
-    st.session_state["origin_lon_input"] = DEFAULT_ORIGIN["lon"]
-    st.session_state["dest_lat_input"] = DEFAULT_DESTINATION["lat"]
-    st.session_state["dest_lon_input"] = DEFAULT_DESTINATION["lon"]
     st.session_state["last_route_result"] = None
-    st.session_state["last_recommendations"] = []
 
 
 def render_overview(metadata: Dict[str, List[str]]) -> None:
@@ -273,10 +329,57 @@ def render_guidelines() -> None:
     with st.expander("¿Cómo usar la aplicación?", expanded=False):
         st.markdown(
             "- Selecciona origen y destino directamente en el mapa o introduce coordenadas precisas.\n"
-            "- Ajusta las preferencias en la barra lateral para evitar eventos de congestión/accidente.\n"
-            "- El mapa de resultados incluye la ruta optimizada y un detalle paso a paso.\n"
+            "- Genera la ruta segura y consulta el detalle paso a paso en la tabla.\n"
+            "- Usa el playground colaborativo para comparar UBCF vs IBCF y decidir qué estrategia se ajusta mejor.\n"
             "- Si el backend no responde, revisa que el servicio FastAPI esté activo en el puerto 8000."
         )
+
+
+def render_dataset_selector() -> None:
+    status = st.session_state.get("dataset_status") or fetch_dataset_status()
+    if not status:
+        st.warning("No se pudo consultar el perfil de datos actual.")
+        return
+    st.session_state["dataset_status"] = status
+    options = [info["key"] for info in status.get("available", [])]
+    if not options:
+        st.info("No hay perfiles alternativos disponibles.")
+        return
+    labels = {info["key"]: info["label"] for info in status.get("available", [])}
+    current = status.get("current")
+    try:
+        index = options.index(current)
+    except ValueError:
+        index = 0
+    selection = st.selectbox(
+        "Perfil de datos",
+        options=options,
+        index=index,
+        format_func=lambda key: labels.get(key, key),
+        help="Selecciona el conjunto de ratings que alimenta el filtrado colaborativo.",
+    )
+    apply_disabled = selection == current
+    if st.button("Aplicar perfil", use_container_width=True, disabled=apply_disabled):
+        with st.spinner("Actualizando fuente de datos en el backend..."):
+            result = update_dataset_profile(selection)
+        if result:
+            st.session_state["dataset_status"] = result
+            st.session_state["playground_results"] = None
+            st.success(f"Perfil actualizado a {labels.get(selection, selection)}")
+
+
+def render_sidebar_tools() -> None:
+    st.sidebar.header("Herramientas rápidas")
+    if st.sidebar.button("Restablecer puntos de ruta", use_container_width=True):
+        reset_locations()
+        st.sidebar.success("Coordenadas restauradas a los valores sugeridos.")
+        if hasattr(st, "rerun"):
+            st.rerun()
+        else:  # compatibilidad con versiones anteriores
+            st.experimental_rerun()
+    st.sidebar.caption(
+        "La sección principal permite generar la ruta y comparar estrategias colaborativas (UBCF vs IBCF)."
+    )
 
 
 def validate_coordinates(origin: dict, destination: dict) -> tuple[bool, str]:
@@ -293,75 +396,6 @@ def validate_coordinates(origin: dict, destination: dict) -> tuple[bool, str]:
     return True, ""
 
 
-def collect_preferences(metadata: Dict[str, List[str]]) -> dict:
-    st.sidebar.title("Preferencias")
-    avoid_congestion = st.sidebar.checkbox("Evitar congestión", value=True)
-    avoid_accidents = st.sidebar.checkbox("Evitar accidentes", value=False)
-    events = []
-    if avoid_congestion and "Congestión" in metadata["event_types"]:
-        events.append("Congestión")
-    if avoid_accidents and "Accidente" in metadata["event_types"]:
-        events.append("Accidente")
-    if not events:
-        events = metadata["event_types"][:1]
-
-    franja = st.sidebar.selectbox(
-        "Momento del viaje",
-        options=metadata["franjas"] or ["No definido"],
-        index=0,
-    )
-    day_type = st.sidebar.radio("Tipo de día", ["Día laboral", "Fin de semana"], index=0)
-    st.sidebar.caption("Estas preferencias alimentan el recomendador para ajustar pesos en la ruta.")
-    communes_raw = metadata.get("communes") or []
-    communes = sorted(
-        {
-            c.strip().title()
-            for c in communes_raw
-            if isinstance(c, str) and COMMUNE_PATTERN.match(c.strip().title())
-        }
-    )
-    commune_selected = None
-    if communes:
-        st.session_state.setdefault("preferred_commune", communes[0])
-        commune_selected = st.sidebar.selectbox(
-            "Comuna objetivo",
-            options=communes,
-            key="preferred_commune",
-            help="Solo se permiten comunas incluidas en la red OSM cargada.",
-        )
-    else:
-        st.sidebar.info("No se pudieron cargar comunas válidas. Se usarán todas por defecto.")
-    if st.sidebar.button("Restablecer puntos de ruta", use_container_width=True):
-        reset_locations()
-        st.sidebar.success("Coordenadas restauradas a los valores sugeridos.")
-    return {
-        "event_types": events,
-        "franja": franja,
-        "day_type": day_type,
-        "commune": commune_selected,
-    }
-
-
-def request_recommendations(prefs: dict) -> List[dict]:
-    communes = [prefs["commune"]] if prefs.get("commune") else []
-    payload = {
-        "event_types": prefs["event_types"],
-        "communes": communes,
-        "franjas": [prefs["franja"]],
-        "durations": [],
-        "velocities": [],
-        "day_type": prefs["day_type"],
-        "via_preferred": None,
-        "min_support": 0.02,
-        "min_confidence": 0.45,
-        "limit": 3,
-    }
-    result = call_backend("/recommendations/association", payload)
-    if result:
-        return result.get("recommendations", [])
-    return []
-
-
 def render_selector_map(origin: dict, destination: dict) -> None:
     if not origin or not destination:
         st.warning("Selecciona dos puntos válidos dentro del Biobío.")
@@ -374,18 +408,18 @@ def render_selector_map(origin: dict, destination: dict) -> None:
     selector_map = folium.Map(
         location=[avg_lat, avg_lon],
         zoom_start=12,
-        tiles="CartoDB positron",
+        tiles="OpenStreetMap",
         control_scale=True,
     )
+    folium.TileLayer("CartoDB positron", name="Clásico", overlay=False).add_to(selector_map)
     folium.TileLayer(
-        tiles="https://stamen-tiles.a.ssl.fastly.net/terrain/{z}/{x}/{y}.png",
-        name="Terreno",
+        tiles="https://stamen-tiles.a.ssl.fastly.net/toner-lite/{z}/{x}/{y}.png",
+        name="Toner claro",
         attr="Map tiles by Stamen Design, CC BY 3.0 — Map data © OpenStreetMap contributors",
         overlay=False,
     ).add_to(selector_map)
-    folium.TileLayer("CartoDB dark_matter", name="Oscuro", overlay=False).add_to(selector_map)
     folium.LayerControl(collapsed=True).add_to(selector_map)
-    MiniMap(toggle_display=True).add_to(selector_map)
+    MiniMap(tile_layer="OpenStreetMap", toggle_display=True).add_to(selector_map)
 
     folium.Marker(
         location=[origin["lat"], origin["lon"]],
@@ -430,47 +464,70 @@ def render_selector_map(origin: dict, destination: dict) -> None:
         target = "route_origin" if assign_target == "Origen" else "route_destination"
         st.session_state[target] = {"lat": lat, "lon": lon}
         st.success(f"{assign_target} actualizado a {lat:.5f}, {lon:.5f}")
-        st.session_state["origin_lat_input"] = st.session_state["route_origin"]["lat"]
-        st.session_state["origin_lon_input"] = st.session_state["route_origin"]["lon"]
-        st.session_state["dest_lat_input"] = st.session_state["route_destination"]["lat"]
-        st.session_state["dest_lon_input"] = st.session_state["route_destination"]["lon"]
 
 
-def render_route_map(route_geometry: List[Dict[str, float]]) -> None:
-    if not route_geometry:
-        st.info("No hay coordenadas suficientes para dibujar la ruta.")
-        return
-    coords = pd.DataFrame(route_geometry).dropna()
+def _build_polyline_points(raw_points: List[Dict[str, float]]) -> List[List[float]]:
+    coords = pd.DataFrame(raw_points).dropna()
     if coords.empty:
+        return []
+    points = coords[["lat", "lon"]].values.tolist()
+    if len(points) < 2 and points:
+        origin = st.session_state.get("route_origin", DEFAULT_ORIGIN)
+        destination = st.session_state.get("route_destination", DEFAULT_DESTINATION)
+        start = [origin["lat"], origin["lon"]]
+        end = [destination["lat"], destination["lon"]]
+        points = [start, end]
+    return points
+
+
+def render_route_map(route_result: dict) -> None:
+    reference = route_result.get("reference") or {}
+    personalized = route_result.get("personalized") or {}
+    reference_points = _build_polyline_points(reference.get("geometry") or [])
+    personalized_points = _build_polyline_points(personalized.get("geometry") or [])
+    base_points = reference_points or personalized_points
+    if not base_points:
         st.info("No hay coordenadas suficientes para dibujar la ruta.")
         return
     fmap = folium.Map(
-        location=[coords["lat"].mean(), coords["lon"].mean()],
+        location=[np.mean([p[0] for p in base_points]), np.mean([p[1] for p in base_points])],
         zoom_start=14,
         tiles="CartoDB positron",
         control_scale=True,
     )
-    points = coords[["lat", "lon"]].values.tolist()
-    if len(points) < 2:
-        start = points[0]
-        end = points[-1]
-        origin = st.session_state.get("route_origin", DEFAULT_ORIGIN)
-        destination = st.session_state.get("route_destination", DEFAULT_DESTINATION)
-        if len(points) == 1 and (origin["lat"], origin["lon"]) != tuple(points[0]):
-            start = [origin["lat"], origin["lon"]]
-        if len(points) == 1 and (destination["lat"], destination["lon"]) != tuple(points[0]):
-            end = [destination["lat"], destination["lon"]]
-        points = [start, end]
-        st.warning(
-            "La ruta reportada contiene un único punto, se muestra un enlace directo estimado entre origen y destino."
-        )
     hotspots = st.session_state.get("hotspots") or []
-    if hotspots:
-        heat_data = [
-            [spot["lat"], spot["lon"], spot.get("weight", 1.0)]
-            for spot in hotspots
-            if spot.get("lat") is not None and spot.get("lon") is not None
-        ]
+    hotspots = st.session_state.get("hotspots") or []
+    selected_day = st.session_state.get("trip_day")
+    if hotspots and selected_day:
+        current_hour = float(st.session_state.get("trip_hour", 8))
+        bucket_label = get_hour_bucket_label(current_hour)
+        heat_data = []
+        for spot in hotspots:
+            day = (spot.get("day") or "").strip()
+            bucket = (spot.get("bucket") or "").strip()
+            start = spot.get("hora_inicio_float")
+            end = spot.get("hora_fin_float")
+            matches_hour = True
+            if start is not None and end is not None:
+                if start <= end:
+                    matches_hour = start <= current_hour <= end
+                else:
+                    matches_hour = current_hour >= start or current_hour <= end
+            if day and day != selected_day:
+                continue
+            if bucket and bucket != bucket_label:
+                continue
+            if not matches_hour:
+                continue
+            if spot.get("lat") is None or spot.get("lon") is None:
+                continue
+            heat_data.append([spot["lat"], spot["lon"], spot.get("weight", 1.0)])
+        if not heat_data:
+            heat_data = [
+                [spot["lat"], spot["lon"], spot.get("weight", 1.0)]
+                for spot in hotspots
+                if spot.get("lat") is not None and spot.get("lon") is not None
+            ]
         if heat_data:
             HeatMap(
                 heat_data,
@@ -478,127 +535,223 @@ def render_route_map(route_geometry: List[Dict[str, float]]) -> None:
                 blur=12,
                 max_zoom=12,
                 gradient={0.2: "blue", 0.4: "cyan", 0.6: "lime", 0.8: "yellow", 1.0: "red"},
-                name="Congestiones recientes",
+                name=f"Congestiones {bucket_label}",
             ).add_to(fmap)
     MiniMap(toggle_display=True, position="bottomright").add_to(fmap)
+
+    def add_route_layer(points: List[List[float]], color: str, name: str, dash: str | None = None, show: bool = True) -> None:
+        if not points:
+            return
+        layer = folium.FeatureGroup(name=name, show=show)
+        folium.PolyLine(
+            points,
+            color=color,
+            weight=7,
+            opacity=0.9,
+            dash_array=dash,
+        ).add_to(layer)
+        layer.add_to(fmap)
+
+    add_route_layer(reference_points, "#2563eb", "Ruta base (solo Dijkstra)", dash="8", show=True)
+    add_route_layer(personalized_points, "#fb923c", "Ruta personalizada (con preferencias)", dash=None, show=False)
+
+    origin = st.session_state.get("route_origin", DEFAULT_ORIGIN)
+    destination = st.session_state.get("route_destination", DEFAULT_DESTINATION)
+    folium.Marker(
+        [origin["lat"], origin["lon"]],
+        icon=folium.Icon(color="green", icon="play"),
+        tooltip="Inicio",
+    ).add_to(fmap)
+    folium.Marker(
+        [destination["lat"], destination["lon"]],
+        icon=folium.Icon(color="red", icon="stop"),
+        tooltip="Destino",
+    ).add_to(fmap)
+
     folium.LayerControl(collapsed=True).add_to(fmap)
-    folium.PolyLine(
-        points,
-        color="#38bdf8",
-        weight=8,
-        opacity=0.9,
-        dash_array="10",
-        tooltip="Ruta optimizada",
-    ).add_to(fmap)
-    folium.CircleMarker(
-        points[0],
-        radius=7,
-        color="#22c55e",
-        fill=True,
-        fill_opacity=0.9,
-        popup="Inicio",
-    ).add_to(fmap)
-    folium.CircleMarker(
-        points[-1],
-        radius=7,
-        color="#ef4444",
-        fill=True,
-        fill_opacity=0.9,
-        popup="Destino",
-    ).add_to(fmap)
-    st_folium(fmap, height=430, width=None, key="route_map")
-    st.caption("La línea azul marca la trayectoria optimizada considerando congestiones/accidentes.")
+    st_folium(fmap, height=700, width=None, use_container_width=True, key="route_map")
+    st.caption(
+        "Activa/desactiva cada capa para comparar la ruta base de Dijkstra contra la ajustada con tus preferencias."
+    )
 
 
-def render_route_summary(route_result: dict, recommendations: List[dict]) -> None:
-    steps_df = pd.DataFrame(route_result["steps"])
-    geometry = route_result.get("geometry") or steps_df[["lat", "lon"]].to_dict("records")
+def render_route_summary(route_result: dict) -> None:
+    reference = route_result.get("reference") or {}
+    personalized = route_result.get("personalized") or {}
+    ref_distance = reference.get("distance_km")
+    ref_duration = reference.get("estimated_duration_min")
+    per_distance = personalized.get("distance_km")
+    per_duration = personalized.get("estimated_duration_min")
+    diff_distance = None if ref_distance is None or per_distance is None else per_distance - ref_distance
+    diff_duration = None if ref_duration is None or per_duration is None else per_duration - ref_duration
+    ref_delay = reference.get("extra_delay_min", 0.0)
+    per_delay = personalized.get("extra_delay_min", 0.0)
+
     col1, col2 = st.columns(2)
-    col1.metric("Distancia estimada", f"{route_result['distance_km']} km")
-    col2.metric("Duración aproximada", f"{route_result['estimated_duration_min']} min")
-    tab_map, tab_table = st.tabs(["Mapa interactivo", "Detalle del trayecto"])
-    with tab_map:
-        render_route_map(geometry)
-    with tab_table:
-        st.dataframe(
-            steps_df[["via", "comuna", "cumulative_cost"]],
-            use_container_width=True,
-            hide_index=True,
+    col1.metric(
+        "Dijkstra base - Distancia",
+        f"{ref_distance:.2f} km" if ref_distance is not None else "N/A",
+    )
+    col1.metric(
+        "Dijkstra base - Duración",
+        f"{ref_duration:.1f} min" if ref_duration is not None else "N/A",
+        delta=f"+{ref_delay:.1f} min por congestión" if ref_delay else None,
+    )
+    col2.metric(
+        "Ruta personalizada - Distancia",
+        f"{per_distance:.2f} km" if per_distance is not None else "N/A",
+        delta=f"{diff_distance:+.2f} km" if diff_distance is not None else None,
+    )
+    personalized_delta = None
+    if diff_duration is not None:
+        personalized_delta = f"{diff_duration:+.1f} min vs base"
+    if per_delay:
+        delay_text = f"+{per_delay:.1f} min por congestión"
+        personalized_delta = (
+            f"{personalized_delta} | {delay_text}" if personalized_delta else delay_text
         )
-        csv_bytes = steps_df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "Descargar ruta (CSV)",
-            data=csv_bytes,
-            file_name="ruta_segura_biobio.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
-        if recommendations:
-            st.subheader("Vías recomendadas para evitar eventos similares")
-            for rec in recommendations:
+    col2.metric(
+        "Ruta personalizada - Duración",
+        f"{per_duration:.1f} min" if per_duration is not None else "N/A",
+        delta=personalized_delta,
+    )
+
+    st.markdown("### Comparación en el mapa")
+    render_route_map(route_result)
+
+
+def render_playground_results(results: Dict[str, List[dict]], strategies: List[str]) -> None:
+    if not strategies:
+        strategies = ["ubcf", "ibcf"]
+    cols = st.columns(len(strategies))
+    for idx, strategy in enumerate(strategies):
+        human_label = strategy.upper()
+        recs = results.get(strategy, [])
+        with cols[idx]:
+            st.markdown(f"#### {human_label}")
+            if not recs:
+                st.caption("Sin recomendaciones para esta estrategia.")
+                continue
+            for rec in recs:
                 st.write(
-                    f"- **{rec['via']}** · confianza {rec['confidence']:.2f} · "
-                    f"{rec['accident_ratio']*100:.1f}% incidentes"
+                    f"- **{rec['via']}** · puntuación estimada {rec['estimated_rating']:.2f} "
+                    f"({rec['strategy'].upper()})"
                 )
+
+
+def playground_section(metadata: Dict[str, List[str]]) -> None:
+    st.subheader("Laboratorio colaborativo (UBCF vs IBCF)")
+    vias = metadata.get("vias") or []
+    default_user = st.session_state.get("play_user_id", "usuario_demo")
+    default_known = [via for via in st.session_state.get("play_known_vias", []) if via in vias]
+    default_limit = st.session_state.get("play_limit", 5)
+    default_strategies = st.session_state.get("play_strategies", ["ubcf", "ibcf"])
+    with st.form("playground_form"):
+        user_id = st.text_input("Usuario objetivo", value=default_user)
+        known_vias = st.multiselect(
+            "Vías ya conocidas (se excluyen de la recomendación)",
+            options=vias,
+            default=default_known,
+            help="Selecciona vías que el usuario ya conoce para forzar recomendaciones frescas.",
+        )
+        limit = st.slider("Cantidad de recomendaciones por estrategia", 1, 10, default_limit)
+        strategies = st.multiselect(
+            "Estrategias a comparar",
+            options=["ubcf", "ibcf"],
+            default=default_strategies or ["ubcf", "ibcf"],
+        )
+        submitted = st.form_submit_button("Comparar estrategias", use_container_width=True)
+    if submitted:
+        payload = {
+            "user_id": user_id.strip() or "usuario_demo",
+            "known_vias": known_vias,
+            "limit": limit,
+            "strategies": strategies,
+        }
+        with st.spinner("Calculando recomendaciones colaborativas..."):
+            result = call_backend("/recommendations/playground", payload)
+        if result:
+            st.session_state["playground_results"] = result
+            st.session_state["play_user_id"] = payload["user_id"]
+            st.session_state["play_known_vias"] = known_vias
+            st.session_state["play_limit"] = limit
+            st.session_state["play_strategies"] = strategies
         else:
-            st.info("No se encontraron recomendaciones adicionales para esta configuración.")
+            st.session_state["playground_results"] = None
+    results = st.session_state.get("playground_results")
+    if results:
+        active_strategies = st.session_state.get("play_strategies") or ["ubcf", "ibcf"]
+        render_playground_results(results, active_strategies)
+    else:
+        st.info("Genera recomendaciones colaborativas para visualizar la diferencia entre UBCF e IBCF.")
 
 
-def routing_section(prefs: dict) -> None:
+def collect_route_preferences() -> List[Dict[str, float]]:
+    results = st.session_state.get("playground_results") or {}
+    weights: Dict[str, List[float]] = {}
+    for entries in results.values():
+        for rec in entries:
+            via = rec.get("via")
+            rating = rec.get("estimated_rating")
+            if not via or rating is None:
+                continue
+            weights.setdefault(via, []).append(float(rating) / 5.0)
+    preferences = [
+        {"via": via, "weight": round(sum(values) / len(values), 3)}
+        for via, values in weights.items()
+    ]
+    return preferences
+
+
+def _has_route_steps(result: dict | None) -> bool:
+    if not result:
+        return False
+    variant = result.get("personalized") or result.get("reference")
+    return bool(variant and variant.get("steps"))
+
+
+def routing_section() -> None:
     origin = st.session_state["route_origin"]
     destination = st.session_state["route_destination"]
-    lat_range = get_lat_range()
-    lon_range = get_lon_range()
     st.subheader("1. Selecciona tu ubicación y destino")
-    map_col, form_col = st.columns((1.2, 0.8), gap="large")
+    map_col, action_col = st.columns((1.3, 0.7), gap="large")
     with map_col:
         render_selector_map(origin, destination)
-    with form_col:
-        st.subheader("2. Ajusta coordenadas y genera la ruta")
-        with st.form("route_form"):
-            col1, col2 = st.columns(2)
-            with col1:
-                origin_lat = st.number_input(
-                    "Latitud origen",
-                    value=st.session_state["origin_lat_input"],
-                    key="origin_lat_input",
-                    format="%.6f",
-                    min_value=float(lat_range[0]),
-                    max_value=float(lat_range[1]),
-                )
-                origin_lon = st.number_input(
-                    "Longitud origen",
-                    value=st.session_state["origin_lon_input"],
-                    key="origin_lon_input",
-                    format="%.6f",
-                    min_value=float(lon_range[0]),
-                    max_value=float(lon_range[1]),
-                )
-            with col2:
-                dest_lat = st.number_input(
-                    "Latitud destino",
-                    value=st.session_state["dest_lat_input"],
-                    key="dest_lat_input",
-                    format="%.6f",
-                    min_value=float(lat_range[0]),
-                    max_value=float(lat_range[1]),
-                )
-                dest_lon = st.number_input(
-                    "Longitud destino",
-                    value=st.session_state["dest_lon_input"],
-                    key="dest_lon_input",
-                    format="%.6f",
-                    min_value=float(lon_range[0]),
-                    max_value=float(lon_range[1]),
-                )
-            submitted = st.form_submit_button("Generar ruta segura", use_container_width=True)
+    with action_col:
+        st.subheader("2. Genera la ruta segura")
+        st.caption(
+            "Usa el mapa para mover los pines de origen/destino y configura el escenario de viaje para ajustar las recomendaciones."
+        )
+        selected_day = st.selectbox(
+            "Día del viaje",
+            options=[code for code, _ in DAY_CHOICES],
+            format_func=lambda code: DAY_LABELS[code],
+            index=[code for code, _ in DAY_CHOICES].index(st.session_state.get("trip_day", "Monday")),
+            key="trip_day",
+        )
+        departure_hour = st.slider(
+            "Hora de salida (0-23h)",
+            min_value=0,
+            max_value=23,
+            value=st.session_state.get("trip_hour", 8),
+            key="trip_hour",
+        )
+        avoid_congestion = st.checkbox(
+            "Evitar congestiones",
+            key="avoid_congestion",
+            value=st.session_state.get("avoid_congestion", True),
+        )
+        avoid_accidents = st.checkbox(
+            "Evitar accidentes",
+            key="avoid_accidents",
+            value=st.session_state.get("avoid_accidents", False),
+        )
+        generate_clicked = st.button("Generar ruta segura", use_container_width=True)
 
     results_container = st.container()
     last_route = st.session_state.get("last_route_result")
 
-    if submitted:
-        st.session_state["route_origin"] = {"lat": origin_lat, "lon": origin_lon}
-        st.session_state["route_destination"] = {"lat": dest_lat, "lon": dest_lon}
+    if generate_clicked:
         origin = st.session_state["route_origin"]
         destination = st.session_state["route_destination"]
         valid, message = validate_coordinates(origin, destination)
@@ -606,22 +759,27 @@ def routing_section(prefs: dict) -> None:
             st.warning(message)
             return
         with st.spinner("Calculando ruta con Dijkstra y ajustando pesos..."):
-            recommendations = request_recommendations(prefs)
-            route_payload = {"origin": origin, "destination": destination}
+            route_payload = {
+                "origin": origin,
+                "destination": destination,
+                "preferences": collect_route_preferences(),
+                "day_of_week": st.session_state.get("trip_day", "Monday"),
+                "departure_hour": float(st.session_state.get("trip_hour", 8)),
+                "avoid_congestion": avoid_congestion,
+                "avoid_accidents": avoid_accidents,
+            }
             route_result = call_backend("/routes/optimal", route_payload)
 
-        if route_result and route_result.get("steps"):
+        if _has_route_steps(route_result):
             st.session_state["last_route_result"] = route_result
-            st.session_state["last_recommendations"] = recommendations
             with results_container:
-                render_route_summary(route_result, recommendations)
+                render_route_summary(route_result)
         else:
             st.session_state["last_route_result"] = None
-            st.session_state["last_recommendations"] = []
             st.error("No se pudo construir la ruta. Ajusta los puntos y vuelve a intentar.")
-    elif last_route and last_route.get("steps"):
+    elif _has_route_steps(last_route):
         with results_container:
-            render_route_summary(last_route, st.session_state.get("last_recommendations", []))
+            render_route_summary(last_route)
 
 
 def main() -> None:
@@ -633,8 +791,10 @@ def main() -> None:
         "La ruta que generes prioriza la seguridad ajustando los pesos del grafo vial."
     )
     init_state()
+    render_sidebar_tools()
     if not st.session_state.get("app_ready"):
         st.info("Carga el backend cuando estés listo para trabajar con la red vial del Biobío.")
+        render_dataset_selector()
         if st.button("Cargar datos de la Región del Biobío", type="primary", use_container_width=True):
             with st.spinner("Consultando backend y preparando datos..."):
                 if load_backend_data(force=True):
@@ -647,9 +807,11 @@ def main() -> None:
             if load_backend_data(force=True):
                 st.rerun()
     render_overview(metadata)
+    render_dataset_selector()
     render_guidelines()
-    prefs = collect_preferences(metadata)
-    routing_section(prefs)
+    routing_section()
+    st.divider()
+    playground_section(metadata)
 
 
 if __name__ == "__main__":
