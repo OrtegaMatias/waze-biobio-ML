@@ -1,47 +1,43 @@
-import pandas as pd
+from types import SimpleNamespace
 
+from backend.fastapi_app.app.schemas.recommendations import PlaygroundRequest
 from backend.fastapi_app.app.services.recommendation_service import RecommendationService
 
 
-def _segment_row(commune: str, event_type: str, tokens):
-    return {
-        "via_categoria": "Ruta Azul",
-        "comuna": commune,
-        "tipo_evento": event_type,
-        "duracion_hrs": 0.5,
-        "velocidad_kmh": 18.0,
-        "lat": -36.82,
-        "lon": -73.05,
-        "tokens": frozenset(tokens),
+class DummyModel:
+    def __init__(self, tag: str) -> None:
+        self.tag = tag
+
+    def recommend(self, user_id: str, known_vias, top_n: int):
+        return [
+            SimpleNamespace(via=f"{self.tag}-via", estimated_rating=4.5, strategy=self.tag)
+        ]
+
+
+def _service_with_dummies() -> RecommendationService:
+    service = RecommendationService()
+    service._cf_models = {
+        "ubcf": DummyModel("ubcf"),
+        "ibcf": DummyModel("ibcf"),
     }
+    return service
 
 
-def test_summarize_segment_prioritizes_user_tokens():
-    service = RecommendationService()
-    segmentos = pd.DataFrame(
-        [
-            _segment_row("Concepción", "Accidente", {"comuna=Concepción", "evento=Accidente"}),
-            _segment_row("Coronel", "Congestión", {"comuna=Coronel", "evento=Congestión"}),
-        ]
-    )
+def test_playground_returns_only_requested_strategies():
+    service = _service_with_dummies()
+    payload = PlaygroundRequest(user_id="user-1", known_vias=["Ruta Azul"], limit=2, strategies=["ibcf"])
 
-    summary = service._summarize_segment(segmentos, "Ruta Azul", {"comuna=Concepción"})
+    results = service.playground_recommendations(payload)
 
-    assert summary["events"] == 1
-    assert summary["communes"] == ["Concepción"]
-    assert summary["accident_ratio"] == 1.0
+    assert "ibcf" in results and "ubcf" not in results
+    assert results["ibcf"][0].via == "ibcf-via"
 
 
-def test_summarize_segment_falls_back_when_no_overlap():
-    service = RecommendationService()
-    segmentos = pd.DataFrame(
-        [
-            _segment_row("Concepción", "Accidente", {"comuna=Concepción", "evento=Accidente"}),
-            _segment_row("Coronel", "Congestión", {"comuna=Coronel", "evento=Congestión"}),
-        ]
-    )
+def test_playground_defaults_to_both_strategies():
+    service = _service_with_dummies()
+    payload = PlaygroundRequest(user_id="user-2", known_vias=[], limit=1, strategies=[])
 
-    summary = service._summarize_segment(segmentos, "Ruta Azul", {"comuna=Mulchén"})
+    results = service.playground_recommendations(payload)
 
-    assert summary["events"] == 2
-    assert sorted(summary["communes"]) == ["Concepción", "Coronel"]
+    assert set(results.keys()) == {"ubcf", "ibcf"}
+    assert results["ubcf"][0].strategy == "ubcf"

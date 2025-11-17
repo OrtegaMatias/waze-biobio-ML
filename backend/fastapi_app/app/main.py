@@ -9,16 +9,16 @@ import logging
 import threading
 import time
 from functools import lru_cache
-from pathlib import Path
+from typing import List
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .schemas.recommendations import (
-    AssociationRequest,
-    AssociationResponse,
     CollaborativeRequest,
     CollaborativeResponse,
+    PlaygroundRequest,
+    PlaygroundResponse,
 )
 from .schemas.routes import HotspotResponse, MetadataResponse, RouteRequest, RouteResponse
 from .services.recommendation_service import RecommendationService, get_recommendation_service
@@ -66,27 +66,6 @@ def metadata(service: RecommendationService = Depends(get_recommendation_service
 
 
 @app.post(
-    "/recommendations/association",
-    response_model=AssociationResponse,
-    tags=["recommendations"],
-)
-def association_recommendations(
-    payload: AssociationRequest,
-    service: RecommendationService = Depends(get_recommendation_service),
-) -> AssociationResponse:
-    start = time.perf_counter()
-    recs = service.association_recommendations(payload)
-    duration = (time.perf_counter() - start) * 1000
-    logger.info(
-        "POST /recommendations/association -> %d recs (events=%s) in %.1f ms",
-        len(recs),
-        ",".join(payload.event_types),
-        duration,
-    )
-    return AssociationResponse(recommendations=recs)
-
-
-@app.post(
     "/recommendations/collaborative",
     response_model=CollaborativeResponse,
     tags=["recommendations"],
@@ -108,6 +87,31 @@ def collaborative_recommendations(
         duration,
     )
     return CollaborativeResponse(recommendations=recs)
+
+
+@app.post(
+    "/recommendations/playground",
+    response_model=PlaygroundResponse,
+    tags=["recommendations"],
+)
+def collaborative_playground(
+    payload: PlaygroundRequest,
+    service: RecommendationService = Depends(get_recommendation_service),
+) -> PlaygroundResponse:
+    start = time.perf_counter()
+    recs = service.playground_recommendations(payload)
+    duration = (time.perf_counter() - start) * 1000
+    logger.info(
+        "POST /recommendations/playground -> ubcf=%d ibcf=%d (user=%s) in %.1f ms",
+        len(recs.get("ubcf", [])),
+        len(recs.get("ibcf", [])),
+        payload.user_id,
+        duration,
+    )
+    return PlaygroundResponse(
+        ubcf=recs.get("ubcf", []),
+        ibcf=recs.get("ibcf", []),
+    )
 
 
 @app.post("/routes/optimal", response_model=RouteResponse, tags=["routes"])
