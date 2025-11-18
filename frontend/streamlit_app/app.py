@@ -20,7 +20,7 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
-REQUEST_TIMEOUT = float(os.getenv("BACKEND_TIMEOUT", "90"))
+REQUEST_TIMEOUT = float(os.getenv("BACKEND_TIMEOUT", "180"))  # Aumentado a 3 minutos para generar 3 rutas
 DEFAULT_ORIGIN = {"lat": -36.8270, "lon": -73.0500}
 DEFAULT_DESTINATION = {"lat": -36.8200, "lon": -73.0435}
 DEFAULT_LAT_RANGE = (-38.8, -35.8)
@@ -484,13 +484,20 @@ def _build_polyline_points(raw_points: List[Dict[str, float]]) -> List[List[floa
 
 
 def render_route_map(route_result: dict) -> None:
+    # Obtener las 3 rutas del backend
     reference = route_result.get("reference") or {}
-    personalized = route_result.get("personalized") or {}
+    ubcf = route_result.get("ubcf") or {}
+    ibcf = route_result.get("ibcf") or {}
+
+    # Construir puntos de cada ruta
     reference_points = _build_polyline_points(reference.get("geometry") or [])
-    personalized_points = _build_polyline_points(personalized.get("geometry") or [])
-    base_points = reference_points or personalized_points
+    ubcf_points = _build_polyline_points(ubcf.get("geometry") or [])
+    ibcf_points = _build_polyline_points(ibcf.get("geometry") or [])
+
+    # Usar cualquier ruta disponible como base para centrar el mapa
+    base_points = reference_points or ubcf_points or ibcf_points
     if not base_points:
-        st.info("No hay coordenadas suficientes para dibujar la ruta.")
+        st.info("No hay coordenadas suficientes para dibujar las rutas.")
         return
     fmap = folium.Map(
         location=[np.mean([p[0] for p in base_points]), np.mean([p[1] for p in base_points])],
@@ -554,8 +561,10 @@ def render_route_map(route_result: dict) -> None:
         ).add_to(layer)
         layer.add_to(fmap)
 
-    add_route_layer(reference_points, "#2563eb", "Ruta base (solo Dijkstra)", dash="8", show=True)
-    add_route_layer(personalized_points, "#fb923c", "Ruta personalizada (con preferencias)", dash=None, show=False)
+    # Agregar las 3 rutas con colores distintivos
+    add_route_layer(reference_points, "#2563eb", "🔵 Ruta Dijkstra (baseline)", dash="8", show=True)
+    add_route_layer(ubcf_points, "#10b981", "🟢 Ruta UBCF (evita incidentes - usuarios similares)", dash=None, show=True)
+    add_route_layer(ibcf_points, "#f97316", "🟠 Ruta IBCF (evita incidentes - vías similares)", dash=None, show=True)
 
     origin = st.session_state.get("route_origin", DEFAULT_ORIGIN)
     destination = st.session_state.get("route_destination", DEFAULT_DESTINATION)
@@ -570,59 +579,172 @@ def render_route_map(route_result: dict) -> None:
         tooltip="Destino",
     ).add_to(fmap)
 
-    folium.LayerControl(collapsed=True).add_to(fmap)
+    folium.LayerControl(collapsed=False).add_to(fmap)
     st_folium(fmap, height=700, width=None, use_container_width=True, key="route_map")
     st.caption(
-        "Activa/desactiva cada capa para comparar la ruta base de Dijkstra contra la ajustada con tus preferencias."
+        "🔵 **Dijkstra**: Ruta baseline sin preferencias | "
+        "🟢 **UBCF**: Evita incidentes usando usuarios similares | "
+        "🟠 **IBCF**: Evita incidentes usando vías similares. "
+        "Usa el control de capas para activar/desactivar cada ruta."
     )
 
 
 def render_route_summary(route_result: dict) -> None:
+    """Muestra métricas comparativas de las 3 rutas: Dijkstra, UBCF, IBCF"""
     reference = route_result.get("reference") or {}
-    personalized = route_result.get("personalized") or {}
-    ref_distance = reference.get("distance_km")
-    per_distance = personalized.get("distance_km")
-    ref_duration = reference.get("estimated_duration_min")
-    per_duration = personalized.get("estimated_duration_min")
-    ref_delay = float(reference.get("extra_delay_min") or 0.0)
-    per_delay = float(personalized.get("extra_delay_min") or 0.0)
-    ref_total_duration = ref_duration + ref_delay if ref_duration is not None else None
-    per_total_duration = per_duration + per_delay if per_duration is not None else None
-    diff_distance = None if ref_distance is None or per_distance is None else per_distance - ref_distance
-    diff_duration = None
-    if ref_total_duration is not None and per_total_duration is not None:
-        diff_duration = per_total_duration - ref_total_duration
+    ubcf = route_result.get("ubcf") or {}
+    ibcf = route_result.get("ibcf") or {}
 
-    col1, col2 = st.columns(2)
-    col1.metric(
-        "Dijkstra base - Distancia",
-        f"{ref_distance:.2f} km" if ref_distance is not None else "N/A",
-    )
-    col1.metric(
-        "Dijkstra base - Duración",
-        f"{ref_duration:.1f} min" if ref_duration is not None else "N/A",
-        delta=f"+{ref_delay:.1f} min por congestión" if ref_delay else None,
-    )
-    if ref_total_duration is not None:
-        col1.caption(f"Tiempo total estimado: {ref_total_duration:.1f} min")
-    col2.metric(
-        "Ruta personalizada - Distancia",
-        f"{per_distance:.2f} km" if per_distance is not None else "N/A",
-        delta=f"{diff_distance:+.2f} km" if diff_distance is not None else None,
-    )
-    personalized_delta = None
-    if diff_duration is not None:
-        personalized_delta = f"{diff_duration:+.1f} min vs base"
-    col2.metric(
-        "Ruta personalizada - Duración",
-        f"{per_duration:.1f} min" if per_duration is not None else "N/A",
-        delta=personalized_delta,
-    )
-    if per_total_duration is not None:
-        extra_text = f" (+{per_delay:.1f} min por congestión)" if per_delay else ""
-        col2.caption(f"Tiempo total estimado: {per_total_duration:.1f} min{extra_text}")
+    # Extraer métricas de cada ruta
+    def extract_metrics(variant: dict):
+        distance = variant.get("distance_km")
+        duration = variant.get("estimated_duration_min")
+        delay = float(variant.get("extra_delay_min") or 0.0)
+        total_duration = duration + delay if duration is not None else None
+        return distance, duration, delay, total_duration
 
-    st.markdown("### Comparación en el mapa")
+    ref_distance, ref_duration, ref_delay, ref_total = extract_metrics(reference)
+    ubcf_distance, ubcf_duration, ubcf_delay, ubcf_total = extract_metrics(ubcf)
+    ibcf_distance, ibcf_duration, ibcf_delay, ibcf_total = extract_metrics(ibcf)
+
+    # Calcular diferencias vs Dijkstra baseline
+    ubcf_diff_dist = ubcf_distance - ref_distance if ubcf_distance and ref_distance else None
+    ibcf_diff_dist = ibcf_distance - ref_distance if ibcf_distance and ref_distance else None
+    ubcf_diff_time = ubcf_total - ref_total if ubcf_total and ref_total else None
+    ibcf_diff_time = ibcf_total - ref_total if ibcf_total and ref_total else None
+
+    st.markdown("### 📊 Comparación de Rutas")
+
+    # Explicación del cálculo de tiempos
+    with st.expander("ℹ️ Cómo se calculan los tiempos reales", expanded=False):
+        st.markdown("""
+        **Tiempo Base**: Calculado usando la distancia y velocidad promedio (35 km/h)
+
+        **Retrasos por Incidentes**: Se suman automáticamente basándose en:
+        - 📅 **Día de la semana** seleccionado
+        - 🕐 **Hora de salida** seleccionada
+        - 📍 **Congestiones/accidentes** históricos en la ruta que coincidan con ese día/hora
+
+        **Tiempo Real = Tiempo Base + Retrasos por Incidentes**
+
+        ---
+
+        **🔵 Dijkstra (baseline)**: Ruta más corta SIN considerar incidentes al calcular el camino.
+        Los retrasos se suman DESPUÉS para mostrar el tiempo real.
+
+        **🟢 UBCF / 🟠 IBCF**: Rutas que SÍ evitan activamente las congestiones/accidentes
+        al calcular el camino, resultando en menos retrasos.
+        """)
+
+    # Mostrar las 3 rutas en columnas
+    col1, col2, col3 = st.columns(3)
+
+    # Columna 1: Dijkstra baseline
+    with col1:
+        st.markdown("#### 🔵 Dijkstra (baseline)")
+        st.metric(
+            "Distancia",
+            f"{ref_distance:.2f} km" if ref_distance is not None else "N/A",
+        )
+        st.metric(
+            "Duración base",
+            f"{ref_duration:.1f} min" if ref_duration is not None else "N/A",
+        )
+        if ref_delay > 0:
+            st.warning(f"⚠️ **+{ref_delay:.1f} min** de retraso\npor congestiones/accidentes")
+            st.caption(f"🕐 Basado en datos históricos del día/hora seleccionados")
+        else:
+            st.success("✅ Sin congestiones detectadas en esta ruta")
+        if ref_total is not None:
+            st.info(f"⏱️ **Tiempo Real: {ref_total:.1f} min**")
+            st.caption("(incluye retrasos por incidentes)")
+
+    # Columna 2: UBCF
+    with col2:
+        st.markdown("#### 🟢 UBCF (evita incidentes)")
+        st.metric(
+            "Distancia",
+            f"{ubcf_distance:.2f} km" if ubcf_distance is not None else "N/A",
+            delta=f"{ubcf_diff_dist:+.2f} km" if ubcf_diff_dist is not None else None,
+        )
+        st.metric(
+            "Duración base",
+            f"{ubcf_duration:.1f} min" if ubcf_duration is not None else "N/A",
+        )
+        if ubcf_delay > 0:
+            delay_comparison = ""
+            if ref_delay and ref_delay > 0:
+                reduction = ref_delay - ubcf_delay
+                if reduction > 0:
+                    delay_comparison = f" (↓{reduction:.1f} min vs Dijkstra)"
+            st.warning(f"⚠️ +{ubcf_delay:.1f} min por incidentes{delay_comparison}")
+        else:
+            st.success("✅ Evitó todas las congestiones")
+        if ubcf_total is not None:
+            delta_text = f" ({ubcf_diff_time:+.1f} min)" if ubcf_diff_time is not None else ""
+            st.info(f"⏱️ **Tiempo Real: {ubcf_total:.1f} min**{delta_text}")
+            st.caption("(con preferencias de usuarios similares)")
+
+    # Columna 3: IBCF
+    with col3:
+        st.markdown("#### 🟠 IBCF (evita incidentes)")
+        st.metric(
+            "Distancia",
+            f"{ibcf_distance:.2f} km" if ibcf_distance is not None else "N/A",
+            delta=f"{ibcf_diff_dist:+.2f} km" if ibcf_diff_dist is not None else None,
+        )
+        st.metric(
+            "Duración base",
+            f"{ibcf_duration:.1f} min" if ibcf_duration is not None else "N/A",
+        )
+        if ibcf_delay > 0:
+            delay_comparison = ""
+            if ref_delay and ref_delay > 0:
+                reduction = ref_delay - ibcf_delay
+                if reduction > 0:
+                    delay_comparison = f" (↓{reduction:.1f} min vs Dijkstra)"
+            st.warning(f"⚠️ +{ibcf_delay:.1f} min por incidentes{delay_comparison}")
+        else:
+            st.success("✅ Evitó todas las congestiones")
+        if ibcf_total is not None:
+            delta_text = f" ({ibcf_diff_time:+.1f} min)" if ibcf_diff_time is not None else ""
+            st.info(f"⏱️ **Tiempo Real: {ibcf_total:.1f} min**{delta_text}")
+            st.caption("(con preferencias de vías similares)")
+
+    # Mostrar conclusión sobre qué ruta es mejor
+    st.markdown("---")
+    if ubcf_total and ibcf_total and ref_total:
+        times = [
+            ("Dijkstra", ref_total),
+            ("UBCF", ubcf_total),
+            ("IBCF", ibcf_total)
+        ]
+        best_route = min(times, key=lambda x: x[1])
+
+        # Calcular reducción de retrasos
+        delay_reduction_ubcf = ref_delay - ubcf_delay if ref_delay and ubcf_delay else 0
+        delay_reduction_ibcf = ref_delay - ibcf_delay if ref_delay and ibcf_delay else 0
+
+        if best_route[0] != "Dijkstra":
+            time_saved = ref_total - best_route[1]
+            st.success(f"🎯 **{best_route[0]}** es la ruta más rápida, ahorrando **{time_saved:.1f} min** vs Dijkstra!")
+
+            if delay_reduction_ubcf > 0 or delay_reduction_ibcf > 0:
+                st.info(
+                    f"💡 Las rutas personalizadas evitan congestiones: "
+                    f"UBCF redujo **{delay_reduction_ubcf:.1f} min** de retrasos, "
+                    f"IBCF redujo **{delay_reduction_ibcf:.1f} min** de retrasos."
+                )
+        else:
+            st.info("ℹ️ Dijkstra baseline sigue siendo la ruta más rápida en este caso.")
+            if delay_reduction_ubcf > 0 or delay_reduction_ibcf > 0:
+                st.warning(
+                    f"⚠️ Aunque las rutas CF redujeron retrasos por incidentes "
+                    f"(UBCF: {delay_reduction_ubcf:.1f} min, IBCF: {delay_reduction_ibcf:.1f} min), "
+                    f"la mayor distancia hace que sean más lentas que Dijkstra."
+                )
+
+    st.markdown("### 🗺️ Visualización de Rutas")
     render_route_map(route_result)
 
 
@@ -645,75 +767,165 @@ def render_playground_results(results: Dict[str, List[dict]], strategies: List[s
                 )
 
 
+def generate_recommendations_automatically():
+    """Genera recomendaciones automáticamente al cargar la app por primera vez"""
+    if "playground_results" not in st.session_state or st.session_state.get("playground_results") is None:
+        # Usar el perfil de usuario seleccionado o el por defecto
+        user_profile = st.session_state.get("user_profile", "usuario_demo")
+
+        # Generar recomendaciones automáticamente con el perfil seleccionado
+        # Usar un límite alto para obtener muchas recomendaciones y personalizar mejor las rutas
+        default_payload = {
+            "user_id": user_profile,
+            "known_vias": [],
+            "limit": 200,  # Aumentado significativamente para cubrir más vías en las rutas
+            "strategies": ["ubcf", "ibcf"],
+        }
+        try:
+            result = call_backend("/recommendations/playground", default_payload)
+            if result:
+                st.session_state["playground_results"] = result
+                st.session_state["play_user_id"] = user_profile
+                st.session_state["play_known_vias"] = []
+                st.session_state["play_limit"] = 200
+                st.session_state["play_strategies"] = ["ubcf", "ibcf"]
+                st.session_state["recommendations_auto_generated"] = True
+                st.session_state["last_user_profile"] = user_profile
+        except Exception as err:
+            pass  # Silencioso, el usuario puede generarlas manualmente si lo desea
+
+
 def playground_section(metadata: Dict[str, List[str]]) -> None:
     st.subheader("Laboratorio colaborativo (UBCF vs IBCF)")
+
+    # Mostrar si las recomendaciones fueron generadas automáticamente
+    if st.session_state.get("recommendations_auto_generated"):
+        current_profile = st.session_state.get("play_user_id", "usuario_demo")
+        profile_names = {
+            "safety_focused": "🛡️ Seguridad máxima",
+            "usuario_demo": "⚖️ Balanceado",
+            "moderate_risk": "🚗 Moderado",
+            "risk_taker": "⚡ Rápido"
+        }
+        profile_display = profile_names.get(current_profile, current_profile)
+        st.info(f"✅ Recomendaciones generadas automáticamente con perfil: **{profile_display}**. Puedes personalizarlas abajo si lo deseas.")
+
     vias = metadata.get("vias") or []
     default_user = st.session_state.get("play_user_id", "usuario_demo")
     default_known = [via for via in st.session_state.get("play_known_vias", []) if via in vias]
-    default_limit = st.session_state.get("play_limit", 5)
+    default_limit = st.session_state.get("play_limit", 10)
     default_strategies = st.session_state.get("play_strategies", ["ubcf", "ibcf"])
-    with st.form("playground_form"):
-        user_id = st.text_input("Usuario objetivo", value=default_user)
-        known_vias = st.multiselect(
-            "Vías ya conocidas (se excluyen de la recomendación)",
-            options=vias,
-            default=default_known,
-            help="Selecciona vías que el usuario ya conoce para forzar recomendaciones frescas.",
-        )
-        limit = st.slider("Cantidad de recomendaciones por estrategia", 1, 10, default_limit)
-        strategies = st.multiselect(
-            "Estrategias a comparar",
-            options=["ubcf", "ibcf"],
-            default=default_strategies or ["ubcf", "ibcf"],
-        )
-        submitted = st.form_submit_button("Comparar estrategias", use_container_width=True)
-    if submitted:
-        payload = {
-            "user_id": user_id.strip() or "usuario_demo",
-            "known_vias": known_vias,
-            "limit": limit,
-            "strategies": strategies,
-        }
-        with st.spinner("Calculando recomendaciones colaborativas..."):
-            result = call_backend("/recommendations/playground", payload)
-        if result:
-            st.session_state["playground_results"] = result
-            st.session_state["play_user_id"] = payload["user_id"]
-            st.session_state["play_known_vias"] = known_vias
-            st.session_state["play_limit"] = limit
-            st.session_state["play_strategies"] = strategies
-        else:
-            st.session_state["playground_results"] = None
+
+    with st.expander("🔧 Personalizar recomendaciones (opcional)", expanded=False):
+        with st.form("playground_form"):
+            st.markdown("Cambia estos parámetros solo si quieres personalizar las recomendaciones:")
+
+            # Selector de perfil de usuario en el playground
+            user_id = st.selectbox(
+                "Perfil de viajero",
+                options=["safety_focused", "usuario_demo", "moderate_risk", "risk_taker"],
+                index=["safety_focused", "usuario_demo", "moderate_risk", "risk_taker"].index(default_user) if default_user in ["safety_focused", "usuario_demo", "moderate_risk", "risk_taker"] else 1,
+                format_func=lambda x: {
+                    "safety_focused": "🛡️ Seguridad máxima - Evita vías peligrosas",
+                    "usuario_demo": "⚖️ Balanceado - Seguridad y eficiencia",
+                    "moderate_risk": "🚗 Moderado - Tolera algo de riesgo",
+                    "risk_taker": "⚡ Rápido - Prioriza velocidad"
+                }[x],
+                help="El perfil determina qué vías recomienda el sistema basándose en datos históricos de incidentes."
+            )
+            known_vias = st.multiselect(
+                "Vías ya conocidas (se excluyen de la recomendación)",
+                options=vias,
+                default=default_known,
+                help="Selecciona vías que el usuario ya conoce para forzar recomendaciones frescas.",
+            )
+            limit = st.slider("Cantidad de recomendaciones por estrategia", 1, 15, default_limit)
+            strategies = st.multiselect(
+                "Estrategias a comparar",
+                options=["ubcf", "ibcf"],
+                default=default_strategies or ["ubcf", "ibcf"],
+            )
+            submitted = st.form_submit_button("Regenerar recomendaciones", use_container_width=True)
+
+        if submitted:
+            payload = {
+                "user_id": user_id.strip() or "usuario_demo",
+                "known_vias": known_vias,
+                "limit": limit,
+                "strategies": strategies,
+            }
+            with st.spinner("Calculando recomendaciones colaborativas..."):
+                result = call_backend("/recommendations/playground", payload)
+            if result:
+                st.session_state["playground_results"] = result
+                st.session_state["play_user_id"] = payload["user_id"]
+                st.session_state["play_known_vias"] = known_vias
+                st.session_state["play_limit"] = limit
+                st.session_state["play_strategies"] = strategies
+                st.session_state["recommendations_auto_generated"] = False  # Ya no son auto-generadas
+            else:
+                st.session_state["playground_results"] = None
     results = st.session_state.get("playground_results")
     if results:
         active_strategies = st.session_state.get("play_strategies") or ["ubcf", "ibcf"]
+        st.markdown("#### 📊 Recomendaciones Actuales")
         render_playground_results(results, active_strategies)
     else:
-        st.info("Genera recomendaciones colaborativas para visualizar la diferencia entre UBCF e IBCF.")
+        st.warning("⚠️ No se pudieron generar recomendaciones automáticamente. Usa el formulario arriba para generarlas manualmente.")
 
 
-def collect_route_preferences() -> List[Dict[str, float]]:
+def collect_route_preferences() -> Dict[str, List[Dict[str, float]]]:
+    """
+    Retorna preferencias separadas por estrategia de CF.
+
+    Returns:
+        Dict con claves 'ubcf' e 'ibcf', cada una con lista de preferencias
+        Ejemplo: {"ubcf": [{"via": "Ruta A", "weight": 0.8}], "ibcf": [...]}
+    """
     results = st.session_state.get("playground_results") or {}
-    weights: Dict[str, List[float]] = {}
-    for entries in results.values():
-        for rec in entries:
+
+    # Separar preferencias por estrategia (no promediar)
+    ubcf_prefs = []
+    ibcf_prefs = []
+
+    # Procesar recomendaciones UBCF
+    if "ubcf" in results:
+        for rec in results["ubcf"]:
             via = rec.get("via")
             rating = rec.get("estimated_rating")
-            if not via or rating is None:
-                continue
-            weights.setdefault(via, []).append(float(rating) / 5.0)
-    preferences = [
-        {"via": via, "weight": round(sum(values) / len(values), 3)}
-        for via, values in weights.items()
-    ]
-    return preferences
+            if via and rating is not None:
+                ubcf_prefs.append({
+                    "via": via,
+                    "weight": round(float(rating) / 5.0, 3)
+                })
+
+    # Procesar recomendaciones IBCF
+    if "ibcf" in results:
+        for rec in results["ibcf"]:
+            via = rec.get("via")
+            rating = rec.get("estimated_rating")
+            if via and rating is not None:
+                ibcf_prefs.append({
+                    "via": via,
+                    "weight": round(float(rating) / 5.0, 3)
+                })
+
+    return {"ubcf": ubcf_prefs, "ibcf": ibcf_prefs}
 
 
 def _has_route_steps(result: dict | None) -> bool:
+    """Verifica si el resultado tiene al menos una ruta válida con steps"""
     if not result:
         return False
-    variant = result.get("personalized") or result.get("reference")
-    return bool(variant and variant.get("steps"))
+    # Verificar si alguna de las 3 rutas tiene steps
+    reference = result.get("reference")
+    ubcf = result.get("ubcf")
+    ibcf = result.get("ibcf")
+    return bool(
+        (reference and reference.get("steps")) or
+        (ubcf and ubcf.get("steps")) or
+        (ibcf and ibcf.get("steps"))
+    )
 
 
 def routing_section() -> None:
@@ -742,6 +954,43 @@ def routing_section() -> None:
             value=st.session_state.get("trip_hour", 8),
             key="trip_hour",
         )
+
+        # Selector de perfil de viajero
+        with st.expander("ℹ️ ¿Qué es el perfil de viajero?", expanded=False):
+            st.markdown("""
+            Tu **perfil de viajero** determina qué vías recomienda el sistema según tu tolerancia al riesgo:
+
+            - 🛡️ **Seguridad máxima**: Evita completamente vías con historial de accidentes/congestiones
+            - ⚖️ **Balanceado**: Equilibrio entre seguridad y eficiencia (recomendado)
+            - 🚗 **Moderado**: Tolera algo de riesgo para rutas más directas
+            - ⚡ **Rápido**: Prioriza velocidad, tolera vías con más incidentes
+
+            Los perfiles se basan en **datos históricos reales** de 121,332 incidentes en la región del Biobío.
+            """)
+
+        user_profile = st.selectbox(
+            "Perfil de viajero",
+            options=["safety_focused", "usuario_demo", "moderate_risk", "risk_taker"],
+            index=["safety_focused", "usuario_demo", "moderate_risk", "risk_taker"].index(
+                st.session_state.get("user_profile", "usuario_demo")
+            ),
+            format_func=lambda x: {
+                "safety_focused": "🛡️ Seguridad máxima",
+                "usuario_demo": "⚖️ Balanceado",
+                "moderate_risk": "🚗 Moderado",
+                "risk_taker": "⚡ Rápido"
+            }[x],
+            key="user_profile",
+        )
+
+        # Botón para regenerar recomendaciones si cambió el perfil
+        if st.session_state.get("last_user_profile") != user_profile:
+            st.info(f"📝 Perfil cambiado a **{user_profile}**. Se regenerarán las recomendaciones.")
+            # Limpiar recomendaciones antiguas para forzar regeneración
+            if "playground_results" in st.session_state:
+                del st.session_state["playground_results"]
+            st.session_state["last_user_profile"] = user_profile
+
         avoid_congestion = st.checkbox(
             "Evitar congestiones",
             key="avoid_congestion",
@@ -764,11 +1013,25 @@ def routing_section() -> None:
         if not valid:
             st.warning(message)
             return
-        with st.spinner("Calculando ruta con Dijkstra y ajustando pesos..."):
+
+        # Obtener preferencias separadas por estrategia
+        prefs = collect_route_preferences()
+
+        # Informar al usuario si no hay preferencias CF
+        if not prefs.get("ubcf") and not prefs.get("ibcf"):
+            st.warning(
+                "⚠️ **No se encontraron recomendaciones**: Las rutas UBCF e IBCF solo usarán penalizaciones de incidentes "
+                "(no incluirán preferencias personales de filtrado colaborativo). "
+                "Esto debería generarse automáticamente. Si no ves recomendaciones, revisa el Playground Colaborativo más abajo."
+            )
+
+        with st.spinner("Calculando rutas (Dijkstra, UBCF, IBCF)... Esto puede tardar hasta 3 minutos."):
             route_payload = {
                 "origin": origin,
                 "destination": destination,
-                "preferences": collect_route_preferences(),
+                "preferences": [],  # Legacy field (vacío para nueva implementación)
+                "ubcf_preferences": prefs.get("ubcf", []),
+                "ibcf_preferences": prefs.get("ibcf", []),
                 "day_of_week": st.session_state.get("trip_day", "Monday"),
                 "departure_hour": float(st.session_state.get("trip_hour", 8)),
                 "avoid_congestion": avoid_congestion,
@@ -807,6 +1070,10 @@ def main() -> None:
                     st.rerun()
         st.stop()
     metadata = st.session_state.get("metadata") or fetch_metadata()
+
+    # Generar recomendaciones automáticamente al cargar la app (solo la primera vez)
+    generate_recommendations_automatically()
+
     cols = st.columns([1, 3])
     if cols[0].button("Actualizar datos", use_container_width=True):
         with st.spinner("Refrescando datos del backend..."):

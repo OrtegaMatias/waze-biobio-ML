@@ -54,7 +54,9 @@ class ViaPreference(BaseModel):
 class RouteRequest(BaseModel):
     origin: RoutePoint
     destination: RoutePoint
-    preferences: List[ViaPreference] = Field(default_factory=list)
+    preferences: List[ViaPreference] = Field(default_factory=list)  # Deprecated: mantener para compatibilidad
+    ubcf_preferences: List[ViaPreference] = Field(default_factory=list)  # Preferencias de UBCF
+    ibcf_preferences: List[ViaPreference] = Field(default_factory=list)  # Preferencias de IBCF
     day_of_week: str = Field("Monday")
     departure_hour: float = Field(8.0, ge=0.0, le=24.0)
     avoid_congestion: bool = True
@@ -79,5 +81,7 @@ class RouteVariant(BaseModel):
 
 
 class RouteResponse(BaseModel):
-    reference: RouteVariant
-    personalized: RouteVariant
+    reference: RouteVariant  # Ruta baseline (Dijkstra puro, sin preferencias)
+    ubcf: RouteVariant  # Ruta personalizada con UBCF (evita incidentes según usuarios similares)
+    ibcf: RouteVariant  # Ruta personalizada con IBCF (evita incidentes según vías similares)
+    personalized: RouteVariant | None = None  # Deprecated: mantener para compatibilidad hacia atrás

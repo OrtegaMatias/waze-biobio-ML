@@ -189,40 +189,64 @@ class RoutingService:
                 "avoid_accidents": payload.avoid_accidents,
             }
         logger.info(
-            "Calculando ruta origen=(%.5f, %.5f) destino=(%.5f, %.5f)",
+            "Calculando rutas:\n"
+            "  Origen: (%.5f, %.5f)\n"
+            "  Destino: (%.5f, %.5f)\n"
+            "  Contexto: %s, hora %.1f (%s)\n"
+            "  Evitar congestiones: %s, Evitar accidentes: %s",
             payload.origin.lat,
             payload.origin.lon,
             payload.destination.lat,
             payload.destination.lon,
+            day_value,
+            payload.departure_hour,
+            hour_bucket,
+            payload.avoid_congestion,
+            payload.avoid_accidents,
         )
 
         # -------------------------------
-        # Factores por vía desde CF (UBCF/IBCF):
+        # Función auxiliar para convertir preferencias en factores de vía
         # ratings altos -> factor < 1 (bonificación),
         # ratings bajos -> factor > 1 (castigo real).
         # -------------------------------
-        via_factors: Dict[str, float] = {}
-        for pref in payload.preferences:
-            # pref.weight viene de Streamlit ya normalizado en [0,1]
-            score = max(0.0, min(1.0, float(pref.weight)))
+        def compute_via_factors(preferences: List) -> Dict[str, float]:
+            factors: Dict[str, float] = {}
+            for pref in preferences:
+                # pref.weight viene de Streamlit ya normalizado en [0,1]
+                score = max(0.0, min(1.0, float(pref.weight)))
 
-            # Zona neutra: 0.4–0.6 ~ sin efecto
-            if 0.4 <= score <= 0.6:
-                factor = 1.0
-            # Muy bien valorada: premio fuerte (baja el costo)
-            elif score > 0.6:
-                # 0.6 -> 1.0 ; 1.0 -> ~0.3
-                factor = 1.0 - (score - 0.6) * 1.75
-            # Mal valorada: castigo fuerte (sube el costo)
-            else:  # score < 0.4
-                # 0.4 -> 1.0 ; 0.0 -> ~3.0
-                factor = 1.0 + (0.4 - score) * 5.0
+                # Zona neutra: 0.4–0.6 ~ sin efecto
+                if 0.4 <= score <= 0.6:
+                    factor = 1.0
+                # Muy bien valorada: premio fuerte (baja el costo)
+                elif score > 0.6:
+                    # 0.6 -> 1.0 ; 1.0 -> ~0.3
+                    factor = 1.0 - (score - 0.6) * 1.75
+                # Mal valorada: castigo fuerte (sube el costo)
+                else:  # score < 0.4
+                    # 0.4 -> 1.0 ; 0.0 -> ~3.0
+                    factor = 1.0 + (0.4 - score) * 5.0
 
-            # Recorte de seguridad
-            via_factors[pref.via] = round(max(0.2, min(3.0, factor)), 3)
+                # Recorte de seguridad
+                factors[pref.via] = round(max(0.2, min(3.0, factor)), 3)
+            return factors
+
+        # Separar las preferencias por estrategia
+        ubcf_factors = compute_via_factors(payload.ubcf_preferences)
+        ibcf_factors = compute_via_factors(payload.ibcf_preferences)
+
+        # Mantener compatibilidad con el campo 'preferences' legacy
+        legacy_factors = compute_via_factors(payload.preferences)
 
         default_factor = 1.0
 
+        # -------------------------------
+        # GENERAR 3 RUTAS DISTINTAS (CON OPTIMIZACIÓN)
+        # -------------------------------
+
+        # 1. RUTA REFERENCE: Dijkstra puro (sin penalizaciones, sin preferencias)
+        logger.info("Generando ruta reference (Dijkstra puro)...")
         reference_path = self.graph.shortest_path(
             (payload.origin.lat, payload.origin.lon),
             (payload.destination.lat, payload.destination.lon),
@@ -231,26 +255,122 @@ class RoutingService:
         if not reference_path:
             raise ValueError("No se pudo construir una ruta con los datos disponibles.")
 
-        need_personalized = bool(via_factors) or needs_context
-        if need_personalized:
-            personalized_path = self.graph.shortest_path(
-                (payload.origin.lat, payload.origin.lon),
-                (payload.destination.lat, payload.destination.lon),
-                via_factors=via_factors if via_factors else None,
-                default_via_factor=default_factor,
-                incident_ctx=routing_context,
-                apply_penalties=True,
-            )
+        # Optimización: si no hay preferencias de CF, generar solo 1 ruta con penalizaciones
+        has_ubcf = bool(ubcf_factors)
+        has_ibcf = bool(ibcf_factors)
+
+        if not has_ubcf and not has_ibcf:
+            # Sin preferencias CF: generar solo 1 ruta con penalizaciones y reutilizarla
+            logger.info("Sin preferencias CF; generando 1 ruta con penalizaciones para UBCF e IBCF...")
+            if needs_context:
+                penalty_path = self.graph.shortest_path(
+                    (payload.origin.lat, payload.origin.lon),
+                    (payload.destination.lat, payload.destination.lon),
+                    incident_ctx=routing_context,
+                    apply_penalties=True,
+                )
+                ubcf_path = penalty_path if penalty_path else list(reference_path)
+                ibcf_path = list(ubcf_path)
+            else:
+                # Sin penalizaciones ni preferencias: todas las rutas son iguales a reference
+                ubcf_path = list(reference_path)
+                ibcf_path = list(reference_path)
         else:
-            personalized_path = list(reference_path)
+            # 2. RUTA UBCF: Con preferencias UBCF + penalizaciones de incidentes
+            if has_ubcf:
+                logger.info("Generando ruta UBCF (evita incidentes según usuarios similares)...")
+                ubcf_path = self.graph.shortest_path(
+                    (payload.origin.lat, payload.origin.lon),
+                    (payload.destination.lat, payload.destination.lon),
+                    via_factors=ubcf_factors,
+                    default_via_factor=default_factor,
+                    incident_ctx=routing_context,
+                    apply_penalties=True,
+                )
+                if not ubcf_path:
+                    logger.warning("No se pudo construir ruta UBCF; usando ruta reference como fallback.")
+                    ubcf_path = list(reference_path)
+            else:
+                # Sin preferencias UBCF: usar ruta con solo penalizaciones
+                logger.info("Sin preferencias UBCF; usando ruta con solo penalizaciones...")
+                if needs_context:
+                    ubcf_path = self.graph.shortest_path(
+                        (payload.origin.lat, payload.origin.lon),
+                        (payload.destination.lat, payload.destination.lon),
+                        incident_ctx=routing_context,
+                        apply_penalties=True,
+                    )
+                    if not ubcf_path:
+                        ubcf_path = list(reference_path)
+                else:
+                    ubcf_path = list(reference_path)
 
-        if need_personalized and not personalized_path:
-            logger.warning("No se pudo construir una ruta personalizada; se usará la referencia.")
-            personalized_path = list(reference_path)
+            # 3. RUTA IBCF: Con preferencias IBCF + penalizaciones de incidentes
+            if has_ibcf:
+                logger.info("Generando ruta IBCF (evita incidentes según vías similares)...")
+                ibcf_path = self.graph.shortest_path(
+                    (payload.origin.lat, payload.origin.lon),
+                    (payload.destination.lat, payload.destination.lon),
+                    via_factors=ibcf_factors,
+                    default_via_factor=default_factor,
+                    incident_ctx=routing_context,
+                    apply_penalties=True,
+                )
+                if not ibcf_path:
+                    logger.warning("No se pudo construir ruta IBCF; usando ruta reference como fallback.")
+                    ibcf_path = list(reference_path)
+            else:
+                # Sin preferencias IBCF: reutilizar la ruta UBCF si es posible
+                if not has_ubcf and needs_context:
+                    logger.info("Sin preferencias IBCF; reutilizando ruta con penalizaciones...")
+                    ibcf_path = list(ubcf_path)
+                elif not has_ubcf:
+                    ibcf_path = list(reference_path)
+                else:
+                    # UBCF tiene preferencias pero IBCF no: generar ruta solo con penalizaciones
+                    logger.info("Sin preferencias IBCF; generando ruta con solo penalizaciones...")
+                    if needs_context:
+                        ibcf_path = self.graph.shortest_path(
+                            (payload.origin.lat, payload.origin.lon),
+                            (payload.destination.lat, payload.destination.lon),
+                            incident_ctx=routing_context,
+                            apply_penalties=True,
+                        )
+                        if not ibcf_path:
+                            ibcf_path = list(reference_path)
+                    else:
+                        ibcf_path = list(reference_path)
 
+        # Construir las 3 variantes de respuesta
         reference_variant = self._build_response_variant(payload, reference_path, delay_context)
-        personalized_variant = self._build_response_variant(payload, personalized_path, delay_context)
-        return RouteResponse(reference=reference_variant, personalized=personalized_variant)
+        ubcf_variant = self._build_response_variant(payload, ubcf_path, delay_context)
+        ibcf_variant = self._build_response_variant(payload, ibcf_path, delay_context)
+
+        logger.info(
+            "Rutas generadas exitosamente:\n"
+            "  - Dijkstra (reference): %.2f km, %.1f min base, +%.1f min retrasos = %.1f min total\n"
+            "  - UBCF: %.2f km, %.1f min base, +%.1f min retrasos = %.1f min total\n"
+            "  - IBCF: %.2f km, %.1f min base, +%.1f min retrasos = %.1f min total",
+            reference_variant.distance_km,
+            reference_variant.estimated_duration_min,
+            reference_variant.extra_delay_min,
+            reference_variant.estimated_duration_min + reference_variant.extra_delay_min,
+            ubcf_variant.distance_km,
+            ubcf_variant.estimated_duration_min,
+            ubcf_variant.extra_delay_min,
+            ubcf_variant.estimated_duration_min + ubcf_variant.extra_delay_min,
+            ibcf_variant.distance_km,
+            ibcf_variant.estimated_duration_min,
+            ibcf_variant.extra_delay_min,
+            ibcf_variant.estimated_duration_min + ibcf_variant.extra_delay_min,
+        )
+
+        return RouteResponse(
+            reference=reference_variant,
+            ubcf=ubcf_variant,
+            ibcf=ibcf_variant,
+            personalized=None,  # Ya no se genera para reducir tiempo de cómputo
+        )
 
     def _build_response_variant(
         self,

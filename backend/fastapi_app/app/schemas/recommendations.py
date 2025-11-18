@@ -10,7 +10,7 @@ class CollaborativeRequest(BaseModel):
     user_id: str
     known_vias: List[str] = Field(default_factory=list)
     strategy: Literal["ubcf", "ibcf"] = "ubcf"
-    limit: int = Field(5, ge=1, le=20)
+    limit: int = Field(5, ge=1, le=200)
 
 
 class CollaborativeRecommendation(BaseModel):
@@ -26,7 +26,7 @@ class CollaborativeResponse(BaseModel):
 class PlaygroundRequest(BaseModel):
     user_id: str
     known_vias: List[str] = Field(default_factory=list)
-    limit: int = Field(5, ge=1, le=20)
+    limit: int = Field(5, ge=1, le=200)
     strategies: List[Literal["ubcf", "ibcf"]] = Field(default_factory=list)
 
 
