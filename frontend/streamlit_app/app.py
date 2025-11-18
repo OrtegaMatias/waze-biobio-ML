@@ -262,9 +262,18 @@ def update_dataset_profile(profile: str) -> dict | None:
         return None
 
 
-def call_backend(endpoint: str, payload: dict) -> dict | None:
+def call_backend(endpoint: str, payload: dict, timeout: float | None = None) -> dict | None:
+    """
+    Llama al backend con un timeout configurable.
+
+    Args:
+        endpoint: Ruta del endpoint (ej: "/routes/optimal")
+        payload: Datos a enviar
+        timeout: Timeout en segundos (usa REQUEST_TIMEOUT por defecto)
+    """
+    timeout_value = timeout if timeout is not None else REQUEST_TIMEOUT
     try:
-        resp = requests.post(f"{BACKEND_URL}{endpoint}", json=payload, timeout=REQUEST_TIMEOUT)
+        resp = requests.post(f"{BACKEND_URL}{endpoint}", json=payload, timeout=timeout_value)
         resp.raise_for_status()
         return resp.json()
     except requests.ConnectionError:
@@ -291,6 +300,10 @@ def init_state() -> None:
     st.session_state.setdefault("trip_hour", 8)
     st.session_state.setdefault("avoid_congestion", True)
     st.session_state.setdefault("avoid_accidents", False)
+    # Configuración de simulación
+    st.session_state.setdefault("num_recommendations", 50)  # Número de recomendaciones CF
+    st.session_state.setdefault("routing_timeout", 180)  # Timeout en segundos para routing
+    st.session_state.setdefault("last_num_recommendations", 50)  # Para detectar cambios
 
 
 def reset_locations() -> None:
@@ -772,13 +785,13 @@ def generate_recommendations_automatically():
     if "playground_results" not in st.session_state or st.session_state.get("playground_results") is None:
         # Usar el perfil de usuario seleccionado o el por defecto
         user_profile = st.session_state.get("user_profile", "usuario_demo")
+        num_recs = st.session_state.get("num_recommendations", 50)
 
         # Generar recomendaciones automáticamente con el perfil seleccionado
-        # Usar un límite alto para obtener muchas recomendaciones y personalizar mejor las rutas
         default_payload = {
             "user_id": user_profile,
             "known_vias": [],
-            "limit": 200,  # Aumentado significativamente para cubrir más vías en las rutas
+            "limit": num_recs,  # Usa el valor configurado por el usuario
             "strategies": ["ubcf", "ibcf"],
         }
         try:
@@ -787,7 +800,7 @@ def generate_recommendations_automatically():
                 st.session_state["playground_results"] = result
                 st.session_state["play_user_id"] = user_profile
                 st.session_state["play_known_vias"] = []
-                st.session_state["play_limit"] = 200
+                st.session_state["play_limit"] = num_recs
                 st.session_state["play_strategies"] = ["ubcf", "ibcf"]
                 st.session_state["recommendations_auto_generated"] = True
                 st.session_state["last_user_profile"] = user_profile
@@ -877,20 +890,22 @@ def playground_section(metadata: Dict[str, List[str]]) -> None:
 def collect_route_preferences() -> Dict[str, List[Dict[str, float]]]:
     """
     Retorna preferencias separadas por estrategia de CF.
+    Limita a las top 30 recomendaciones por algoritmo para optimizar performance.
 
     Returns:
         Dict con claves 'ubcf' e 'ibcf', cada una con lista de preferencias
         Ejemplo: {"ubcf": [{"via": "Ruta A", "weight": 0.8}], "ibcf": [...]}
     """
+    MAX_PREFS_PER_ALGO = 30  # Limitar para optimizar performance del routing
     results = st.session_state.get("playground_results") or {}
 
     # Separar preferencias por estrategia (no promediar)
     ubcf_prefs = []
     ibcf_prefs = []
 
-    # Procesar recomendaciones UBCF
+    # Procesar recomendaciones UBCF (top 30)
     if "ubcf" in results:
-        for rec in results["ubcf"]:
+        for rec in results["ubcf"][:MAX_PREFS_PER_ALGO]:
             via = rec.get("via")
             rating = rec.get("estimated_rating")
             if via and rating is not None:
@@ -899,9 +914,9 @@ def collect_route_preferences() -> Dict[str, List[Dict[str, float]]]:
                     "weight": round(float(rating) / 5.0, 3)
                 })
 
-    # Procesar recomendaciones IBCF
+    # Procesar recomendaciones IBCF (top 30)
     if "ibcf" in results:
-        for rec in results["ibcf"]:
+        for rec in results["ibcf"][:MAX_PREFS_PER_ALGO]:
             via = rec.get("via")
             rating = rec.get("estimated_rating")
             if via and rating is not None:
@@ -983,13 +998,59 @@ def routing_section() -> None:
             key="user_profile",
         )
 
-        # Botón para regenerar recomendaciones si cambió el perfil
-        if st.session_state.get("last_user_profile") != user_profile:
+        # Configuración avanzada de simulación
+        with st.expander("⚙️ Configuración avanzada de simulación", expanded=False):
+            st.markdown("""
+            Ajusta estos parámetros para controlar el balance entre **precisión** y **velocidad** de cálculo:
+
+            - **Recomendaciones**: Más recomendaciones = rutas más personalizadas pero cálculo más lento
+            - **Timeout**: Tiempo máximo de espera para el cálculo de rutas
+            """)
+
+            num_recommendations = st.slider(
+                "🔢 Número de recomendaciones por algoritmo",
+                min_value=10,
+                max_value=200,
+                value=st.session_state.get("num_recommendations", 50),
+                step=10,
+                key="num_recommendations",
+                help="Cantidad de vías recomendadas por UBCF/IBCF. Más = mejor personalización pero más lento."
+            )
+
+            routing_timeout = st.slider(
+                "⏱️ Timeout de cálculo (segundos)",
+                min_value=60,
+                max_value=600,
+                value=st.session_state.get("routing_timeout", 180),
+                step=30,
+                key="routing_timeout",
+                help="Tiempo máximo de espera para calcular las 3 rutas. Aumenta si tienes timeouts."
+            )
+
+            # Estimación de tiempo
+            estimated_time = num_recommendations * 0.6  # ~0.6 seg por recomendación
+            if estimated_time > routing_timeout:
+                st.warning(f"⚠️ Tiempo estimado ({estimated_time:.0f}s) excede el timeout ({routing_timeout}s). Considera aumentar el timeout.")
+            else:
+                st.info(f"✅ Tiempo estimado: {estimated_time:.0f}s (timeout: {routing_timeout}s)")
+
+        # Regenerar recomendaciones si cambiaron parámetros críticos
+        profile_changed = st.session_state.get("last_user_profile") != user_profile
+        num_recs_changed = st.session_state.get("last_num_recommendations") != st.session_state.get("num_recommendations")
+
+        if profile_changed:
             st.info(f"📝 Perfil cambiado a **{user_profile}**. Se regenerarán las recomendaciones.")
             # Limpiar recomendaciones antiguas para forzar regeneración
             if "playground_results" in st.session_state:
                 del st.session_state["playground_results"]
             st.session_state["last_user_profile"] = user_profile
+
+        if num_recs_changed:
+            st.info(f"🔢 Número de recomendaciones cambiado a **{st.session_state.get('num_recommendations')}**. Se regenerarán las recomendaciones.")
+            # Limpiar recomendaciones antiguas para forzar regeneración
+            if "playground_results" in st.session_state:
+                del st.session_state["playground_results"]
+            st.session_state["last_num_recommendations"] = st.session_state.get("num_recommendations")
 
         avoid_congestion = st.checkbox(
             "Evitar congestiones",
@@ -1025,7 +1086,11 @@ def routing_section() -> None:
                 "Esto debería generarse automáticamente. Si no ves recomendaciones, revisa el Playground Colaborativo más abajo."
             )
 
-        with st.spinner("Calculando rutas (Dijkstra, UBCF, IBCF)... Esto puede tardar hasta 3 minutos."):
+        # Usar timeout configurado por el usuario
+        timeout = st.session_state.get("routing_timeout", 180)
+        num_recs = st.session_state.get("num_recommendations", 50)
+
+        with st.spinner(f"Calculando rutas (Dijkstra, UBCF, IBCF)... Usando {num_recs} recomendaciones, timeout: {timeout}s"):
             route_payload = {
                 "origin": origin,
                 "destination": destination,
@@ -1037,7 +1102,7 @@ def routing_section() -> None:
                 "avoid_congestion": avoid_congestion,
                 "avoid_accidents": avoid_accidents,
             }
-            route_result = call_backend("/routes/optimal", route_payload)
+            route_result = call_backend("/routes/optimal", route_payload, timeout=timeout)
 
         if _has_route_steps(route_result):
             st.session_state["last_route_result"] = route_result
