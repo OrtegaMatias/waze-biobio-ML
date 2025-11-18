@@ -137,17 +137,32 @@ def _speed_bucket(speed: float) -> str:
     return "Velocidad fluida"
 
 
+def _clean_string(value: str | None) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if cleaned.lower() == "nan":
+        return None
+    return cleaned
+
+
 def _safe_title(value: str, fallback: str = "Sin dato") -> str:
-    if not isinstance(value, str) or not value.strip():
+    cleaned = _clean_string(value)
+    if not cleaned:
         return fallback
-    return value.strip().title()
+    return cleaned.title()
 
 
 def _get_value(row: pd.Series, column: str, fallback: str) -> str:
     value = row.get(column, fallback)
     if isinstance(value, str):
-        value = value.strip()
-    if value is None or value == "" or (isinstance(value, float) and np.isnan(value)):
+        cleaned = _clean_string(value)
+        if cleaned is None:
+            return fallback
+        return cleaned
+    if value is None or (isinstance(value, float) and np.isnan(value)):
         return fallback
     return str(value)
 

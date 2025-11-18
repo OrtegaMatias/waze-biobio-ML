@@ -116,6 +116,7 @@ def load_backend_data(force: bool = False) -> bool:
         return True
     if force:
         fetch_metadata.clear()
+        fetch_hotspots.clear()
         st.session_state["metadata"] = None
     wait_for_backend()
     status_placeholder = st.empty()
@@ -358,14 +359,16 @@ def render_dataset_selector() -> None:
         format_func=lambda key: labels.get(key, key),
         help="Selecciona el conjunto de ratings que alimenta el filtrado colaborativo.",
     )
-    apply_disabled = selection == current
-    if st.button("Aplicar perfil", use_container_width=True, disabled=apply_disabled):
+    if st.button("Aplicar o refrescar perfil", use_container_width=True):
         with st.spinner("Actualizando fuente de datos en el backend..."):
             result = update_dataset_profile(selection)
         if result:
             st.session_state["dataset_status"] = result
             st.session_state["playground_results"] = None
-            st.success(f"Perfil actualizado a {labels.get(selection, selection)}")
+            fetch_hotspots.clear()
+            st.session_state["hotspots"] = fetch_hotspots()
+            action = "refrescado" if selection == current else "actualizado"
+            st.success(f"Perfil {action} a {labels.get(selection, selection)}")
 
 
 def render_sidebar_tools() -> None:
@@ -496,7 +499,6 @@ def render_route_map(route_result: dict) -> None:
         control_scale=True,
     )
     hotspots = st.session_state.get("hotspots") or []
-    hotspots = st.session_state.get("hotspots") or []
     selected_day = st.session_state.get("trip_day")
     if hotspots and selected_day:
         current_hour = float(st.session_state.get("trip_hour", 8))
@@ -579,13 +581,17 @@ def render_route_summary(route_result: dict) -> None:
     reference = route_result.get("reference") or {}
     personalized = route_result.get("personalized") or {}
     ref_distance = reference.get("distance_km")
-    ref_duration = reference.get("estimated_duration_min")
     per_distance = personalized.get("distance_km")
+    ref_duration = reference.get("estimated_duration_min")
     per_duration = personalized.get("estimated_duration_min")
+    ref_delay = float(reference.get("extra_delay_min") or 0.0)
+    per_delay = float(personalized.get("extra_delay_min") or 0.0)
+    ref_total_duration = ref_duration + ref_delay if ref_duration is not None else None
+    per_total_duration = per_duration + per_delay if per_duration is not None else None
     diff_distance = None if ref_distance is None or per_distance is None else per_distance - ref_distance
-    diff_duration = None if ref_duration is None or per_duration is None else per_duration - ref_duration
-    ref_delay = reference.get("extra_delay_min", 0.0)
-    per_delay = personalized.get("extra_delay_min", 0.0)
+    diff_duration = None
+    if ref_total_duration is not None and per_total_duration is not None:
+        diff_duration = per_total_duration - ref_total_duration
 
     col1, col2 = st.columns(2)
     col1.metric(
@@ -597,6 +603,8 @@ def render_route_summary(route_result: dict) -> None:
         f"{ref_duration:.1f} min" if ref_duration is not None else "N/A",
         delta=f"+{ref_delay:.1f} min por congestión" if ref_delay else None,
     )
+    if ref_total_duration is not None:
+        col1.caption(f"Tiempo total estimado: {ref_total_duration:.1f} min")
     col2.metric(
         "Ruta personalizada - Distancia",
         f"{per_distance:.2f} km" if per_distance is not None else "N/A",
@@ -605,16 +613,14 @@ def render_route_summary(route_result: dict) -> None:
     personalized_delta = None
     if diff_duration is not None:
         personalized_delta = f"{diff_duration:+.1f} min vs base"
-    if per_delay:
-        delay_text = f"+{per_delay:.1f} min por congestión"
-        personalized_delta = (
-            f"{personalized_delta} | {delay_text}" if personalized_delta else delay_text
-        )
     col2.metric(
         "Ruta personalizada - Duración",
         f"{per_duration:.1f} min" if per_duration is not None else "N/A",
         delta=personalized_delta,
     )
+    if per_total_duration is not None:
+        extra_text = f" (+{per_delay:.1f} min por congestión)" if per_delay else ""
+        col2.caption(f"Tiempo total estimado: {per_total_duration:.1f} min{extra_text}")
 
     st.markdown("### Comparación en el mapa")
     render_route_map(route_result)

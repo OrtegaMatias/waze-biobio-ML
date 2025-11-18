@@ -133,7 +133,9 @@ class RouteGraph:
     @staticmethod
     def _base_distance(a: GraphNode, b: GraphNode) -> float:
         distance = haversine_km(a.lat, a.lon, b.lat, b.lon)
-        return distance if distance > 0 else 0.05
+        if not math.isfinite(distance) or distance <= 0:
+            return 0.05
+        return distance
 
     def nearest_node(self, lat: float, lon: float, exclude: Optional[Set[str]] = None) -> GraphNode:
         exclude = exclude or set()
@@ -182,21 +184,73 @@ class RouteGraph:
             return default_via_factor
 
         def incident_factor(node: GraphNode) -> float:
+            """
+            Factor adicional de penalización según contexto del viaje.
+
+            - Antes: solo penalizaba si coincidían día Y franja.
+            - Ahora: penaliza si coincide el día O la franja O el segmento ya trae
+              un penalty_factor > 1.0 (históricamente conflictivo).
+            - Además mezcla este factor con penalty_factor para dar más peso a
+              segmentos con congestión histórica, incluso si el usuario viaja en
+              otro horario.
+            """
             if not incident_ctx or not apply_penalties:
                 return 1.0
+
             day = incident_ctx.get("day")
             hour_bucket = incident_ctx.get("hour_bucket")
-            avoid_congestion = incident_ctx.get("avoid_congestion")
-            avoid_accidents = incident_ctx.get("avoid_accidents")
-            matches_day = bool(day and node.dia_semana and node.dia_semana.lower() == str(day).lower())
-            matches_hour = bool(hour_bucket and node.franja_horaria and node.franja_horaria == hour_bucket)
-            if not (matches_day and matches_hour):
+            avoid_congestion = bool(incident_ctx.get("avoid_congestion"))
+            avoid_accidents = bool(incident_ctx.get("avoid_accidents"))
+
+            # Si el usuario no pidió evitar nada, no aplicamos incidente extra
+            if not (avoid_congestion or avoid_accidents):
                 return 1.0
+
+            matches_day = bool(
+                day
+                and node.dia_semana
+                and node.dia_semana.lower() == str(day).lower()
+            )
+            matches_hour = bool(
+                hour_bucket
+                and node.franja_horaria
+                and node.franja_horaria == hour_bucket
+            )
+            has_penalty = bool(node.penalty_factor and node.penalty_factor > 1.0)
+
+            # Factor base ligado a la severidad histórica
+            # p.ej. penalty_factor=1.5 -> base_incident=1.5
+            base_incident = 1.0
+            if has_penalty:
+                base_incident += (float(node.penalty_factor) - 1.0)
+
+            # --- Congestión ---
             if avoid_congestion and node.tipo_evento == "Congestión":
-                return 200.0
+                # Match EXACTO día + franja: caso extremo (mantiene el comportamiento previo)
+                if matches_day and matches_hour:
+                    return max(1.0, base_incident * 400.0)
+
+                # Match parcial (día O franja) o segmento históricamente penalizado:
+                if matches_day or matches_hour or has_penalty:
+                    # Penalización fuerte pero menor al caso exacto
+                    return max(1.0, base_incident * 4.0)
+
+                # Solo factor histórico suave (si lo hubiera)
+                return max(1.0, base_incident)
+
+            # --- Accidentes ---
             if avoid_accidents and node.tipo_evento == "Accidente":
-                return 80.0
-            return 1.0
+                if matches_day and matches_hour:
+                    return max(1.0, base_incident * 200.0)
+
+                if matches_day or matches_hour or has_penalty:
+                    return max(1.0, base_incident * 2.0)
+
+                return max(1.0, base_incident)
+
+            # Otros tipos de evento: solo factor histórico (si lo hay)
+            return max(1.0, base_incident)
+
 
         while queue:
             current_dist, node_id = heapq.heappop(queue)
@@ -209,8 +263,12 @@ class RouteGraph:
                 neighbor_node = self.nodes[neighbor]
                 if apply_penalties:
                     penalty = max((current_node.penalty_factor + neighbor_node.penalty_factor) / 2, 1.0)
-                    avg_speed = (current_node.velocidad_kmh + neighbor_node.velocidad_kmh) / 2 or 10
-                    speed_factor = max(0.3, 40 / max(avg_speed, 5))
+                    speeds = np.array([current_node.velocidad_kmh, neighbor_node.velocidad_kmh], dtype=float)
+                    avg_speed = float(np.nanmean(speeds)) if not np.isnan(speeds).all() else 0.0
+                    if avg_speed <= 0 or not math.isfinite(avg_speed):
+                        avg_speed = 0.0
+                    effective_speed = max(avg_speed, 5.0)
+                    speed_factor = max(0.3, 40 / effective_speed)
                 else:
                     penalty = 1.0
                     speed_factor = 1.0
@@ -222,6 +280,8 @@ class RouteGraph:
                     distances[neighbor] = new_dist
                     previous[neighbor] = node_id
                     heapq.heappush(queue, (new_dist, neighbor))
+        if not math.isfinite(distances.get(target, float("inf"))):
+            return []
 
         path: List[RouteStep] = []
         current = target

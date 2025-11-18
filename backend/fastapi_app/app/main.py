@@ -154,6 +154,7 @@ def optimal_route(
         duration,
     )
     return route
+
 bootstrap_lock = threading.Lock()
 bootstrap_state = {
     "status": "idle",
@@ -217,7 +218,11 @@ def bootstrap_status() -> dict:
     return bootstrap_state
 
 
-def _cached_hotspots(limit: int) -> List[dict]:
+_hotspot_cache = {"signature": None, "points": []}
+_hotspot_cache_lock = threading.Lock()
+
+
+def _build_hotspot_points() -> List[dict]:
     events = data_loader.load_raw_events()
     congestions = events[events["tipo_evento"] == "Congestión"].dropna(subset=["lat", "lon"])
     if congestions.empty:
@@ -229,13 +234,25 @@ def _cached_hotspots(limit: int) -> List[dict]:
             hora_fin = pd.to_datetime(row.get("hora_fin"), format="%H:%M", errors="coerce")
         except Exception:
             hora_inicio = hora_fin = None
+        if pd.isna(hora_inicio):
+            hora_inicio = None
+        if pd.isna(hora_fin):
+            hora_fin = None
         start_float = float(hora_inicio.hour + hora_inicio.minute / 60) if hora_inicio is not None else None
         end_float = float(hora_fin.hour + hora_fin.minute / 60) if hora_fin is not None else None
+        speed = row.get("velocidad_kmh")
+        try:
+            speed_value = float(speed) if speed is not None else None
+        except Exception:
+            speed_value = None
+        weight = 0.5
+        if speed_value is not None and speed_value > 0:
+            weight = min(2.0, max(0.1, 1 / max(speed_value, 5)))
         bucketed.append(
             {
                 "lat": float(row["lat"]),
                 "lon": float(row["lon"]),
-                "weight": float((1 / max(row["velocidad_kmh"], 5)) if row["velocidad_kmh"] else 0.2),
+                "weight": float(weight),
                 "day": str(row.get("dia_semana") or ""),
                 "bucket": str(row.get("franja_horaria") or ""),
                 "segment_id": str(row.get("segment_id") or ""),
@@ -243,7 +260,17 @@ def _cached_hotspots(limit: int) -> List[dict]:
                 "hora_fin_float": end_float,
             }
         )
-    return bucketed[:limit]
+    return bucketed
+
+
+def _cached_hotspots(limit: int) -> List[dict]:
+    limit = max(0, limit)
+    signature = data_loader.data_version()
+    with _hotspot_cache_lock:
+        if _hotspot_cache["signature"] != signature:
+            _hotspot_cache["points"] = _build_hotspot_points()
+            _hotspot_cache["signature"] = signature
+        return list(_hotspot_cache["points"][:limit])
 
 
 @app.get("/metadata/hotspots", response_model=HotspotResponse, tags=["meta"])

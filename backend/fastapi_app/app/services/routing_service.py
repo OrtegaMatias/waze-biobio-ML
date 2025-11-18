@@ -62,6 +62,7 @@ def _normalize_day(value: str | None) -> str:
     cleaned = value.strip().lower()
     return DAY_ALIASES.get(cleaned, value.strip().title())
 
+
 class RoutingService:
     def __init__(self, progress=None) -> None:
         self._data_version = None
@@ -73,18 +74,19 @@ class RoutingService:
         logger.info("Inicializando RoutingService (lazy build)")
 
     def _build_structures(self, progress=None) -> None:
-        if self._build_lock.locked():
-            # Otra hebra ya está construyendo; espera a que termine
+        if not self._build_lock.acquire(blocking=False):
+            # Otra hebra ya está construyendo; espera a que termine y salir.
             with self._build_lock:
                 return
-        with self._build_lock:
+        try:
             logger.info("Construyendo estructuras de ruta...")
+            signature = data_loader.data_version()
+            self._data_version = signature
             if progress:
                 progress("Cargando eventos", 0.2)
             self.events = data_loader.load_raw_events()
             if progress:
                 progress("Eventos cargados", 0.4)
-            signature = self._data_version or data_loader.data_version()
             cached = _load_graph_cache(signature)
             if cached:
                 self.graph = cached["graph"]
@@ -115,17 +117,23 @@ class RoutingService:
             _store_graph_cache(signature, {"graph": self.graph, "segment_lookup": self.segment_lookup})
             if progress:
                 progress("Grafo listo", 1.0)
+        finally:
+            self._build_lock.release()
 
     def _ensure_fresh_data(self) -> None:
         current_version = data_loader.data_version()
-        if self._data_version is None:
-            self._data_version = current_version
-            self._build_structures(self._progress)
+        if self._data_version is None or self.graph is None:
+            try:
+                self._build_structures(self._progress)
+            finally:
+                self._data_version = data_loader.data_version()
             return
         if current_version != self._data_version:
-            self._data_version = current_version
             logger.info("Detectado cambio en datos (%s), reconstruyendo grafo...", current_version)
-            self._build_structures(self._progress)
+            try:
+                self._build_structures(self._progress)
+            finally:
+                self._data_version = data_loader.data_version()
 
     def build(self, progress=None) -> None:
         self._data_version = data_loader.data_version()
@@ -162,12 +170,21 @@ class RoutingService:
         self._ensure_fresh_data()
         if self.graph is None:
             raise ValueError("El grafo de rutas aún no está listo. Intenta nuevamente en unos segundos.")
-        context = None
+        day_value = _normalize_day(payload.day_of_week)
+        hour_bucket = data_loader.hour_bucket(payload.departure_hour)
+        delay_context = {
+            "day": day_value,
+            "hour_bucket": hour_bucket,
+            "include_congestion": True,
+            "include_accidents": True,
+            "match_filters": True,
+        }
+        routing_context = None
         needs_context = payload.avoid_congestion or payload.avoid_accidents
         if needs_context:
-            context = {
-                "day": _normalize_day(payload.day_of_week),
-                "hour_bucket": data_loader.hour_bucket(payload.departure_hour),
+            routing_context = {
+                "day": day_value,
+                "hour_bucket": hour_bucket,
                 "avoid_congestion": payload.avoid_congestion,
                 "avoid_accidents": payload.avoid_accidents,
             }
@@ -178,17 +195,34 @@ class RoutingService:
             payload.destination.lat,
             payload.destination.lon,
         )
+
+        # -------------------------------
+        # Factores por vía desde CF (UBCF/IBCF):
+        # ratings altos -> factor < 1 (bonificación),
+        # ratings bajos -> factor > 1 (castigo real).
+        # -------------------------------
         via_factors: Dict[str, float] = {}
         for pref in payload.preferences:
-            pref_norm = max(0.0, min(1.0, pref.weight))
-            # 1.0 -> factor 0.2 (muy preferida), 0.0 -> 2.0 (desaconsejada)
-            factor = 0.2 + (1.0 - pref_norm) * 1.8
-            via_factors[pref.via] = round(max(0.15, min(2.2, factor)), 3)
+            # pref.weight viene de Streamlit ya normalizado en [0,1]
+            score = max(0.0, min(1.0, float(pref.weight)))
+
+            # Zona neutra: 0.4–0.6 ~ sin efecto
+            if 0.4 <= score <= 0.6:
+                factor = 1.0
+            # Muy bien valorada: premio fuerte (baja el costo)
+            elif score > 0.6:
+                # 0.6 -> 1.0 ; 1.0 -> ~0.3
+                factor = 1.0 - (score - 0.6) * 1.75
+            # Mal valorada: castigo fuerte (sube el costo)
+            else:  # score < 0.4
+                # 0.4 -> 1.0 ; 0.0 -> ~3.0
+                factor = 1.0 + (0.4 - score) * 5.0
+
+            # Recorte de seguridad
+            via_factors[pref.via] = round(max(0.2, min(3.0, factor)), 3)
+
         default_factor = 1.0
-        if needs_context:
-            default_factor = 1.5
-        if via_factors:
-            default_factor = max(default_factor, 3.0)
+
         reference_path = self.graph.shortest_path(
             (payload.origin.lat, payload.origin.lon),
             (payload.destination.lat, payload.destination.lon),
@@ -196,6 +230,7 @@ class RoutingService:
         )
         if not reference_path:
             raise ValueError("No se pudo construir una ruta con los datos disponibles.")
+
         need_personalized = bool(via_factors) or needs_context
         if need_personalized:
             personalized_path = self.graph.shortest_path(
@@ -203,13 +238,18 @@ class RoutingService:
                 (payload.destination.lat, payload.destination.lon),
                 via_factors=via_factors if via_factors else None,
                 default_via_factor=default_factor,
-                incident_ctx=context,
+                incident_ctx=routing_context,
                 apply_penalties=True,
             )
         else:
-            personalized_path = reference_path
-        reference_variant = self._build_response_variant(payload, reference_path, None)
-        personalized_variant = self._build_response_variant(payload, personalized_path, context if need_personalized else None)
+            personalized_path = list(reference_path)
+
+        if need_personalized and not personalized_path:
+            logger.warning("No se pudo construir una ruta personalizada; se usará la referencia.")
+            personalized_path = list(reference_path)
+
+        reference_variant = self._build_response_variant(payload, reference_path, delay_context)
+        personalized_variant = self._build_response_variant(payload, personalized_path, delay_context)
         return RouteResponse(reference=reference_variant, personalized=personalized_variant)
 
     def _build_response_variant(
@@ -272,25 +312,26 @@ class RoutingService:
         estimated_minutes = (distance / max(avg_speed, 5)) * 60
         extra_minutes = 0.0
         if context:
+            include_congestion = bool(context.get("include_congestion", True))
+            include_accidents = bool(context.get("include_accidents", True))
+            match_filters = bool(context.get("match_filters", True))
+            day_value = str(context.get("day") or "").lower() if match_filters else ""
+            hour_value = context.get("hour_bucket") if match_filters else None
             buckets: Dict[Tuple[str, str, str], List[float]] = {}
             for step in path:
                 if step.tipo_evento not in {"Congestión", "Accidente"}:
                     continue
-                matches_day = (
-                    context.get("day")
-                    and step.dia_semana
-                    and step.dia_semana.lower() == str(context["day"]).lower()
-                )
-                matches_hour = (
-                    context.get("hour_bucket")
-                    and step.franja_horaria
-                    and step.franja_horaria == context["hour_bucket"]
-                )
+                matches_day = True
+                if day_value:
+                    matches_day = bool(step.dia_semana and step.dia_semana.lower() == day_value)
+                matches_hour = True
+                if hour_value:
+                    matches_hour = bool(step.franja_horaria and step.franja_horaria == hour_value)
                 if not (matches_day and matches_hour):
                     continue
-                if step.tipo_evento == "Congestión" and not context.get("avoid_congestion"):
+                if step.tipo_evento == "Congestión" and not include_congestion:
                     continue
-                if step.tipo_evento == "Accidente" and not context.get("avoid_accidents"):
+                if step.tipo_evento == "Accidente" and not include_accidents:
                     continue
                 key = (step.segment_id, step.tipo_evento, step.franja_horaria or "")
                 minutes = max(step.duracion_hrs, 0.1) * 60
@@ -300,7 +341,6 @@ class RoutingService:
                 extra_minutes += promedio
                 if key[1] == "Congestión":
                     extra_minutes += 5
-        estimated_minutes += extra_minutes
         return RouteVariant(
             distance_km=round(distance, 2),
             estimated_duration_min=round(estimated_minutes, 1),

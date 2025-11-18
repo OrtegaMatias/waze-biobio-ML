@@ -65,14 +65,16 @@ def infer_comuna(edge_attrs: dict, node_attrs: Sequence[dict], default_place: st
 
 
 def normalize_oneway(value) -> Tuple[bool, str]:
-    if value in (None, False, "False", "no", "No", 0, "0"):
+    if value is None:
         return False, "both"
-    value_str = str(value).lower()
+    value_str = str(value).strip().lower()
+    if value_str in {"false", "no", "0"}:
+        return False, "both"
     if value_str == "-1":
         return True, "reverse"
     if value_str in {"1", "true", "yes"}:
         return True, "forward"
-    return bool(value), "both"
+    return bool(value_str), "both"
 
 
 def iter_edge_rows(G, place_label: str) -> Iterable[dict]:

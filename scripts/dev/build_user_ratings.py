@@ -52,7 +52,13 @@ def load_road_network(region: str) -> pd.DataFrame:
             & df["lon"].between(lon_min, lon_max)
         ]
     if df.empty:
-        raise ValueError(f"No se encontraron vías para la región '{region}'.")
+        bbox_msg = ""
+        if region == "concepcion":
+            bbox_msg = f" dentro del bbox {CONCEPCION_BBOX}"
+        raise ValueError(
+            f"No se encontraron vías para la región '{region}'{bbox_msg}. "
+            "Verifica que data/processed/road_network.csv esté actualizado."
+        )
     grouped = (
         df.groupby("via", as_index=False)
         .agg(

@@ -14,6 +14,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from . import data_loader
 
+_CUSTOM_SIGNATURE = ("custom", -1)
+
 
 @dataclass
 class CFRecommendation:
@@ -31,6 +33,7 @@ class CollaborativeFilteringRecommender:
         self._item_user: pd.DataFrame | None = None
         self._user_sim: pd.DataFrame | None = None
         self._item_sim: pd.DataFrame | None = None
+        self._ratings_signature: tuple[float, int] | None = None
 
     def fit(self, ratings: pd.DataFrame | None = None) -> None:
         ratings_df = ratings if ratings is not None else data_loader.load_user_ratings()
@@ -45,6 +48,10 @@ class CollaborativeFilteringRecommender:
         self._item_user = user_item.transpose()
         self._user_sim = self._compute_similarity(user_item)
         self._item_sim = self._compute_similarity(self._item_user)
+        if ratings is None:
+            self._ratings_signature = self._ratings_file_signature()
+        else:
+            self._ratings_signature = _CUSTOM_SIGNATURE
 
     def _ensure_fitted(self) -> None:
         if (
@@ -55,6 +62,23 @@ class CollaborativeFilteringRecommender:
             or self._item_sim is None
         ):
             self.fit()
+            return
+        self._refresh_if_needed()
+
+    def _refresh_if_needed(self) -> None:
+        if self._ratings_signature == _CUSTOM_SIGNATURE:
+            return
+        current_signature = self._ratings_file_signature()
+        if self._ratings_signature != current_signature:
+            self.fit()
+
+    def _ratings_file_signature(self) -> tuple[float, int]:
+        path = data_loader.get_user_ratings_path()
+        try:
+            stats = path.stat()
+            return (stats.st_mtime, stats.st_size)
+        except FileNotFoundError:
+            return (0.0, 0)
 
     def recommend(
         self, user_id: str, known_vias: Sequence[str] | None = None, top_n: int = 5
