@@ -628,6 +628,18 @@ def render_route_summary(route_result: dict) -> None:
 
     st.markdown("### 📊 Comparación de Rutas")
 
+    # Mostrar penalizaciones activas
+    penalties_applied = []
+    if st.session_state.get("avoid_congestion"):
+        penalties_applied.append("🚦 Congestiones")
+    if st.session_state.get("avoid_accidents"):
+        penalties_applied.append("⚠️ Accidentes")
+
+    if penalties_applied:
+        st.success(f"✅ Penalizaciones activas: {', '.join(penalties_applied)}")
+    else:
+        st.warning("⚠️ Sin penalizaciones activas - Las rutas UBCF/IBCF solo difieren por preferencias CF")
+
     # Explicación del cálculo de tiempos
     with st.expander("ℹ️ Cómo se calculan los tiempos reales", expanded=False):
         st.markdown("""
@@ -645,8 +657,12 @@ def render_route_summary(route_result: dict) -> None:
         **🔵 Dijkstra (baseline)**: Ruta más corta SIN considerar incidentes al calcular el camino.
         Los retrasos se suman DESPUÉS para mostrar el tiempo real.
 
-        **🟢 UBCF / 🟠 IBCF**: Rutas que SÍ evitan activamente las congestiones/accidentes
-        al calcular el camino, resultando en menos retrasos.
+        **🟢 UBCF / 🟠 IBCF**: Rutas que **SÍ evitan activamente** las congestiones/accidentes
+        al calcular el camino (si las penalizaciones están activadas), resultando en menos retrasos.
+
+        **Factores de penalización**:
+        - Congestiones: 4x-400x (según match día/hora)
+        - Accidentes: 2x-200x (según match día/hora)
         """)
 
     # Mostrar las 3 rutas en columnas
@@ -1088,16 +1104,47 @@ def routing_section() -> None:
                 del st.session_state["playground_results"]
             st.session_state["last_num_recommendations"] = st.session_state.get("num_recommendations")
 
-        avoid_congestion = st.checkbox(
-            "Evitar congestiones",
-            key="avoid_congestion",
-            value=st.session_state.get("avoid_congestion", True),
-        )
-        avoid_accidents = st.checkbox(
-            "Evitar accidentes",
-            key="avoid_accidents",
-            value=st.session_state.get("avoid_accidents", False),
-        )
+        # Penalizaciones de incidentes
+        with st.expander("ℹ️ ¿Qué hacen estas opciones?", expanded=False):
+            st.markdown("""
+            Estas opciones controlan si las rutas UBCF/IBCF **evitan activamente** vías con incidentes históricos:
+
+            - **Evitar congestiones**: Penaliza vías con historial de congestiones (factor 4x-400x)
+            - **Evitar accidentes**: Penaliza vías con historial de accidentes (factor 2x-200x)
+
+            ⚠️ **Importante**: Si ambas están desactivadas, las rutas solo diferirán por las preferencias CF.
+            La ruta Dijkstra (baseline) **NUNCA** evita incidentes - siempre usa el camino más corto.
+
+            💡 **Recomendación**: Activa al menos una opción para ver diferencias significativas entre las 3 rutas.
+            """)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            avoid_congestion = st.checkbox(
+                "🚦 Evitar congestiones",
+                key="avoid_congestion",
+                value=st.session_state.get("avoid_congestion", True),
+                help="UBCF/IBCF evitarán vías con historial de congestiones (4x-400x penalización)"
+            )
+        with col2:
+            avoid_accidents = st.checkbox(
+                "⚠️ Evitar accidentes",
+                key="avoid_accidents",
+                value=st.session_state.get("avoid_accidents", False),
+                help="UBCF/IBCF evitarán vías con historial de accidentes (2x-200x penalización)"
+            )
+
+        # Advertencia si ambas están desactivadas
+        if not avoid_congestion and not avoid_accidents:
+            st.warning("⚠️ Sin penalizaciones activas. Las rutas UBCF/IBCF solo diferirán por preferencias CF (puede generar rutas muy similares).")
+        else:
+            penalties = []
+            if avoid_congestion:
+                penalties.append("congestiones")
+            if avoid_accidents:
+                penalties.append("accidentes")
+            st.info(f"✅ Penalizando: {' y '.join(penalties)}")
+
         generate_clicked = st.button("Generar ruta segura", use_container_width=True)
 
     results_container = st.container()

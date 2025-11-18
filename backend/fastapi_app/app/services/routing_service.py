@@ -188,12 +188,22 @@ class RoutingService:
                 "avoid_congestion": payload.avoid_congestion,
                 "avoid_accidents": payload.avoid_accidents,
             }
+
+        # Log detallado sobre penalizaciones
+        penalty_status = []
+        if payload.avoid_congestion:
+            penalty_status.append("Congestiones (4x-400x)")
+        if payload.avoid_accidents:
+            penalty_status.append("Accidentes (2x-200x)")
+        if not penalty_status:
+            penalty_status.append("NINGUNA - Rutas solo diferirán por preferencias CF")
+
         logger.info(
             "Calculando rutas:\n"
             "  Origen: (%.5f, %.5f)\n"
             "  Destino: (%.5f, %.5f)\n"
             "  Contexto: %s, hora %.1f (%s)\n"
-            "  Evitar congestiones: %s, Evitar accidentes: %s",
+            "  Penalizaciones activas: %s",
             payload.origin.lat,
             payload.origin.lon,
             payload.destination.lat,
@@ -201,8 +211,7 @@ class RoutingService:
             day_value,
             payload.departure_hour,
             hour_bucket,
-            payload.avoid_congestion,
-            payload.avoid_accidents,
+            ", ".join(penalty_status),
         )
 
         # -------------------------------
