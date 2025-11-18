@@ -211,25 +211,35 @@ class RoutingService:
         # ratings bajos -> factor > 1 (castigo real).
         # -------------------------------
         def compute_via_factors(preferences: List) -> Dict[str, float]:
+            """
+            Convierte preferencias (ratings 0-1) a factores de costo para Dijkstra.
+
+            Fórmula AMPLIFICADA para forzar diferencias mayores entre rutas:
+            - Rating alto (>0.7) → factor muy bajo (0.1-0.5) → PREFERIR fuertemente
+            - Rating medio (0.4-0.7) → factor neutro (0.5-1.5)
+            - Rating bajo (<0.4) → factor muy alto (1.5-5.0) → EVITAR fuertemente
+            """
             factors: Dict[str, float] = {}
             for pref in preferences:
                 # pref.weight viene de Streamlit ya normalizado en [0,1]
                 score = max(0.0, min(1.0, float(pref.weight)))
 
-                # Zona neutra: 0.4–0.6 ~ sin efecto
-                if 0.4 <= score <= 0.6:
-                    factor = 1.0
-                # Muy bien valorada: premio fuerte (baja el costo)
-                elif score > 0.6:
-                    # 0.6 -> 1.0 ; 1.0 -> ~0.3
-                    factor = 1.0 - (score - 0.6) * 1.75
-                # Mal valorada: castigo fuerte (sube el costo)
-                else:  # score < 0.4
-                    # 0.4 -> 1.0 ; 0.0 -> ~3.0
-                    factor = 1.0 + (0.4 - score) * 5.0
+                # Fórmula exponencial para amplificar diferencias
+                if score > 0.7:
+                    # Rating alto: bonus agresivo
+                    # 1.0 -> 0.1, 0.7 -> 0.5
+                    factor = 0.1 + (1.0 - score) ** 2 * 1.33
+                elif score >= 0.4:
+                    # Rating medio: lineal suave
+                    # 0.7 -> 0.5, 0.4 -> 1.5
+                    factor = 0.5 + (0.7 - score) * 3.33
+                else:
+                    # Rating bajo: penalización agresiva
+                    # 0.4 -> 1.5, 0.0 -> 5.0
+                    factor = 1.5 + (0.4 - score) ** 0.5 * 5.53
 
-                # Recorte de seguridad
-                factors[pref.via] = round(max(0.2, min(3.0, factor)), 3)
+                # Recorte de seguridad más amplio
+                factors[pref.via] = round(max(0.1, min(5.0, factor)), 3)
             return factors
 
         # Separar las preferencias por estrategia
@@ -238,6 +248,42 @@ class RoutingService:
 
         # Mantener compatibilidad con el campo 'preferences' legacy
         legacy_factors = compute_via_factors(payload.preferences)
+
+        # Log de diagnóstico: comparar factores UBCF vs IBCF
+        logger.info(
+            "Factores de preferencia calculados:\n"
+            "  UBCF: %d vías con factores\n"
+            "  IBCF: %d vías con factores",
+            len(ubcf_factors),
+            len(ibcf_factors),
+        )
+
+        # Verificar si hay vías en común con factores diferentes
+        common_vias = set(ubcf_factors.keys()) & set(ibcf_factors.keys())
+        if common_vias:
+            different_count = sum(
+                1 for via in common_vias
+                if abs(ubcf_factors[via] - ibcf_factors[via]) > 0.1
+            )
+            logger.info(
+                "  Vías en común: %d, con factores diferentes (Δ>0.1): %d (%.1f%%)",
+                len(common_vias),
+                different_count,
+                100 * different_count / len(common_vias) if common_vias else 0,
+            )
+
+            # Mostrar algunos ejemplos de factores diferentes
+            examples = []
+            for via in list(common_vias)[:5]:
+                uf = ubcf_factors[via]
+                if_ = ibcf_factors[via]
+                if abs(uf - if_) > 0.1:
+                    examples.append(f"{via}: UBCF={uf:.2f}, IBCF={if_:.2f}")
+
+            if examples:
+                logger.info("  Ejemplos de diferencias:\n    " + "\n    ".join(examples))
+        else:
+            logger.warning("  ⚠️ Sin vías en común entre UBCF e IBCF")
 
         default_factor = 1.0
 

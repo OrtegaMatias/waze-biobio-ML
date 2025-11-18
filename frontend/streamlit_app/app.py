@@ -301,9 +301,9 @@ def init_state() -> None:
     st.session_state.setdefault("avoid_congestion", True)
     st.session_state.setdefault("avoid_accidents", False)
     # Configuración de simulación
-    st.session_state.setdefault("num_recommendations", 50)  # Número de recomendaciones CF
-    st.session_state.setdefault("routing_timeout", 180)  # Timeout en segundos para routing
-    st.session_state.setdefault("last_num_recommendations", 50)  # Para detectar cambios
+    st.session_state.setdefault("num_recommendations", 100)  # Número de recomendaciones CF (aumentado para mejor cobertura)
+    st.session_state.setdefault("routing_timeout", 240)  # Timeout en segundos para routing (aumentado)
+    st.session_state.setdefault("last_num_recommendations", 100)  # Para detectar cambios
 
 
 def reset_locations() -> None:
@@ -890,22 +890,29 @@ def playground_section(metadata: Dict[str, List[str]]) -> None:
 def collect_route_preferences() -> Dict[str, List[Dict[str, float]]]:
     """
     Retorna preferencias separadas por estrategia de CF.
-    Limita a las top 30 recomendaciones por algoritmo para optimizar performance.
+
+    Estrategia mejorada: Incluye tanto vías a PREFERIR (top ratings) como vías a EVITAR (bottom ratings)
+    para tener mayor cobertura e impacto en el routing.
 
     Returns:
         Dict con claves 'ubcf' e 'ibcf', cada una con lista de preferencias
         Ejemplo: {"ubcf": [{"via": "Ruta A", "weight": 0.8}], "ibcf": [...]}
     """
-    MAX_PREFS_PER_ALGO = 30  # Limitar para optimizar performance del routing
+    TOP_PREFS = 20  # Vías con mejores ratings (a preferir)
+    BOTTOM_PREFS = 20  # Vías con peores ratings (a evitar)
+
     results = st.session_state.get("playground_results") or {}
 
     # Separar preferencias por estrategia (no promediar)
     ubcf_prefs = []
     ibcf_prefs = []
 
-    # Procesar recomendaciones UBCF (top 30)
-    if "ubcf" in results:
-        for rec in results["ubcf"][:MAX_PREFS_PER_ALGO]:
+    # Procesar recomendaciones UBCF: TOP (preferir) + BOTTOM (evitar)
+    if "ubcf" in results and len(results["ubcf"]) > 0:
+        ubcf_recs = results["ubcf"]
+
+        # TOP: Mejores vías (ratings altos) → factor bajo (preferir)
+        for rec in ubcf_recs[:TOP_PREFS]:
             via = rec.get("via")
             rating = rec.get("estimated_rating")
             if via and rating is not None:
@@ -914,9 +921,23 @@ def collect_route_preferences() -> Dict[str, List[Dict[str, float]]]:
                     "weight": round(float(rating) / 5.0, 3)
                 })
 
-    # Procesar recomendaciones IBCF (top 30)
-    if "ibcf" in results:
-        for rec in results["ibcf"][:MAX_PREFS_PER_ALGO]:
+        # BOTTOM: Peores vías (ratings bajos) → factor alto (evitar)
+        if len(ubcf_recs) > TOP_PREFS:
+            for rec in ubcf_recs[-BOTTOM_PREFS:]:
+                via = rec.get("via")
+                rating = rec.get("estimated_rating")
+                if via and rating is not None:
+                    ubcf_prefs.append({
+                        "via": via,
+                        "weight": round(float(rating) / 5.0, 3)
+                    })
+
+    # Procesar recomendaciones IBCF: TOP (preferir) + BOTTOM (evitar)
+    if "ibcf" in results and len(results["ibcf"]) > 0:
+        ibcf_recs = results["ibcf"]
+
+        # TOP: Mejores vías (ratings altos) → factor bajo (preferir)
+        for rec in ibcf_recs[:TOP_PREFS]:
             via = rec.get("via")
             rating = rec.get("estimated_rating")
             if via and rating is not None:
@@ -924,6 +945,17 @@ def collect_route_preferences() -> Dict[str, List[Dict[str, float]]]:
                     "via": via,
                     "weight": round(float(rating) / 5.0, 3)
                 })
+
+        # BOTTOM: Peores vías (ratings bajos) → factor alto (evitar)
+        if len(ibcf_recs) > TOP_PREFS:
+            for rec in ibcf_recs[-BOTTOM_PREFS:]:
+                via = rec.get("via")
+                rating = rec.get("estimated_rating")
+                if via and rating is not None:
+                    ibcf_prefs.append({
+                        "via": via,
+                        "weight": round(float(rating) / 5.0, 3)
+                    })
 
     return {"ubcf": ubcf_prefs, "ibcf": ibcf_prefs}
 
@@ -1011,24 +1043,28 @@ def routing_section() -> None:
                 "🔢 Número de recomendaciones por algoritmo",
                 min_value=10,
                 max_value=200,
-                value=st.session_state.get("num_recommendations", 50),
+                value=st.session_state.get("num_recommendations", 100),
                 step=10,
                 key="num_recommendations",
-                help="Cantidad de vías recomendadas por UBCF/IBCF. Más = mejor personalización pero más lento."
+                help="Cantidad de vías recomendadas por UBCF/IBCF. Más = mejor cobertura de rutas pero cálculo más lento."
             )
 
             routing_timeout = st.slider(
                 "⏱️ Timeout de cálculo (segundos)",
                 min_value=60,
                 max_value=600,
-                value=st.session_state.get("routing_timeout", 180),
+                value=st.session_state.get("routing_timeout", 240),
                 step=30,
                 key="routing_timeout",
                 help="Tiempo máximo de espera para calcular las 3 rutas. Aumenta si tienes timeouts."
             )
 
-            # Estimación de tiempo
-            estimated_time = num_recommendations * 0.6  # ~0.6 seg por recomendación
+            # Estimación de tiempo (más conservadora)
+            estimated_time = num_recommendations * 1.0  # ~1 seg por recomendación (conservador)
+            coverage_estimate = min(100, num_recommendations * 0.5)  # Estimación de cobertura de vías
+
+            st.caption(f"📊 Cobertura estimada de vías en la ruta: ~{coverage_estimate:.0f}%")
+
             if estimated_time > routing_timeout:
                 st.warning(f"⚠️ Tiempo estimado ({estimated_time:.0f}s) excede el timeout ({routing_timeout}s). Considera aumentar el timeout.")
             else:
