@@ -12,8 +12,9 @@ from functools import lru_cache
 from typing import List, Tuple
 
 import pandas as pd
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from .schemas.recommendations import (
     CollaborativeRequest,
@@ -26,6 +27,14 @@ from .schemas.system import DatasetChangeRequest, DatasetStatus, DatasetInfo
 from .services.recommendation_service import RecommendationService, get_recommendation_service
 from .services.routing_service import RoutingService, get_routing_service
 from .core import dataset
+from .core.exceptions import (
+    WazeBiobioException,
+    NoRouteFoundException,
+    InvalidCoordinatesException,
+    UserNotFoundException,
+    InvalidStrategyException,
+    DataNotLoadedException,
+)
 from algorithms.recommenders import data_loader
 
 LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
@@ -52,6 +61,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Exception handler for custom exceptions
+@app.exception_handler(WazeBiobioException)
+async def waze_biobio_exception_handler(request: Request, exc: WazeBiobioException):
+    """Handle custom Waze Biobío exceptions."""
+    logger.error(f"WazeBiobioException: {exc.message}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.message, "error_type": exc.__class__.__name__},
+    )
+
+
+# Exception handler for validation errors
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    """Handle ValueError exceptions."""
+    logger.error(f"ValueError: {str(exc)}")
+    return JSONResponse(
+        status_code=400,
+        content={"detail": str(exc), "error_type": "ValueError"},
+    )
 
 
 @app.get("/health", tags=["meta"])
@@ -140,8 +171,56 @@ def optimal_route(
     payload: RouteRequest,
     service: RoutingService = Depends(get_routing_service),
 ) -> RouteResponse:
+    """
+    Calculate optimal route between two points.
+
+    Validates coordinates and handles routing errors gracefully.
+    """
     start = time.perf_counter()
-    route = service.compute_route(payload)
+
+    # Additional validation beyond Pydantic
+    origin = payload.origin
+    destination = payload.destination
+
+    # Check if coordinates are within reasonable bounds for Biobío region
+    # Approximate bounds: lat [-38, -36], lon [-73.5, -71.5]
+    if not (-39 < origin.lat < -35):
+        raise InvalidCoordinatesException(
+            origin.lat, origin.lon,
+            "El origen está fuera de la región del Biobío"
+        )
+    if not (-39 < destination.lat < -35):
+        raise InvalidCoordinatesException(
+            destination.lat, destination.lon,
+            "El destino está fuera de la región del Biobío"
+        )
+    if not (-74 < origin.lon < -71):
+        raise InvalidCoordinatesException(
+            origin.lat, origin.lon,
+            "El origen está fuera de la región del Biobío"
+        )
+    if not (-74 < destination.lon < -71):
+        raise InvalidCoordinatesException(
+            destination.lat, destination.lon,
+            "El destino está fuera de la región del Biobío"
+        )
+
+    # Check if service is properly initialized
+    if not service.graph or not service.segment_lookup:
+        raise DataNotLoadedException("grafo de rutas")
+
+    try:
+        route = service.compute_route(payload)
+    except Exception as exc:
+        logger.exception("Error calculando ruta")
+        # If it's not a custom exception, wrap it
+        if not isinstance(exc, WazeBiobioException):
+            raise NoRouteFoundException(
+                (origin.lat, origin.lon),
+                (destination.lat, destination.lon)
+            )
+        raise
+
     duration = (time.perf_counter() - start) * 1000
     reference = route.reference
     personalized = route.personalized

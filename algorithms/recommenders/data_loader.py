@@ -34,10 +34,36 @@ HOUR_BUCKETS: List[Tuple[int, int, str]] = [
     (21, 24, "Nocturno (21-23h)"),
 ]
 
-ACCIDENT_PENALTY = 1.75
-CONGESTION_PENALTY = 1.35
-PENALTY_RADIUS_M = 60
 EARTH_RADIUS_M = 6_371_000
+
+
+def _get_config_value(key: str, default):
+    """
+    Get configuration value, falling back to default if config module not available.
+
+    This allows the module to work standalone without config.yaml during development.
+    """
+    try:
+        import sys
+        from pathlib import Path
+
+        # Add backend path to sys.path if not already there
+        backend_path = Path(__file__).resolve().parents[2] / "backend" / "fastapi_app"
+        if str(backend_path) not in sys.path:
+            sys.path.insert(0, str(backend_path))
+
+        from app.core.config import get_config
+        config = get_config()
+        return config.get(key, default)
+    except (ImportError, FileNotFoundError):
+        # Config not available, use default
+        return default
+
+
+# Load configuration values with fallback to defaults
+ACCIDENT_PENALTY = _get_config_value('routing.accident_penalty', 1.75)
+CONGESTION_PENALTY = _get_config_value('routing.congestion_penalty', 1.35)
+PENALTY_RADIUS_M = _get_config_value('routing.penalty_radius_m', 60)
 
 
 def _cache_artifact(name: str) -> Path:

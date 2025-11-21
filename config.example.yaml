@@ -1,0 +1,42 @@
+# Configuración de ejemplo del sistema Waze Biobío ML
+# Copia este archivo a config.yaml y ajusta los valores según tus necesidades
+
+# Parámetros de ruteo
+routing:
+  penalty_radius_m: 60          # Radio de efecto de incidentes (metros)
+  accident_penalty: 1.75        # Penalización para accidentes
+  congestion_penalty: 1.35      # Penalización para congestiones
+  default_speed_kmh: 40         # Velocidad por defecto
+
+# Parámetros de recomendaciones
+recommendations:
+  min_similar_users: 3          # Mínimo de usuarios similares (UBCF)
+  min_similar_items: 3          # Mínimo de ítems similares (IBCF)
+  min_similarity: 0.1           # Similitud mínima (0.0 a 1.0)
+  default_limit: 10             # Número de recomendaciones por defecto
+
+# Configuración de datos
+data:
+  default_profile: regional     # 'regional' o 'concepcion'
+  enable_cache: true            # Habilitar caché persistente
+  cache_dir: data/cache         # Directorio de caché
+
+# Configuración del backend
+backend:
+  host: 0.0.0.0                 # Host del servidor
+  port: 8000                    # Puerto del servidor
+  reload: true                  # Recarga automática (desarrollo)
+  log_level: INFO               # DEBUG, INFO, WARNING, ERROR
+
+# Configuración del frontend
+frontend:
+  backend_url: http://localhost:8000  # URL del backend
+  port: 8501                    # Puerto de Streamlit
+  map_theme: OpenStreetMap      # Tema del mapa
+  map_zoom: 12                  # Zoom inicial
+
+# Configuración geoespacial
+geospatial:
+  default_region: "Región del Biobío, Chile"
+  network_type: drive           # drive, walk, bike, all
+  simplify: true                # Simplificar geometría

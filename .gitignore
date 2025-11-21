@@ -1,3 +1,64 @@
-# Ignore large processed data files
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Project specific - Large data files
+data/raw/ACCIDENTES.csv
+data/raw/CONGESTIONES.csv
 data/processed/road_network.csv
-data/cache/*.pkl
+data/cache/
+*.pkl
+
+# Configuration (keep example files)
+.env
+.env.local
+config.local.yaml
+
+# Logs
+*.log
+logs/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Docker
+.dockerignore

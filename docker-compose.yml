@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: waze-biobio-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount data directories for persistence
+      - ./data:/app/data
+      # Mount config file
+      - ./config.yaml:/app/config.yaml:ro
+      # Mount algorithms for hot-reload during development
+      - ./algorithms:/app/algorithms
+      - ./backend:/app/backend
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+    networks:
+      - waze-biobio-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: waze-biobio-frontend
+    ports:
+      - "8501:8501"
+    volumes:
+      # Mount config for backend URL
+      - ./config.yaml:/app/config.yaml:ro
+      # Mount frontend for hot-reload during development
+      - ./frontend:/app/frontend
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      # Backend URL for frontend to connect
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - waze-biobio-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  waze-biobio-network:
+    driver: bridge
+
+volumes:
+  # Named volumes for persistence (optional)
+  data-cache:
+    driver: local

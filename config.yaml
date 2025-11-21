@@ -1,0 +1,79 @@
+# Configuración del sistema Waze Biobío ML
+
+# Parámetros de ruteo
+routing:
+  # Radio en metros para aplicar penalizaciones de incidentes
+  penalty_radius_m: 60
+
+  # Multiplicador de peso para accidentes (1.0 = sin penalización)
+  accident_penalty: 1.75
+
+  # Multiplicador de peso para congestiones (1.0 = sin penalización)
+  congestion_penalty: 1.35
+
+  # Velocidad promedio por defecto (km/h) cuando no hay datos
+  default_speed_kmh: 40
+
+# Parámetros de recomendaciones
+recommendations:
+  # Número mínimo de usuarios similares para UBCF
+  min_similar_users: 3
+
+  # Número mínimo de ítems similares para IBCF
+  min_similar_items: 3
+
+  # Threshold de similitud mínima (coseno)
+  min_similarity: 0.1
+
+  # Número máximo de recomendaciones por defecto
+  default_limit: 10
+
+# Configuración de datos
+data:
+  # Perfil de datos por defecto ('regional' o 'concepcion')
+  default_profile: regional
+
+  # Habilitar caché persistente
+  enable_cache: true
+
+  # Ruta al directorio de caché
+  cache_dir: data/cache
+
+# Configuración del backend
+backend:
+  # Host del servidor FastAPI
+  host: 0.0.0.0
+
+  # Puerto del servidor FastAPI
+  port: 8000
+
+  # Modo de recarga automática (desarrollo)
+  reload: true
+
+  # Nivel de logging (DEBUG, INFO, WARNING, ERROR)
+  log_level: INFO
+
+# Configuración del frontend
+frontend:
+  # URL del backend (sin trailing slash)
+  backend_url: http://localhost:8000
+
+  # Puerto de Streamlit
+  port: 8501
+
+  # Tema de mapas ('OpenStreetMap', 'CartoDB positron', etc.)
+  map_theme: OpenStreetMap
+
+  # Zoom inicial del mapa
+  map_zoom: 12
+
+# Configuración geoespacial
+geospatial:
+  # Región por defecto para descargas OSM
+  default_region: "Región del Biobío, Chile"
+
+  # Tipo de red vial ('drive', 'walk', 'bike', 'all')
+  network_type: drive
+
+  # Simplificar geometría de la red
+  simplify: true

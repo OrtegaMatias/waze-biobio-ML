@@ -20,3 +20,6 @@ requests>=2.31,<3.0
 streamlit>=1.35,<2.0
 folium>=0.15,<0.16
 streamlit-folium>=0.20,<0.21
+
+# Configuration
+pyyaml>=6.0,<7.0
