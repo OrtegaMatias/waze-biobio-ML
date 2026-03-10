@@ -1,84 +1,152 @@
 # waze-biobio-ML
 
-Sistema estilo Waze para la Región del Biobío (Chile) que combina un motor de recomendaciones con ruteo óptimo para evitar congestiones y accidentes según las preferencias del usuario.
+Sistema tipo Waze para la Región del Biobío que combina:
 
-## Arquitectura
+- recomendaciones colaborativas de vías (`UBCF` e `IBCF`)
+- cálculo de rutas con Dijkstra
+- penalizaciones por congestiones y accidentes
+- una API en FastAPI y una interfaz interactiva en Streamlit
 
-- **Datos (`data/`)**: archivos CSV crudos (`raw/`) y normalizados (`processed/`) que alimentan los modelos.  
-- **Algoritmos (`algorithms/recommenders/`)**: lógica de preparación de datos, filtrado colaborativo UBCF/IBCF y grafo de rutas basado en Dijkstra.  
-- **Backend (`backend/fastapi_app/`)**: API FastAPI que expone metadatos, `/recommendations/collaborative`, `/recommendations/playground` y `/routes/optimal`.  
-- **Frontend (`frontend/streamlit_app/`)**: interfaz Streamlit tipo “playground” que permite probar UBCF vs IBCF, seleccionar origen/destino y visualizar rutas/alertas.  
-- **Scripts (`scripts/dev/`)**: utilidades para regenerar la red vial desde OpenStreetMap.
+## Qué incluye
 
+| Componente | Ubicación | Función |
+| --- | --- | --- |
+| Datos | `data/` | CSV crudos, datasets procesados y cache persistente |
+| Algoritmos | `algorithms/recommenders/` | Carga de datos, filtrado colaborativo y ruteo |
+| Backend | `backend/fastapi_app/` | API FastAPI para metadatos, recomendaciones y rutas |
+| Frontend | `frontend/streamlit_app/` | Playground visual para probar recomendaciones y trayectos |
+| Scripts | `scripts/dev/` | Utilidades para regenerar red vial y ratings |
+
+## Inicio rápido con Docker Compose
+
+Esta es la forma recomendada para levantar el proyecto.
+
+### Requisitos
+
+- Docker Desktop con `docker compose`
+
+### Levantar la aplicación
+
+```bash
+docker compose up --build
 ```
+
+### Abrir servicios
+
+- Frontend: [http://localhost:8501](http://localhost:8501)
+- Backend: [http://localhost:8000](http://localhost:8000)
+- Healthcheck backend: [http://localhost:8000/health](http://localhost:8000/health)
+- Documentación OpenAPI: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+### Qué hace esta configuración
+
+- construye dos servicios: `backend` y `frontend`
+- monta `./data` dentro del contenedor para no meter más de 1 GB de cache en la imagen
+- conserva `data/cache/` en tu máquina, así el bootstrap siguiente es mucho más rápido
+- hace que Streamlit espere a que FastAPI esté sano antes de arrancar
+
+### Comandos útiles
+
+```bash
+docker compose up --build
+docker compose down
+docker compose logs -f backend
+docker compose logs -f frontend
+docker compose exec backend pytest backend/fastapi_app/tests
+```
+
+## Ejecución local sin Docker
+
+Si prefieres correrlo con tu entorno Python:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn backend.fastapi_app.app.main:app --reload
+```
+
+En otra terminal:
+
+```bash
+source .venv/bin/activate
+streamlit run frontend/streamlit_app/app.py
+```
+
+## Flujo funcional
+
+1. Streamlit valida que el backend esté disponible.
+2. El frontend dispara `/system/bootstrap`.
+3. FastAPI carga datos, reconstruye o reutiliza cache y deja listo el grafo.
+4. La UI consulta metadatos, recomendaciones y rutas óptimas según el contexto del viaje.
+
+## Endpoints principales
+
+### Sistema
+
+- `GET /health`: estado básico del backend
+- `POST /system/bootstrap`: inicia la preparación de datos y del grafo
+- `GET /system/bootstrap/status`: devuelve el avance del bootstrap
+- `GET /system/dataset`: muestra el perfil activo
+- `POST /system/dataset`: cambia entre `regional` y `concepcion`
+
+### Recomendaciones
+
+- `POST /recommendations/collaborative`: recomendaciones para una estrategia puntual
+- `POST /recommendations/playground`: comparación lado a lado entre `UBCF` e `IBCF`
+
+### Rutas
+
+- `GET /metadata/options`: filtros y opciones disponibles
+- `GET /metadata/hotspots`: puntos de congestión usados en la UI
+- `POST /routes/optimal`: ruta base y ruta personalizada con penalizaciones
+
+## Estructura del repositorio
+
+```text
 waze-biobio-ML/
 ├── algorithms/
 │   └── recommenders/
-│       ├── collaborative.py
-│       ├── data_loader.py
-│       └── routing.py
 ├── backend/
 │   └── fastapi_app/
-│       ├── app/            # main.py, servicios y esquemas pydantic
-│       └── tests/          # pruebas unitarias
+│       ├── app/
+│       └── tests/
 ├── data/
-│   ├── raw/                # ACCIDENTES.csv, CONGESTIONES.csv
-│   └── processed/          # road_network.csv, user_ratings.csv, user_ratings_concepcion.csv
+│   ├── raw/
+│   ├── processed/
+│   └── cache/
 ├── frontend/
-│   └── streamlit_app/app.py
+│   └── streamlit_app/
 ├── scripts/
-│   └── dev/build_road_network.py
+│   └── dev/
+├── Dockerfile
+├── compose.yaml
 ├── requirements.txt
 └── README.md
 ```
 
-## Puesta en marcha
+## Datos y cache
 
-1. **Instalar dependencias**
-   ```bash
-   python -m venv .venv && source .venv/bin/activate
-   pip install -r requirements.txt
-   ```
-2. **Ejecutar el backend**
-   ```bash
-   uvicorn backend.fastapi_app.app.main:app --reload
-   ```
-3. **Levantar el frontend**
-   ```bash
-   streamlit run frontend/streamlit_app/app.py
-   ```
-   La app detecta al backend, dispara el bootstrap (`/system/bootstrap`) para construir el grafo y luego consulta los endpoints `/metadata/*`, `/recommendations/*` y `/routes/optimal`.
+- `data/raw/`: insumos base como `ACCIDENTES.csv` y `CONGESTIONES.csv`
+- `data/processed/`: red vial y ratings por perfil
+- `data/cache/`: artefactos generados como `raw_events.pkl`, `segment_summary.pkl` y `route_graph.pkl`
 
-## Playground colaborativo
+La cache se invalida automáticamente cuando cambian los CSV de entrada relevantes.
 
-- `/recommendations/collaborative`: retorna recomendaciones para una estrategia puntual (`ubcf` o `ibcf`).
-- `/recommendations/playground`: ejecuta ambas estrategias (o el subconjunto solicitado) y entrega los resultados lado a lado para comparar puntuaciones.
-- En `frontend/streamlit_app/app.py` la sección “Laboratorio colaborativo” permite elegir `user_id`, vías conocidas, límite y estrategias para visualizar las diferencias entre UBCF e IBCF, y las vías mejor rankeadas se envían como preferencias para ajustar los pesos de Dijkstra.
-- La visualización de rutas muestra siempre la trayectoria base (Dijkstra puro, sin penalizaciones) y la ruta personalizada (con preferencias + incidentes); puedes activar/desactivar cada capa en el mapa para comparar.
-- Antes de generar la ruta el usuario define día, hora estimada y si desea evitar congestiones/accidentes; esa información ajusta las penalizaciones del grafo y suma el tiempo de los incidentes que aún no se puedan evitar.
+## Scripts de desarrollo
 
-## Perfiles de datos
+### Regenerar red vial
 
-- El backend expone `/system/dataset` para consultar o cambiar el perfil activo (`regional` o `concepcion`).
-- El selector en Streamlit actualiza el perfil sin reiniciar el backend y borra la cache del playground.
+```bash
+python scripts/dev/build_road_network.py --place "Región del Biobío, Chile"
+```
 
-## Cache persistente
+### Regenerar ratings sintéticos
 
-- `data/cache/` almacena artefactos derivados (`raw_events`, `segment_summary`, `transactions` y `route_graph`).
-- Cada archivo se etiqueta con `data_version()`: si los CSV base no cambian, FastAPI carga todo desde disco y el bootstrap es prácticamente inmediato.
-
-## Datos y pipelines
-
-- `algorithms/recommenders/data_loader.py` unifica eventos de accidentes/congestiones con la red OSM, genera tokens categóricos y aplica penalizaciones geoespaciales para alimentar tanto el recomendador como el grafo.
-- Usa los CSV de `data/raw` y `data/processed`. Para actualizar la red vial ejecuta:
-  ```bash
-  python scripts/dev/build_road_network.py --place "Región del Biobío, Chile"
-  ```
-- Para regenerar ratings sintéticos coherentes con el `road_network` (regional o solo Concepción):
-  ```bash
-  python scripts/dev/build_user_ratings.py --mode regional
-  python scripts/dev/build_user_ratings.py --mode concepcion
-  ```
+```bash
+python scripts/dev/build_user_ratings.py --mode regional
+python scripts/dev/build_user_ratings.py --mode concepcion
+```
 
 ## Pruebas
 
