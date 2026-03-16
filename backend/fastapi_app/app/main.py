@@ -322,7 +322,10 @@ def optimal_route(
             detail="El backend aún está calentando el grafo del perfil activo. Consulta /readyz o /system/bootstrap/status.",
         )
     start = time.perf_counter()
-    route = service.compute_route(payload)
+    try:
+        route = service.compute_route(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     duration = (time.perf_counter() - start) * 1000
     logger.info(
         "POST /routes/optimal -> base=%.2f km, mejor balance=%s en %.1f ms",
