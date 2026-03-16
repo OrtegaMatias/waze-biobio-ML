@@ -1,36 +1,29 @@
 # -*- coding: utf-8 -*-
 """
-Aplicación Streamlit simple: selecciona origen/destino en el Biobío, ajusta preferencias
-para evitar congestiones/accidentes y genera la ruta con Dijkstra + recomendaciones.
+Demo académica de ruta segura explicable para Concepción.
 """
 
 from __future__ import annotations
 
-import os
-import re
 import time
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import folium
-from folium.plugins import BeautifyIcon, MiniMap, HeatMap
-import numpy as np
-import pandas as pd
+from folium.plugins import HeatMap, MiniMap
 import requests
 import streamlit as st
 from streamlit_folium import st_folium
 
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
-REQUEST_TIMEOUT = float(os.getenv("BACKEND_TIMEOUT", "180"))  # Aumentado a 3 minutos para generar 3 rutas
-DEFAULT_ORIGIN = {"lat": -36.8270, "lon": -73.0500}
-DEFAULT_DESTINATION = {"lat": -36.8200, "lon": -73.0435}
-DEFAULT_LAT_RANGE = (-38.8, -35.8)
-DEFAULT_LON_RANGE = (-74.8, -71.0)
-DEFAULT_BOUNDS = {
-    "lat_min": DEFAULT_LAT_RANGE[0],
-    "lat_max": DEFAULT_LAT_RANGE[1],
-    "lon_min": DEFAULT_LON_RANGE[0],
-    "lon_max": DEFAULT_LON_RANGE[1],
-}
+from frontend.streamlit_app.api_client import BackendClient
+from frontend.streamlit_app.demo_content import PROFILE_ORDER, TRAVELER_PROFILES, VARIANT_META
+from frontend.streamlit_app.view_models import comparison_highlights, variant_summary_cards
+
+client = BackendClient()
+
+REQUEST_TIMEOUT = client.timeout
+DEFAULT_ORIGIN = {"lat": -36.8267, "lon": -73.0498}
+DEFAULT_DESTINATION = {"lat": -36.8114, "lon": -73.0490}
+DEFAULT_BOUNDS = {"lat_min": -36.95, "lat_max": -36.7, "lon_min": -73.2, "lon_max": -72.9}
 DAY_CHOICES = [
     ("Monday", "Lunes"),
     ("Tuesday", "Martes"),
@@ -41,161 +34,66 @@ DAY_CHOICES = [
     ("Sunday", "Domingo"),
 ]
 DAY_LABELS = {code: label for code, label in DAY_CHOICES}
-HOUR_BUCKETS = [
-    (0, 6, "Madrugada (00-05h)"),
-    (6, 10, "Punta AM (06-09h)"),
-    (10, 16, "Horario Medio (10-15h)"),
-    (16, 21, "Punta PM (16-20h)"),
-    (21, 24, "Nocturno (21-23h)"),
-]
-
-
-def get_hour_bucket_label(hour: float) -> str:
-    hour = float(hour or 0)
-    for start, end, label in HOUR_BUCKETS:
-        if start <= hour < end:
-            return label
-    return HOUR_BUCKETS[0][2]
-
-
-def get_bounds() -> Dict[str, float]:
-    bounds = st.session_state.get("bounds")
-    if not bounds:
-        bounds = DEFAULT_BOUNDS.copy()
-        st.session_state["bounds"] = bounds
-    return bounds
-
-
-def get_lat_range() -> tuple[float, float]:
-    bounds = get_bounds()
-    return (bounds["lat_min"], bounds["lat_max"])
-
-
-def get_lon_range() -> tuple[float, float]:
-    bounds = get_bounds()
-    return (bounds["lon_min"], bounds["lon_max"])
-
-
-def is_within_bounds(lat: float, lon: float) -> bool:
-    lat_min, lat_max = get_lat_range()
-    lon_min, lon_max = get_lon_range()
-    return lat_min <= lat <= lat_max and lon_min <= lon <= lon_max
-
-
-def wait_for_backend(max_wait: int = 300) -> None:
-    if st.session_state.get("backend_ready"):
-        return
-    status_placeholder = st.empty()
-    progress_bar = st.progress(0)
-    start_time = time.time()
-    poll_interval = 5
-    attempt = 0
-    while time.time() - start_time < max_wait:
-        attempt += 1
-        try:
-            resp = requests.get(f"{BACKEND_URL}/health", timeout=5)
-            resp.raise_for_status()
-            status_placeholder.success("Backend disponible. Cargando datos...")
-            st.session_state["backend_ready"] = True
-            progress_bar.progress(100)
-            return
-        except requests.RequestException:
-            elapsed = time.time() - start_time
-            pct = min(int((elapsed / max_wait) * 100), 100)
-            progress_bar.progress(pct)
-            status_placeholder.info(
-                f"Inicializando backend (intento {attempt}). Quedan {max(0, max_wait - int(elapsed))}s..."
-            )
-            time.sleep(poll_interval)
-    status_placeholder.error("No se pudo validar el backend a tiempo. Revisa el servicio FastAPI.")
-    st.stop()
-
-
-def load_backend_data(force: bool = False) -> bool:
-    if st.session_state.get("app_ready") and not force:
-        return True
-    if force:
-        fetch_metadata.clear()
-        fetch_hotspots.clear()
-        st.session_state["metadata"] = None
-    wait_for_backend()
-    status_placeholder = st.empty()
-    status_placeholder.info("Inicializando infraestructura en el backend...")
-    progress_bar = st.progress(0)
-    try:
-        resp = requests.post(f"{BACKEND_URL}/system/bootstrap", timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-    except requests.RequestException as err:
-        status_placeholder.error(f"No se pudo iniciar el bootstrap: {err}")
-        return False
-
-    poll_interval = 2
-    start_time = time.time()
-    while True:
-        try:
-            status_resp = requests.get(f"{BACKEND_URL}/system/bootstrap/status", timeout=REQUEST_TIMEOUT)
-            status_resp.raise_for_status()
-            info = status_resp.json()
-        except requests.RequestException as err:
-            status_placeholder.error(f"Error consultando el estado del backend: {err}")
-            return False
-        percent = info.get("percent", 0)
-        progress_bar.progress(max(0, min(100, percent)))
-        status_placeholder.info(info.get("message", "Preparando..."))
-        if info.get("status") == "completed":
-            status_placeholder.success(
-                f"Backend listo: {info.get('routing_nodes', 0):,} nodos cargados en "
-                f"{info.get('duration_ms', 0)} ms."
-            )
-            break
-        if info.get("status") == "error":
-            status_placeholder.error(f"Ocurrió un error durante el bootstrap: {info.get('message')}")
-            return False
-        if time.time() - start_time > 900:
-            status_placeholder.error("El bootstrap está tomando demasiado tiempo. Intenta nuevamente.")
-            return False
-        time.sleep(poll_interval)
-
-    metadata = fetch_metadata()
-    st.session_state["metadata"] = metadata
-    st.session_state["bounds"] = metadata.get("bounds") or DEFAULT_BOUNDS.copy()
-    st.session_state["hotspots"] = fetch_hotspots()
-    st.session_state["app_ready"] = True
-    return True
 
 
 def set_page_style() -> None:
     st.markdown(
         """
         <style>
-        .metric-card {
-            padding: 1rem;
-            border-radius: 0.6rem;
-            background: #0f172a;
-            color: #f8fafc;
-            border: 1px solid rgba(255,255,255,0.05);
+        .stApp {
+            background:
+                radial-gradient(circle at top left, rgba(187, 247, 208, 0.55), transparent 28%),
+                radial-gradient(circle at top right, rgba(191, 219, 254, 0.55), transparent 25%),
+                linear-gradient(180deg, #f8faf7 0%, #f3f6ef 45%, #eef2e8 100%);
+            color: #132a13;
+            font-family: "Avenir Next", "Helvetica Neue", "Segoe UI", sans-serif;
         }
-        .metric-label {
-            font-size: 0.85rem;
-            text-transform: uppercase;
+        .hero-card, .info-card, .warning-card, .metric-card {
+            border-radius: 18px;
+            padding: 1rem 1.1rem;
+            border: 1px solid rgba(19, 42, 19, 0.08);
+            background: rgba(255, 255, 255, 0.82);
+            box-shadow: 0 18px 40px rgba(19, 42, 19, 0.06);
+        }
+        .hero-card {
+            background: linear-gradient(135deg, rgba(230, 247, 235, 0.98), rgba(246, 250, 244, 0.96));
+        }
+        .warning-card {
+            background: linear-gradient(135deg, rgba(255, 247, 237, 0.98), rgba(255, 252, 245, 0.96));
+            border-color: rgba(194, 65, 12, 0.18);
+        }
+        .metric-title {
+            font-size: 0.8rem;
             letter-spacing: 0.08em;
-            opacity: 0.7;
+            text-transform: uppercase;
+            color: #4f6f52;
         }
         .metric-value {
             font-size: 1.6rem;
-            font-weight: 600;
+            font-weight: 700;
+            color: #163020;
+        }
+        .pill {
+            display: inline-block;
+            margin-right: 0.4rem;
+            margin-bottom: 0.3rem;
+            padding: 0.22rem 0.6rem;
+            border-radius: 999px;
+            background: #edf6ee;
+            border: 1px solid rgba(19, 42, 19, 0.08);
+            font-size: 0.85rem;
         }
         .streamlit-folium, .streamlit-folium iframe {
             width: 100% !important;
         }
         .streamlit-folium {
-            min-height: 680px !important;
-            height: 680px !important;
+            min-height: 620px !important;
+            height: 620px !important;
         }
         .streamlit-folium iframe {
-            min-height: 680px !important;
-            height: 680px !important;
-            border-radius: 0.75rem;
+            min-height: 620px !important;
+            height: 620px !important;
+            border-radius: 18px;
         }
         </style>
         """,
@@ -204,1035 +102,530 @@ def set_page_style() -> None:
 
 
 @st.cache_data(show_spinner=False)
-def fetch_metadata() -> Dict[str, List[str]]:
-    try:
-        resp = requests.get(f"{BACKEND_URL}/metadata/options", timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        return resp.json()
-    except requests.RequestException:
-        return {
-            "event_types": ["Congestión", "Accidente"],
-            "communes": [],
-            "franjas": ["No definido"],
-            "durations": [],
-            "velocities": [],
-            "vias": [],
-            "total_events": 0,
-            "total_vias": 0,
-            "accident_ratio": 0.0,
-            "bounds": DEFAULT_BOUNDS,
-        }
+def fetch_metadata(profile: str) -> Dict[str, object]:
+    _ = profile
+    return client.metadata()
 
 
 @st.cache_data(show_spinner=False)
-def fetch_hotspots(limit: int = 2000) -> List[Dict[str, float]]:
-    try:
-        resp = requests.get(
-            f"{BACKEND_URL}/metadata/hotspots",
-            params={"limit": limit},
-            timeout=REQUEST_TIMEOUT,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("points", [])
-    except requests.RequestException:
-        return []
+def fetch_hotspots(profile: str) -> List[Dict[str, float]]:
+    _ = profile
+    return client.hotspots().get("points", [])
 
 
-def fetch_dataset_status() -> dict | None:
-    try:
-        resp = requests.get(f"{BACKEND_URL}/system/dataset", timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        return resp.json()
-    except requests.RequestException:
-        return None
+@st.cache_data(show_spinner=False)
+def fetch_demo_scenarios(profile: str) -> List[dict]:
+    _ = profile
+    return client.demo_scenarios().get("scenarios", [])
 
 
-def update_dataset_profile(profile: str) -> dict | None:
-    try:
-        resp = requests.post(
-            f"{BACKEND_URL}/system/dataset",
-            json={"profile": profile},
-            timeout=REQUEST_TIMEOUT,
-        )
-        resp.raise_for_status()
-        return resp.json()
-    except requests.RequestException as err:
-        st.error(f"No se pudo actualizar el perfil de datos: {err}")
-        return None
-
-
-def call_backend(endpoint: str, payload: dict, timeout: float | None = None) -> dict | None:
-    """
-    Llama al backend con un timeout configurable.
-
-    Args:
-        endpoint: Ruta del endpoint (ej: "/routes/optimal")
-        payload: Datos a enviar
-        timeout: Timeout en segundos (usa REQUEST_TIMEOUT por defecto)
-    """
-    timeout_value = timeout if timeout is not None else REQUEST_TIMEOUT
-    try:
-        resp = requests.post(f"{BACKEND_URL}{endpoint}", json=payload, timeout=timeout_value)
-        resp.raise_for_status()
-        return resp.json()
-    except requests.ConnectionError:
-        st.error("No se pudo conectar con el backend. Asegúrate de ejecutar FastAPI en el puerto 8000.")
-    except requests.HTTPError as err:
-        st.error(f"Error del backend: {err.response.text}")
-    except requests.RequestException as err:
-        st.error(f"Ocurrió un error al llamar al backend: {err}")
-    return None
+def clear_backend_cache_views() -> None:
+    fetch_metadata.clear()
+    fetch_hotspots.clear()
+    fetch_demo_scenarios.clear()
 
 
 def init_state() -> None:
+    st.session_state.setdefault("app_ready", False)
+    st.session_state.setdefault("dataset_status", None)
+    st.session_state.setdefault("ready_status", None)
+    st.session_state.setdefault("metadata", None)
+    st.session_state.setdefault("hotspots", [])
+    st.session_state.setdefault("demo_scenarios", [])
     st.session_state.setdefault("route_origin", DEFAULT_ORIGIN.copy())
     st.session_state.setdefault("route_destination", DEFAULT_DESTINATION.copy())
-    st.session_state.setdefault("assign_target", "Origen")
-    st.session_state.setdefault("last_route_result", None)
-    st.session_state.setdefault("bounds", DEFAULT_BOUNDS.copy())
-    st.session_state.setdefault("metadata", None)
-    st.session_state.setdefault("app_ready", False)
-    st.session_state.setdefault("hotspots", [])
-    st.session_state.setdefault("playground_results", None)
-    st.session_state.setdefault("dataset_status", None)
-    st.session_state.setdefault("trip_day", "Monday")
-    st.session_state.setdefault("trip_hour", 8)
+    st.session_state.setdefault("route_bounds", DEFAULT_BOUNDS.copy())
+    st.session_state.setdefault("trip_day", "Wednesday")
+    st.session_state.setdefault("trip_hour", 8.0)
+    st.session_state.setdefault("user_profile", "usuario_demo")
     st.session_state.setdefault("avoid_congestion", True)
     st.session_state.setdefault("avoid_accidents", False)
-    # Configuración de simulación
-    st.session_state.setdefault("num_recommendations", 100)  # Número de recomendaciones CF (aumentado para mejor cobertura)
-    st.session_state.setdefault("routing_timeout", 240)  # Timeout en segundos para routing (aumentado)
-    st.session_state.setdefault("last_num_recommendations", 100)  # Para detectar cambios
+    st.session_state.setdefault("route_result", None)
+    st.session_state.setdefault("playground_results", None)
+    st.session_state.setdefault("playground_profile", None)
+    st.session_state.setdefault("selected_scenario_id", None)
+    st.session_state.setdefault("map_assign_target", "Origen")
 
 
-def reset_locations() -> None:
-    st.session_state["route_origin"] = DEFAULT_ORIGIN.copy()
-    st.session_state["route_destination"] = DEFAULT_DESTINATION.copy()
-    st.session_state["last_route_result"] = None
+def _update_backend_context() -> None:
+    dataset_status = client.dataset_status()
+    profile = dataset_status.get("current", "concepcion")
+    ready_status = client.ready()
+    st.session_state["dataset_status"] = dataset_status
+    st.session_state["ready_status"] = ready_status
+    st.session_state["metadata"] = fetch_metadata(profile)
+    st.session_state["hotspots"] = fetch_hotspots(profile)
+    st.session_state["demo_scenarios"] = fetch_demo_scenarios(profile)
+    bounds = (st.session_state["metadata"] or {}).get("bounds") or DEFAULT_BOUNDS.copy()
+    st.session_state["route_bounds"] = bounds
+    st.session_state["app_ready"] = True
 
 
-def render_overview(metadata: Dict[str, List[str]]) -> None:
-    total_events = metadata.get("total_events", 0)
-    total_vias = metadata.get("total_vias", 0)
-    accident_ratio = metadata.get("accident_ratio", 0.0)
-    bounds = metadata.get("bounds") or DEFAULT_BOUNDS
-    col1, col2, col3 = st.columns(3)
-    col1.markdown(
-        f"<div class='metric-card'><div class='metric-label'>Eventos procesados</div>"
-        f"<div class='metric-value'>{total_events:,}</div></div>",
-        unsafe_allow_html=True,
-    )
-    col2.markdown(
-        f"<div class='metric-card'><div class='metric-label'>Vías monitoreadas</div>"
-        f"<div class='metric-value'>{total_vias:,}</div></div>",
-        unsafe_allow_html=True,
-    )
-    col3.markdown(
-        f"<div class='metric-card'><div class='metric-label'>Ratio de accidentes</div>"
-        f"<div class='metric-value'>{accident_ratio*100:.1f}%</div></div>",
-        unsafe_allow_html=True,
-    )
-    st.caption(
-        f"Cobertura geográfica: lat {bounds['lat_min']:.2f}° a {bounds['lat_max']:.2f}°, "
-        f"lon {bounds['lon_min']:.2f}° a {bounds['lon_max']:.2f}°."
-    )
-
-
-def render_guidelines() -> None:
-    with st.expander("¿Cómo usar la aplicación?", expanded=False):
-        st.markdown(
-            "- Selecciona origen y destino directamente en el mapa o introduce coordenadas precisas.\n"
-            "- Genera la ruta segura y consulta el detalle paso a paso en la tabla.\n"
-            "- Usa el playground colaborativo para comparar UBCF vs IBCF y decidir qué estrategia se ajusta mejor.\n"
-            "- Si el backend no responde, revisa que el servicio FastAPI esté activo en el puerto 8000."
-        )
-
-
-def render_dataset_selector() -> None:
-    status = st.session_state.get("dataset_status") or fetch_dataset_status()
-    if not status:
-        st.warning("No se pudo consultar el perfil de datos actual.")
-        return
-    st.session_state["dataset_status"] = status
-    options = [info["key"] for info in status.get("available", [])]
-    if not options:
-        st.info("No hay perfiles alternativos disponibles.")
-        return
-    labels = {info["key"]: info["label"] for info in status.get("available", [])}
-    current = status.get("current")
+def load_backend_context(force: bool = False) -> bool:
+    if st.session_state.get("app_ready") and not force:
+        return True
+    if force:
+        clear_backend_cache_views()
+        st.session_state["app_ready"] = False
+    progress = st.progress(0)
+    status_box = st.empty()
     try:
-        index = options.index(current)
-    except ValueError:
-        index = 0
-    selection = st.selectbox(
-        "Perfil de datos",
-        options=options,
-        index=index,
-        format_func=lambda key: labels.get(key, key),
-        help="Selecciona el conjunto de ratings que alimenta el filtrado colaborativo.",
-    )
-    if st.button("Aplicar o refrescar perfil", use_container_width=True):
-        with st.spinner("Actualizando fuente de datos en el backend..."):
-            result = update_dataset_profile(selection)
-        if result:
-            st.session_state["dataset_status"] = result
-            st.session_state["playground_results"] = None
-            fetch_hotspots.clear()
-            st.session_state["hotspots"] = fetch_hotspots()
-            action = "refrescado" if selection == current else "actualizado"
-            st.success(f"Perfil {action} a {labels.get(selection, selection)}")
-
-
-def render_sidebar_tools() -> None:
-    st.sidebar.header("Herramientas rápidas")
-    if st.sidebar.button("Restablecer puntos de ruta", use_container_width=True):
-        reset_locations()
-        st.sidebar.success("Coordenadas restauradas a los valores sugeridos.")
-        if hasattr(st, "rerun"):
-            st.rerun()
-        else:  # compatibilidad con versiones anteriores
-            st.experimental_rerun()
-    st.sidebar.caption(
-        "La sección principal permite generar la ruta y comparar estrategias colaborativas (UBCF vs IBCF)."
-    )
-
-
-def validate_coordinates(origin: dict, destination: dict) -> tuple[bool, str]:
-    lat_range = get_lat_range()
-    lon_range = get_lon_range()
-    for label, point in (("Origen", origin), ("Destino", destination)):
-        lat, lon = point["lat"], point["lon"]
-        if not (lat_range[0] <= lat <= lat_range[1]) or not (lon_range[0] <= lon <= lon_range[1]):
-            return (
-                False,
-                f"{label} fuera del polígono soportado ({lat_range[0]}° a {lat_range[1]}°, "
-                f"{lon_range[0]}° a {lon_range[1]}°).",
-            )
-    return True, ""
-
-
-def render_selector_map(origin: dict, destination: dict) -> None:
-    if not origin or not destination:
-        st.warning("Selecciona dos puntos válidos dentro del Biobío.")
-        return
-    st.caption(
-        "El mapa muestra capas claras, oscuras y de relieve. Cambia capas desde el control en la esquina superior derecha."
-    )
-    avg_lat = (origin["lat"] + destination["lat"]) / 2
-    avg_lon = (origin["lon"] + destination["lon"]) / 2
-    selector_map = folium.Map(
-        location=[avg_lat, avg_lon],
-        zoom_start=12,
-        tiles="OpenStreetMap",
-        control_scale=True,
-    )
-    folium.TileLayer("CartoDB positron", name="Clásico", overlay=False).add_to(selector_map)
-    folium.TileLayer(
-        tiles="https://stamen-tiles.a.ssl.fastly.net/toner-lite/{z}/{x}/{y}.png",
-        name="Toner claro",
-        attr="Map tiles by Stamen Design, CC BY 3.0 — Map data © OpenStreetMap contributors",
-        overlay=False,
-    ).add_to(selector_map)
-    folium.LayerControl(collapsed=True).add_to(selector_map)
-    MiniMap(tile_layer="OpenStreetMap", toggle_display=True).add_to(selector_map)
-
-    folium.Marker(
-        location=[origin["lat"], origin["lon"]],
-        tooltip="Origen",
-        draggable=False,
-        icon=BeautifyIcon(
-            icon_shape="marker",
-            number=1,
-            border_color="#0ea5e9",
-            text_color="#0ea5e9",
-            background_color="#ecfeff",
-        ),
-    ).add_to(selector_map)
-    folium.Marker(
-        location=[destination["lat"], destination["lon"]],
-        tooltip="Destino",
-        draggable=False,
-        icon=BeautifyIcon(
-            icon_shape="marker",
-            number=2,
-            border_color="#f97316",
-            text_color="#f97316",
-            background_color="#fff7ed",
-        ),
-    ).add_to(selector_map)
-    assign_target = st.radio(
-        "Asignar último clic a:",
-        options=["Origen", "Destino"],
-        index=0 if st.session_state["assign_target"] == "Origen" else 1,
-        horizontal=True,
-    )
-    st.session_state["assign_target"] = assign_target
-    click_event = st_folium(selector_map, height=360, width=None, key="selector_map")
-    if click_event and click_event.get("last_clicked"):
-        lat = click_event["last_clicked"]["lat"]
-        lon = click_event["last_clicked"]["lng"]
-        if not is_within_bounds(lat, lon):
-            st.warning(
-                "El punto seleccionado está fuera de la red soportada. Elige una ubicación dentro del Biobío."
-            )
-            return
-        target = "route_origin" if assign_target == "Origen" else "route_destination"
-        st.session_state[target] = {"lat": lat, "lon": lon}
-        st.success(f"{assign_target} actualizado a {lat:.5f}, {lon:.5f}")
-
-
-def _build_polyline_points(raw_points: List[Dict[str, float]]) -> List[List[float]]:
-    coords = pd.DataFrame(raw_points).dropna()
-    if coords.empty:
-        return []
-    points = coords[["lat", "lon"]].values.tolist()
-    if len(points) < 2 and points:
-        origin = st.session_state.get("route_origin", DEFAULT_ORIGIN)
-        destination = st.session_state.get("route_destination", DEFAULT_DESTINATION)
-        start = [origin["lat"], origin["lon"]]
-        end = [destination["lat"], destination["lon"]]
-        points = [start, end]
-    return points
-
-
-def render_route_map(route_result: dict) -> None:
-    # Obtener las 3 rutas del backend
-    reference = route_result.get("reference") or {}
-    ubcf = route_result.get("ubcf") or {}
-    ibcf = route_result.get("ibcf") or {}
-
-    # Construir puntos de cada ruta
-    reference_points = _build_polyline_points(reference.get("geometry") or [])
-    ubcf_points = _build_polyline_points(ubcf.get("geometry") or [])
-    ibcf_points = _build_polyline_points(ibcf.get("geometry") or [])
-
-    # Usar cualquier ruta disponible como base para centrar el mapa
-    base_points = reference_points or ubcf_points or ibcf_points
-    if not base_points:
-        st.info("No hay coordenadas suficientes para dibujar las rutas.")
-        return
-    fmap = folium.Map(
-        location=[np.mean([p[0] for p in base_points]), np.mean([p[1] for p in base_points])],
-        zoom_start=14,
-        tiles="CartoDB positron",
-        control_scale=True,
-    )
-    hotspots = st.session_state.get("hotspots") or []
-    selected_day = st.session_state.get("trip_day")
-    if hotspots and selected_day:
-        current_hour = float(st.session_state.get("trip_hour", 8))
-        bucket_label = get_hour_bucket_label(current_hour)
-        heat_data = []
-        for spot in hotspots:
-            day = (spot.get("day") or "").strip()
-            bucket = (spot.get("bucket") or "").strip()
-            start = spot.get("hora_inicio_float")
-            end = spot.get("hora_fin_float")
-            matches_hour = True
-            if start is not None and end is not None:
-                if start <= end:
-                    matches_hour = start <= current_hour <= end
-                else:
-                    matches_hour = current_hour >= start or current_hour <= end
-            if day and day != selected_day:
-                continue
-            if bucket and bucket != bucket_label:
-                continue
-            if not matches_hour:
-                continue
-            if spot.get("lat") is None or spot.get("lon") is None:
-                continue
-            heat_data.append([spot["lat"], spot["lon"], spot.get("weight", 1.0)])
-        if not heat_data:
-            heat_data = [
-                [spot["lat"], spot["lon"], spot.get("weight", 1.0)]
-                for spot in hotspots
-                if spot.get("lat") is not None and spot.get("lon") is not None
-            ]
-        if heat_data:
-            HeatMap(
-                heat_data,
-                radius=15,
-                blur=12,
-                max_zoom=12,
-                gradient={0.2: "blue", 0.4: "cyan", 0.6: "lime", 0.8: "yellow", 1.0: "red"},
-                name=f"Congestiones {bucket_label}",
-            ).add_to(fmap)
-    MiniMap(toggle_display=True, position="bottomright").add_to(fmap)
-
-    def add_route_layer(points: List[List[float]], color: str, name: str, dash: str | None = None, show: bool = True) -> None:
-        if not points:
-            return
-        layer = folium.FeatureGroup(name=name, show=show)
-        folium.PolyLine(
-            points,
-            color=color,
-            weight=7,
-            opacity=0.9,
-            dash_array=dash,
-        ).add_to(layer)
-        layer.add_to(fmap)
-
-    # Agregar las 3 rutas con colores distintivos
-    add_route_layer(reference_points, "#2563eb", "🔵 Ruta Dijkstra (baseline)", dash="8", show=True)
-    add_route_layer(ubcf_points, "#10b981", "🟢 Ruta UBCF (evita incidentes - usuarios similares)", dash=None, show=True)
-    add_route_layer(ibcf_points, "#f97316", "🟠 Ruta IBCF (evita incidentes - vías similares)", dash=None, show=True)
-
-    origin = st.session_state.get("route_origin", DEFAULT_ORIGIN)
-    destination = st.session_state.get("route_destination", DEFAULT_DESTINATION)
-    folium.Marker(
-        [origin["lat"], origin["lon"]],
-        icon=folium.Icon(color="green", icon="play"),
-        tooltip="Inicio",
-    ).add_to(fmap)
-    folium.Marker(
-        [destination["lat"], destination["lon"]],
-        icon=folium.Icon(color="red", icon="stop"),
-        tooltip="Destino",
-    ).add_to(fmap)
-
-    folium.LayerControl(collapsed=False).add_to(fmap)
-    st_folium(fmap, height=700, width=None, use_container_width=True, key="route_map")
-    st.caption(
-        "🔵 **Dijkstra**: Ruta baseline sin preferencias | "
-        "🟢 **UBCF**: Evita incidentes usando usuarios similares | "
-        "🟠 **IBCF**: Evita incidentes usando vías similares. "
-        "Usa el control de capas para activar/desactivar cada ruta."
-    )
-
-
-def render_route_summary(route_result: dict) -> None:
-    """Muestra métricas comparativas de las 3 rutas: Dijkstra, UBCF, IBCF"""
-    reference = route_result.get("reference") or {}
-    ubcf = route_result.get("ubcf") or {}
-    ibcf = route_result.get("ibcf") or {}
-
-    # Extraer métricas de cada ruta
-    def extract_metrics(variant: dict):
-        distance = variant.get("distance_km")
-        duration = variant.get("estimated_duration_min")
-        delay = float(variant.get("extra_delay_min") or 0.0)
-        total_duration = duration + delay if duration is not None else None
-        return distance, duration, delay, total_duration
-
-    ref_distance, ref_duration, ref_delay, ref_total = extract_metrics(reference)
-    ubcf_distance, ubcf_duration, ubcf_delay, ubcf_total = extract_metrics(ubcf)
-    ibcf_distance, ibcf_duration, ibcf_delay, ibcf_total = extract_metrics(ibcf)
-
-    # Calcular diferencias vs Dijkstra baseline
-    ubcf_diff_dist = ubcf_distance - ref_distance if ubcf_distance and ref_distance else None
-    ibcf_diff_dist = ibcf_distance - ref_distance if ibcf_distance and ref_distance else None
-    ubcf_diff_time = ubcf_total - ref_total if ubcf_total and ref_total else None
-    ibcf_diff_time = ibcf_total - ref_total if ibcf_total and ref_total else None
-
-    st.markdown("### 📊 Comparación de Rutas")
-
-    # Mostrar penalizaciones activas
-    penalties_applied = []
-    if st.session_state.get("avoid_congestion"):
-        penalties_applied.append("🚦 Congestiones")
-    if st.session_state.get("avoid_accidents"):
-        penalties_applied.append("⚠️ Accidentes")
-
-    if penalties_applied:
-        st.success(f"✅ Penalizaciones activas: {', '.join(penalties_applied)}")
-    else:
-        st.warning("⚠️ Sin penalizaciones activas - Las rutas UBCF/IBCF solo difieren por preferencias CF")
-
-    # Explicación del cálculo de tiempos
-    with st.expander("ℹ️ Cómo se calculan los tiempos reales", expanded=False):
-        st.markdown("""
-        **Tiempo Base**: Calculado usando la distancia y velocidad promedio (35 km/h)
-
-        **Retrasos por Incidentes**: Se suman automáticamente basándose en:
-        - 📅 **Día de la semana** seleccionado
-        - 🕐 **Hora de salida** seleccionada
-        - 📍 **Congestiones/accidentes** históricos en la ruta que coincidan con ese día/hora
-
-        **Tiempo Real = Tiempo Base + Retrasos por Incidentes**
-
-        ---
-
-        **🔵 Dijkstra (baseline)**: Ruta más corta SIN considerar incidentes al calcular el camino.
-        Los retrasos se suman DESPUÉS para mostrar el tiempo real.
-
-        **🟢 UBCF / 🟠 IBCF**: Rutas que **SÍ evitan activamente** las congestiones/accidentes
-        al calcular el camino (si las penalizaciones están activadas), resultando en menos retrasos.
-
-        **Factores de penalización**:
-        - Congestiones: 4x-400x (según match día/hora)
-        - Accidentes: 2x-200x (según match día/hora)
-        """)
-
-    # Mostrar las 3 rutas en columnas
-    col1, col2, col3 = st.columns(3)
-
-    # Columna 1: Dijkstra baseline
-    with col1:
-        st.markdown("#### 🔵 Dijkstra (baseline)")
-        st.metric(
-            "Distancia",
-            f"{ref_distance:.2f} km" if ref_distance is not None else "N/A",
-        )
-        st.metric(
-            "Duración base",
-            f"{ref_duration:.1f} min" if ref_duration is not None else "N/A",
-        )
-        if ref_delay > 0:
-            st.warning(f"⚠️ **+{ref_delay:.1f} min** de retraso\npor congestiones/accidentes")
-            st.caption(f"🕐 Basado en datos históricos del día/hora seleccionados")
-        else:
-            st.success("✅ Sin congestiones detectadas en esta ruta")
-        if ref_total is not None:
-            st.info(f"⏱️ **Tiempo Real: {ref_total:.1f} min**")
-            st.caption("(incluye retrasos por incidentes)")
-
-    # Columna 2: UBCF
-    with col2:
-        st.markdown("#### 🟢 UBCF (evita incidentes)")
-        st.metric(
-            "Distancia",
-            f"{ubcf_distance:.2f} km" if ubcf_distance is not None else "N/A",
-            delta=f"{ubcf_diff_dist:+.2f} km" if ubcf_diff_dist is not None else None,
-        )
-        st.metric(
-            "Duración base",
-            f"{ubcf_duration:.1f} min" if ubcf_duration is not None else "N/A",
-        )
-        if ubcf_delay > 0:
-            delay_comparison = ""
-            if ref_delay and ref_delay > 0:
-                reduction = ref_delay - ubcf_delay
-                if reduction > 0:
-                    delay_comparison = f" (↓{reduction:.1f} min vs Dijkstra)"
-            st.warning(f"⚠️ +{ubcf_delay:.1f} min por incidentes{delay_comparison}")
-        else:
-            st.success("✅ Evitó todas las congestiones")
-        if ubcf_total is not None:
-            delta_text = f" ({ubcf_diff_time:+.1f} min)" if ubcf_diff_time is not None else ""
-            st.info(f"⏱️ **Tiempo Real: {ubcf_total:.1f} min**{delta_text}")
-            st.caption("(con preferencias de usuarios similares)")
-
-    # Columna 3: IBCF
-    with col3:
-        st.markdown("#### 🟠 IBCF (evita incidentes)")
-        st.metric(
-            "Distancia",
-            f"{ibcf_distance:.2f} km" if ibcf_distance is not None else "N/A",
-            delta=f"{ibcf_diff_dist:+.2f} km" if ibcf_diff_dist is not None else None,
-        )
-        st.metric(
-            "Duración base",
-            f"{ibcf_duration:.1f} min" if ibcf_duration is not None else "N/A",
-        )
-        if ibcf_delay > 0:
-            delay_comparison = ""
-            if ref_delay and ref_delay > 0:
-                reduction = ref_delay - ibcf_delay
-                if reduction > 0:
-                    delay_comparison = f" (↓{reduction:.1f} min vs Dijkstra)"
-            st.warning(f"⚠️ +{ibcf_delay:.1f} min por incidentes{delay_comparison}")
-        else:
-            st.success("✅ Evitó todas las congestiones")
-        if ibcf_total is not None:
-            delta_text = f" ({ibcf_diff_time:+.1f} min)" if ibcf_diff_time is not None else ""
-            st.info(f"⏱️ **Tiempo Real: {ibcf_total:.1f} min**{delta_text}")
-            st.caption("(con preferencias de vías similares)")
-
-    # Mostrar conclusión sobre qué ruta es mejor
-    st.markdown("---")
-    if ubcf_total and ibcf_total and ref_total:
-        times = [
-            ("Dijkstra", ref_total),
-            ("UBCF", ubcf_total),
-            ("IBCF", ibcf_total)
-        ]
-        best_route = min(times, key=lambda x: x[1])
-
-        # Calcular reducción de retrasos
-        delay_reduction_ubcf = ref_delay - ubcf_delay if ref_delay and ubcf_delay else 0
-        delay_reduction_ibcf = ref_delay - ibcf_delay if ref_delay and ibcf_delay else 0
-
-        if best_route[0] != "Dijkstra":
-            time_saved = ref_total - best_route[1]
-            st.success(f"🎯 **{best_route[0]}** es la ruta más rápida, ahorrando **{time_saved:.1f} min** vs Dijkstra!")
-
-            if delay_reduction_ubcf > 0 or delay_reduction_ibcf > 0:
-                st.info(
-                    f"💡 Las rutas personalizadas evitan congestiones: "
-                    f"UBCF redujo **{delay_reduction_ubcf:.1f} min** de retrasos, "
-                    f"IBCF redujo **{delay_reduction_ibcf:.1f} min** de retrasos."
-                )
-        else:
-            st.info("ℹ️ Dijkstra baseline sigue siendo la ruta más rápida en este caso.")
-            if delay_reduction_ubcf > 0 or delay_reduction_ibcf > 0:
-                st.warning(
-                    f"⚠️ Aunque las rutas CF redujeron retrasos por incidentes "
-                    f"(UBCF: {delay_reduction_ubcf:.1f} min, IBCF: {delay_reduction_ibcf:.1f} min), "
-                    f"la mayor distancia hace que sean más lentas que Dijkstra."
-                )
-
-    st.markdown("### 🗺️ Visualización de Rutas")
-    render_route_map(route_result)
-
-
-def render_playground_results(results: Dict[str, List[dict]], strategies: List[str]) -> None:
-    if not strategies:
-        strategies = ["ubcf", "ibcf"]
-    cols = st.columns(len(strategies))
-    for idx, strategy in enumerate(strategies):
-        human_label = strategy.upper()
-        recs = results.get(strategy, [])
-        with cols[idx]:
-            st.markdown(f"#### {human_label}")
-            if not recs:
-                st.caption("Sin recomendaciones para esta estrategia.")
-                continue
-            for rec in recs:
-                st.write(
-                    f"- **{rec['via']}** · puntuación estimada {rec['estimated_rating']:.2f} "
-                    f"({rec['strategy'].upper()})"
-                )
-
-
-def generate_recommendations_automatically():
-    """Genera recomendaciones automáticamente al cargar la app por primera vez"""
-    if "playground_results" not in st.session_state or st.session_state.get("playground_results") is None:
-        # Usar el perfil de usuario seleccionado o el por defecto
-        user_profile = st.session_state.get("user_profile", "usuario_demo")
-        num_recs = st.session_state.get("num_recommendations", 50)
-
-        # Generar recomendaciones automáticamente con el perfil seleccionado
-        default_payload = {
-            "user_id": user_profile,
-            "known_vias": [],
-            "limit": num_recs,  # Usa el valor configurado por el usuario
-            "strategies": ["ubcf", "ibcf"],
-        }
-        try:
-            result = call_backend("/recommendations/playground", default_payload)
-            if result:
-                st.session_state["playground_results"] = result
-                st.session_state["play_user_id"] = user_profile
-                st.session_state["play_known_vias"] = []
-                st.session_state["play_limit"] = num_recs
-                st.session_state["play_strategies"] = ["ubcf", "ibcf"]
-                st.session_state["recommendations_auto_generated"] = True
-                st.session_state["last_user_profile"] = user_profile
-        except Exception as err:
-            pass  # Silencioso, el usuario puede generarlas manualmente si lo desea
-
-
-def playground_section(metadata: Dict[str, List[str]]) -> None:
-    st.subheader("Laboratorio colaborativo (UBCF vs IBCF)")
-
-    # Mostrar si las recomendaciones fueron generadas automáticamente
-    if st.session_state.get("recommendations_auto_generated"):
-        current_profile = st.session_state.get("play_user_id", "usuario_demo")
-        profile_names = {
-            "safety_focused": "🛡️ Seguridad máxima",
-            "usuario_demo": "⚖️ Balanceado",
-            "moderate_risk": "🚗 Moderado",
-            "risk_taker": "⚡ Rápido"
-        }
-        profile_display = profile_names.get(current_profile, current_profile)
-        st.info(f"✅ Recomendaciones generadas automáticamente con perfil: **{profile_display}**. Puedes personalizarlas abajo si lo deseas.")
-
-    vias = metadata.get("vias") or []
-    default_user = st.session_state.get("play_user_id", "usuario_demo")
-    default_known = [via for via in st.session_state.get("play_known_vias", []) if via in vias]
-    default_limit = st.session_state.get("play_limit", 10)
-    default_strategies = st.session_state.get("play_strategies", ["ubcf", "ibcf"])
-
-    with st.expander("🔧 Personalizar recomendaciones (opcional)", expanded=False):
-        with st.form("playground_form"):
-            st.markdown("Cambia estos parámetros solo si quieres personalizar las recomendaciones:")
-
-            # Selector de perfil de usuario en el playground
-            user_id = st.selectbox(
-                "Perfil de viajero",
-                options=["safety_focused", "usuario_demo", "moderate_risk", "risk_taker"],
-                index=["safety_focused", "usuario_demo", "moderate_risk", "risk_taker"].index(default_user) if default_user in ["safety_focused", "usuario_demo", "moderate_risk", "risk_taker"] else 1,
-                format_func=lambda x: {
-                    "safety_focused": "🛡️ Seguridad máxima - Evita vías peligrosas",
-                    "usuario_demo": "⚖️ Balanceado - Seguridad y eficiencia",
-                    "moderate_risk": "🚗 Moderado - Tolera algo de riesgo",
-                    "risk_taker": "⚡ Rápido - Prioriza velocidad"
-                }[x],
-                help="El perfil determina qué vías recomienda el sistema basándose en datos históricos de incidentes."
-            )
-            known_vias = st.multiselect(
-                "Vías ya conocidas (se excluyen de la recomendación)",
-                options=vias,
-                default=default_known,
-                help="Selecciona vías que el usuario ya conoce para forzar recomendaciones frescas.",
-            )
-            limit = st.slider("Cantidad de recomendaciones por estrategia", 1, 15, default_limit)
-            strategies = st.multiselect(
-                "Estrategias a comparar",
-                options=["ubcf", "ibcf"],
-                default=default_strategies or ["ubcf", "ibcf"],
-            )
-            submitted = st.form_submit_button("Regenerar recomendaciones", use_container_width=True)
-
-        if submitted:
-            payload = {
-                "user_id": user_id.strip() or "usuario_demo",
-                "known_vias": known_vias,
-                "limit": limit,
-                "strategies": strategies,
-            }
-            with st.spinner("Calculando recomendaciones colaborativas..."):
-                result = call_backend("/recommendations/playground", payload)
-            if result:
-                st.session_state["playground_results"] = result
-                st.session_state["play_user_id"] = payload["user_id"]
-                st.session_state["play_known_vias"] = known_vias
-                st.session_state["play_limit"] = limit
-                st.session_state["play_strategies"] = strategies
-                st.session_state["recommendations_auto_generated"] = False  # Ya no son auto-generadas
-            else:
-                st.session_state["playground_results"] = None
-    results = st.session_state.get("playground_results")
-    if results:
-        active_strategies = st.session_state.get("play_strategies") or ["ubcf", "ibcf"]
-        st.markdown("#### 📊 Recomendaciones Actuales")
-        render_playground_results(results, active_strategies)
-    else:
-        st.warning("⚠️ No se pudieron generar recomendaciones automáticamente. Usa el formulario arriba para generarlas manualmente.")
-
-
-def collect_route_preferences() -> Dict[str, List[Dict[str, float]]]:
-    """
-    Retorna preferencias separadas por estrategia de CF.
-
-    Estrategia mejorada: Incluye tanto vías a PREFERIR (top ratings) como vías a EVITAR (bottom ratings)
-    para tener mayor cobertura e impacto en el routing.
-
-    Returns:
-        Dict con claves 'ubcf' e 'ibcf', cada una con lista de preferencias
-        Ejemplo: {"ubcf": [{"via": "Ruta A", "weight": 0.8}], "ibcf": [...]}
-    """
-    TOP_PREFS = 20  # Vías con mejores ratings (a preferir)
-    BOTTOM_PREFS = 20  # Vías con peores ratings (a evitar)
-
-    results = st.session_state.get("playground_results") or {}
-
-    # Separar preferencias por estrategia (no promediar)
-    ubcf_prefs = []
-    ibcf_prefs = []
-
-    # Procesar recomendaciones UBCF: TOP (preferir) + BOTTOM (evitar)
-    if "ubcf" in results and len(results["ubcf"]) > 0:
-        ubcf_recs = results["ubcf"]
-
-        # TOP: Mejores vías (ratings altos) → factor bajo (preferir)
-        for rec in ubcf_recs[:TOP_PREFS]:
-            via = rec.get("via")
-            rating = rec.get("estimated_rating")
-            if via and rating is not None:
-                ubcf_prefs.append({
-                    "via": via,
-                    "weight": round(float(rating) / 5.0, 3)
-                })
-
-        # BOTTOM: Peores vías (ratings bajos) → factor alto (evitar)
-        if len(ubcf_recs) > TOP_PREFS:
-            for rec in ubcf_recs[-BOTTOM_PREFS:]:
-                via = rec.get("via")
-                rating = rec.get("estimated_rating")
-                if via and rating is not None:
-                    ubcf_prefs.append({
-                        "via": via,
-                        "weight": round(float(rating) / 5.0, 3)
-                    })
-
-    # Procesar recomendaciones IBCF: TOP (preferir) + BOTTOM (evitar)
-    if "ibcf" in results and len(results["ibcf"]) > 0:
-        ibcf_recs = results["ibcf"]
-
-        # TOP: Mejores vías (ratings altos) → factor bajo (preferir)
-        for rec in ibcf_recs[:TOP_PREFS]:
-            via = rec.get("via")
-            rating = rec.get("estimated_rating")
-            if via and rating is not None:
-                ibcf_prefs.append({
-                    "via": via,
-                    "weight": round(float(rating) / 5.0, 3)
-                })
-
-        # BOTTOM: Peores vías (ratings bajos) → factor alto (evitar)
-        if len(ibcf_recs) > TOP_PREFS:
-            for rec in ibcf_recs[-BOTTOM_PREFS:]:
-                via = rec.get("via")
-                rating = rec.get("estimated_rating")
-                if via and rating is not None:
-                    ibcf_prefs.append({
-                        "via": via,
-                        "weight": round(float(rating) / 5.0, 3)
-                    })
-
-    return {"ubcf": ubcf_prefs, "ibcf": ibcf_prefs}
-
-
-def _has_route_steps(result: dict | None) -> bool:
-    """Verifica si el resultado tiene al menos una ruta válida con steps"""
-    if not result:
+        client.health()
+    except requests.RequestException as err:
+        status_box.error(f"No se pudo conectar al backend FastAPI: {err}")
         return False
-    # Verificar si alguna de las 3 rutas tiene steps
-    reference = result.get("reference")
-    ubcf = result.get("ubcf")
-    ibcf = result.get("ibcf")
-    return bool(
-        (reference and reference.get("steps")) or
-        (ubcf and ubcf.get("steps")) or
-        (ibcf and ibcf.get("steps"))
+    try:
+        bootstrap = client.bootstrap()
+    except requests.RequestException as err:
+        status_box.error(f"No se pudo iniciar el warm-up del backend: {err}")
+        return False
+
+    start = time.time()
+    while time.time() - start < 420:
+        try:
+            ready_status = client.ready()
+            bootstrap = ready_status.get("bootstrap") or client.bootstrap_status()
+        except requests.RequestException as err:
+            status_box.error(f"Error consultando el estado del backend: {err}")
+            return False
+        progress.progress(max(0, min(100, int(bootstrap.get("percent", 0)))))
+        status_box.info(bootstrap.get("message", "Preparando demo..."))
+        if ready_status.get("ready"):
+            _update_backend_context()
+            progress.progress(100)
+            status_box.success(
+                f"Backend listo para demo en {bootstrap.get('duration_ms', 0)} ms "
+                f"con perfil {st.session_state['dataset_status'].get('current_label', 'activo')}."
+            )
+            return True
+        if bootstrap.get("status") == "error":
+            status_box.error(bootstrap.get("message", "Ocurrió un error durante el warm-up."))
+            return False
+        time.sleep(2)
+    status_box.error("El backend demoró demasiado en quedar listo para la demo.")
+    return False
+
+
+def apply_scenario(scenario: dict) -> None:
+    st.session_state["selected_scenario_id"] = scenario.get("id")
+    st.session_state["route_origin"] = scenario.get("origin", DEFAULT_ORIGIN).copy()
+    st.session_state["route_destination"] = scenario.get("destination", DEFAULT_DESTINATION).copy()
+    st.session_state["trip_day"] = scenario.get("day_of_week", "Wednesday")
+    st.session_state["trip_hour"] = float(scenario.get("departure_hour", 8.0))
+    st.session_state["user_profile"] = scenario.get("profile", "usuario_demo")
+    st.session_state["route_result"] = None
+
+
+def render_header() -> None:
+    st.markdown(
+        """
+        <div class="hero-card">
+            <h1 style="margin:0 0 0.4rem 0;">Ruta Segura Explicable · Concepción</h1>
+            <p style="margin:0; font-size:1.05rem;">
+                Demo académica para comparar rutas con <strong>incidentes históricos</strong>,
+                horario de viaje y <strong>perfiles simulados de viajero</strong>.
+                No es una app de tiempo real: el valor está en explicar el tradeoff entre rapidez y exposición.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
 
-def routing_section() -> None:
-    origin = st.session_state["route_origin"]
-    destination = st.session_state["route_destination"]
-    st.subheader("1. Selecciona tu ubicación y destino")
-    map_col, action_col = st.columns((1.3, 0.7), gap="large")
-    with map_col:
-        render_selector_map(origin, destination)
-    with action_col:
-        st.subheader("2. Genera la ruta segura")
-        st.caption(
-            "Usa el mapa para mover los pines de origen/destino y configura el escenario de viaje para ajustar las recomendaciones."
+def render_dataset_controls() -> None:
+    status = st.session_state.get("dataset_status") or client.dataset_status()
+    st.session_state["dataset_status"] = status
+    options = status.get("available", [])
+    profile_keys = [item["key"] for item in options]
+    labels = {item["key"]: item["label"] for item in options}
+    current = status.get("current", "concepcion")
+    selected = st.selectbox(
+        "Alcance geográfico",
+        options=profile_keys,
+        index=profile_keys.index(current) if current in profile_keys else 0,
+        format_func=lambda key: labels.get(key, key),
+        help="Concepción es el modo principal de la demo. El modo regional queda como cobertura secundaria.",
+    )
+    if st.button("Aplicar perfil de datos", use_container_width=True):
+        try:
+            client.set_dataset(selected)
+            clear_backend_cache_views()
+            st.session_state["app_ready"] = False
+            st.session_state["playground_results"] = None
+            load_backend_context(force=True)
+            st.rerun()
+        except requests.RequestException as err:
+            st.error(f"No se pudo cambiar el perfil: {err}")
+    if current == "regional":
+        st.warning("La cobertura regional se mantiene como vista secundaria y puede tener más ruido de datos.")
+
+
+def render_data_quality_panel() -> None:
+    ready_status = st.session_state.get("ready_status") or {}
+    quality = ((ready_status.get("bootstrap") or {}).get("quality")) or {}
+    if not quality:
+        return
+    warnings = quality.get("warnings") or []
+    notes = quality.get("notes") or []
+    counts = quality.get("raw_counts") or {}
+    date_range = quality.get("date_range") or {}
+
+    card_class = "warning-card" if warnings else "info-card"
+    st.markdown(
+        f"""
+        <div class="{card_class}">
+            <div class="metric-title">Evidencia de datos</div>
+            <div style="margin-top:0.3rem;">
+                Perfil: <strong>{quality.get('dataset_profile', 'desconocido')}</strong> ·
+                Incidentes analizados: <strong>{counts.get('combined', 0):,}</strong> ·
+                Cobertura: <strong>{date_range.get('start', 'N/D')} a {date_range.get('end', 'N/D')}</strong>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if warnings:
+        for item in warnings:
+            st.warning(item)
+    if notes:
+        for note in notes:
+            st.caption(note)
+
+
+def render_overview_metrics() -> None:
+    metadata = st.session_state.get("metadata") or {}
+    quality = (((st.session_state.get("ready_status") or {}).get("bootstrap") or {}).get("quality")) or {}
+    counts = quality.get("raw_counts") or {}
+    cols = st.columns(4)
+    metrics = [
+        ("Eventos visibles", f"{metadata.get('total_events', 0):,}"),
+        ("Vías monitoreadas", f"{metadata.get('total_vias', 0):,}"),
+        ("Incidentes crudos", f"{counts.get('combined', 0):,}"),
+        ("Cobertura temporal", f"{(quality.get('date_range') or {}).get('days', 0)} días"),
+    ]
+    for col, (title, value) in zip(cols, metrics):
+        col.markdown(
+            f"<div class='metric-card'><div class='metric-title'>{title}</div><div class='metric-value'>{value}</div></div>",
+            unsafe_allow_html=True,
         )
-        selected_day = st.selectbox(
+
+
+def render_context_block() -> None:
+    st.subheader("1. Contexto del viaje")
+    scenarios = st.session_state.get("demo_scenarios") or []
+    scenario_options = {scenario["title"]: scenario for scenario in scenarios}
+    left, right = st.columns((1.1, 0.9), gap="large")
+    with left:
+        if scenario_options:
+            current_scenario = st.session_state.get("selected_scenario_id")
+            titles = list(scenario_options.keys())
+            default_index = 0
+            if current_scenario:
+                for idx, item in enumerate(scenarios):
+                    if item.get("id") == current_scenario:
+                        default_index = idx
+                        break
+            selected_title = st.selectbox(
+                "Escenario curado",
+                options=titles,
+                index=default_index,
+                help="Escenarios listos para una demo de 3 minutos.",
+            )
+            scenario = scenario_options[selected_title]
+            st.caption(scenario.get("description", ""))
+            if st.button("Aplicar escenario", use_container_width=True):
+                apply_scenario(scenario)
+                st.rerun()
+            st.info(f"Foco sugerido: {scenario.get('recommended_focus', '')}")
+
+        profile_key = st.selectbox(
+            "Perfil simulado de viajero",
+            options=PROFILE_ORDER,
+            index=PROFILE_ORDER.index(st.session_state.get("user_profile", "usuario_demo")),
+            format_func=lambda key: TRAVELER_PROFILES[key]["label"],
+            key="user_profile",
+        )
+        profile = TRAVELER_PROFILES[profile_key]
+        st.caption(profile["description"])
+        st.caption(profile["intent"])
+
+        st.selectbox(
             "Día del viaje",
             options=[code for code, _ in DAY_CHOICES],
             format_func=lambda code: DAY_LABELS[code],
-            index=[code for code, _ in DAY_CHOICES].index(st.session_state.get("trip_day", "Monday")),
+            index=[code for code, _ in DAY_CHOICES].index(st.session_state.get("trip_day", "Wednesday")),
             key="trip_day",
         )
-        departure_hour = st.slider(
-            "Hora de salida (0-23h)",
-            min_value=0,
-            max_value=23,
-            value=st.session_state.get("trip_hour", 8),
+        st.slider(
+            "Hora de salida",
+            min_value=0.0,
+            max_value=23.0,
+            value=float(st.session_state.get("trip_hour", 8.0)),
+            step=1.0,
             key="trip_hour",
         )
+        st.toggle("Evitar congestiones históricas", value=st.session_state.get("avoid_congestion", True), key="avoid_congestion")
+        st.toggle("Evitar accidentes históricos", value=st.session_state.get("avoid_accidents", False), key="avoid_accidents")
 
-        # Selector de perfil de viajero
-        with st.expander("ℹ️ ¿Qué es el perfil de viajero?", expanded=False):
-            st.markdown("""
-            Tu **perfil de viajero** determina qué vías recomienda el sistema según tu tolerancia al riesgo:
-
-            - 🛡️ **Seguridad máxima**: Evita completamente vías con historial de accidentes/congestiones
-            - ⚖️ **Balanceado**: Equilibrio entre seguridad y eficiencia (recomendado)
-            - 🚗 **Moderado**: Tolera algo de riesgo para rutas más directas
-            - ⚡ **Rápido**: Prioriza velocidad, tolera vías con más incidentes
-
-            Los perfiles se basan en **datos históricos reales** de 121,332 incidentes en la región del Biobío.
-            """)
-
-        user_profile = st.selectbox(
-            "Perfil de viajero",
-            options=["safety_focused", "usuario_demo", "moderate_risk", "risk_taker"],
-            index=["safety_focused", "usuario_demo", "moderate_risk", "risk_taker"].index(
-                st.session_state.get("user_profile", "usuario_demo")
-            ),
-            format_func=lambda x: {
-                "safety_focused": "🛡️ Seguridad máxima",
-                "usuario_demo": "⚖️ Balanceado",
-                "moderate_risk": "🚗 Moderado",
-                "risk_taker": "⚡ Rápido"
-            }[x],
-            key="user_profile",
-        )
-
-        # Configuración avanzada de simulación
-        with st.expander("⚙️ Configuración avanzada de simulación", expanded=False):
-            st.markdown("""
-            Ajusta estos parámetros para controlar el balance entre **precisión** y **velocidad** de cálculo:
-
-            - **Recomendaciones**: Más recomendaciones = rutas más personalizadas pero cálculo más lento
-            - **Timeout**: Tiempo máximo de espera para el cálculo de rutas
-            """)
-
-            num_recommendations = st.slider(
-                "🔢 Número de recomendaciones por algoritmo",
-                min_value=10,
-                max_value=200,
-                value=st.session_state.get("num_recommendations", 100),
-                step=10,
-                key="num_recommendations",
-                help="Cantidad de vías recomendadas por UBCF/IBCF. Más = mejor cobertura de rutas pero cálculo más lento."
-            )
-
-            routing_timeout = st.slider(
-                "⏱️ Timeout de cálculo (segundos)",
-                min_value=60,
-                max_value=600,
-                value=st.session_state.get("routing_timeout", 240),
-                step=30,
-                key="routing_timeout",
-                help="Tiempo máximo de espera para calcular las 3 rutas. Aumenta si tienes timeouts."
-            )
-
-            # Estimación de tiempo (más conservadora)
-            estimated_time = num_recommendations * 1.0  # ~1 seg por recomendación (conservador)
-            coverage_estimate = min(100, num_recommendations * 0.5)  # Estimación de cobertura de vías
-
-            st.caption(f"📊 Cobertura estimada de vías en la ruta: ~{coverage_estimate:.0f}%")
-
-            if estimated_time > routing_timeout:
-                st.warning(f"⚠️ Tiempo estimado ({estimated_time:.0f}s) excede el timeout ({routing_timeout}s). Considera aumentar el timeout.")
-            else:
-                st.info(f"✅ Tiempo estimado: {estimated_time:.0f}s (timeout: {routing_timeout}s)")
-
-        # Regenerar recomendaciones si cambiaron parámetros críticos
-        profile_changed = st.session_state.get("last_user_profile") != user_profile
-        num_recs_changed = st.session_state.get("last_num_recommendations") != st.session_state.get("num_recommendations")
-
-        if profile_changed:
-            st.info(f"📝 Perfil cambiado a **{user_profile}**. Se regenerarán las recomendaciones.")
-            # Limpiar recomendaciones antiguas para forzar regeneración
-            if "playground_results" in st.session_state:
-                del st.session_state["playground_results"]
-            st.session_state["last_user_profile"] = user_profile
-
-        if num_recs_changed:
-            st.info(f"🔢 Número de recomendaciones cambiado a **{st.session_state.get('num_recommendations')}**. Se regenerarán las recomendaciones.")
-            # Limpiar recomendaciones antiguas para forzar regeneración
-            if "playground_results" in st.session_state:
-                del st.session_state["playground_results"]
-            st.session_state["last_num_recommendations"] = st.session_state.get("num_recommendations")
-
-        # Penalizaciones de incidentes
-        with st.expander("ℹ️ ¿Qué hacen estas opciones?", expanded=False):
-            st.markdown("""
-            Estas opciones controlan si las rutas UBCF/IBCF **evitan activamente** vías con incidentes históricos:
-
-            - **Evitar congestiones**: Penaliza vías con historial de congestiones (factor 4x-400x)
-            - **Evitar accidentes**: Penaliza vías con historial de accidentes (factor 2x-200x)
-
-            ⚠️ **Importante**: Si ambas están desactivadas, las rutas solo diferirán por las preferencias CF.
-            La ruta Dijkstra (baseline) **NUNCA** evita incidentes - siempre usa el camino más corto.
-
-            💡 **Recomendación**: Activa al menos una opción para ver diferencias significativas entre las 3 rutas.
-            """)
-
-        col1, col2 = st.columns(2)
-        with col1:
-            avoid_congestion = st.checkbox(
-                "🚦 Evitar congestiones",
-                key="avoid_congestion",
-                value=st.session_state.get("avoid_congestion", True),
-                help="UBCF/IBCF evitarán vías con historial de congestiones (4x-400x penalización)"
-            )
-        with col2:
-            avoid_accidents = st.checkbox(
-                "⚠️ Evitar accidentes",
-                key="avoid_accidents",
-                value=st.session_state.get("avoid_accidents", False),
-                help="UBCF/IBCF evitarán vías con historial de accidentes (2x-200x penalización)"
-            )
-
-        # Advertencia si ambas están desactivadas
-        if not avoid_congestion and not avoid_accidents:
-            st.warning("⚠️ Sin penalizaciones activas. Las rutas UBCF/IBCF solo diferirán por preferencias CF (puede generar rutas muy similares).")
-        else:
-            penalties = []
-            if avoid_congestion:
-                penalties.append("congestiones")
-            if avoid_accidents:
-                penalties.append("accidentes")
-            st.info(f"✅ Penalizando: {' y '.join(penalties)}")
-
-        generate_clicked = st.button("Generar ruta segura", use_container_width=True)
-
-    results_container = st.container()
-    last_route = st.session_state.get("last_route_result")
-
-    if generate_clicked:
+    with right:
         origin = st.session_state["route_origin"]
         destination = st.session_state["route_destination"]
-        valid, message = validate_coordinates(origin, destination)
-        if not valid:
-            st.warning(message)
-            return
-
-        # Obtener preferencias separadas por estrategia
-        prefs = collect_route_preferences()
-
-        # Informar al usuario si no hay preferencias CF
-        if not prefs.get("ubcf") and not prefs.get("ibcf"):
-            st.warning(
-                "⚠️ **No se encontraron recomendaciones**: Las rutas UBCF e IBCF solo usarán penalizaciones de incidentes "
-                "(no incluirán preferencias personales de filtrado colaborativo). "
-                "Esto debería generarse automáticamente. Si no ves recomendaciones, revisa el Playground Colaborativo más abajo."
-            )
-
-        # Usar timeout configurado por el usuario
-        timeout = st.session_state.get("routing_timeout", 180)
-        num_recs = st.session_state.get("num_recommendations", 50)
-
-        with st.spinner(f"Calculando rutas (Dijkstra, UBCF, IBCF)... Usando {num_recs} recomendaciones, timeout: {timeout}s"):
-            route_payload = {
-                "origin": origin,
-                "destination": destination,
-                "preferences": [],  # Legacy field (vacío para nueva implementación)
-                "ubcf_preferences": prefs.get("ubcf", []),
-                "ibcf_preferences": prefs.get("ibcf", []),
-                "day_of_week": st.session_state.get("trip_day", "Monday"),
-                "departure_hour": float(st.session_state.get("trip_hour", 8)),
-                "avoid_congestion": avoid_congestion,
-                "avoid_accidents": avoid_accidents,
+        st.markdown("**Coordenadas manuales**")
+        point_cols = st.columns(2)
+        with point_cols[0]:
+            st.number_input("Origen lat", key="origin_lat", value=float(origin["lat"]), format="%.5f")
+            st.number_input("Origen lon", key="origin_lon", value=float(origin["lon"]), format="%.5f")
+        with point_cols[1]:
+            st.number_input("Destino lat", key="destination_lat", value=float(destination["lat"]), format="%.5f")
+            st.number_input("Destino lon", key="destination_lon", value=float(destination["lon"]), format="%.5f")
+        if st.button("Aplicar coordenadas manuales", use_container_width=True):
+            st.session_state["route_origin"] = {
+                "lat": float(st.session_state["origin_lat"]),
+                "lon": float(st.session_state["origin_lon"]),
             }
-            route_result = call_backend("/routes/optimal", route_payload, timeout=timeout)
+            st.session_state["route_destination"] = {
+                "lat": float(st.session_state["destination_lat"]),
+                "lon": float(st.session_state["destination_lon"]),
+            }
+            st.session_state["route_result"] = None
+            st.rerun()
+        st.caption("También puedes usar el mapa para asignar el próximo clic al origen o al destino.")
+        render_selector_map(st.session_state["route_origin"], st.session_state["route_destination"])
 
-        if _has_route_steps(route_result):
-            st.session_state["last_route_result"] = route_result
-            with results_container:
-                render_route_summary(route_result)
-        else:
-            st.session_state["last_route_result"] = None
-            st.error("No se pudo construir la ruta. Ajusta los puntos y vuelve a intentar.")
-    elif _has_route_steps(last_route):
-        with results_container:
-            render_route_summary(last_route)
+
+def render_selector_map(origin: dict, destination: dict) -> None:
+    avg_lat = (origin["lat"] + destination["lat"]) / 2
+    avg_lon = (origin["lon"] + destination["lon"]) / 2
+    fmap = folium.Map(location=[avg_lat, avg_lon], zoom_start=13, tiles="CartoDB positron", control_scale=True)
+    MiniMap(toggle_display=True).add_to(fmap)
+    folium.Marker([origin["lat"], origin["lon"]], tooltip="Origen", icon=folium.Icon(color="green", icon="play")).add_to(fmap)
+    folium.Marker([destination["lat"], destination["lon"]], tooltip="Destino", icon=folium.Icon(color="red", icon="stop")).add_to(fmap)
+    assign_target = st.radio(
+        "Asignar siguiente clic a",
+        options=["Origen", "Destino"],
+        horizontal=True,
+        index=0 if st.session_state.get("map_assign_target", "Origen") == "Origen" else 1,
+    )
+    st.session_state["map_assign_target"] = assign_target
+    click_event = st_folium(fmap, height=320, width=None, key="selector_map")
+    if click_event and click_event.get("last_clicked"):
+        target = "route_origin" if assign_target == "Origen" else "route_destination"
+        st.session_state[target] = {
+            "lat": float(click_event["last_clicked"]["lat"]),
+            "lon": float(click_event["last_clicked"]["lng"]),
+        }
+        st.success(f"{assign_target} actualizado desde el mapa.")
+
+
+def _build_polyline_points(raw_points: List[Dict[str, float]]) -> List[List[float]]:
+    if not raw_points:
+        return []
+    return [[float(point["lat"]), float(point["lon"])] for point in raw_points if point.get("lat") is not None and point.get("lon") is not None]
+
+
+def render_route_map(route_result: dict) -> None:
+    st.subheader("2. Mapa comparativo")
+    reference_points = _build_polyline_points((route_result.get("reference") or {}).get("geometry") or [])
+    ubcf_points = _build_polyline_points((route_result.get("ubcf") or {}).get("geometry") or [])
+    ibcf_points = _build_polyline_points((route_result.get("ibcf") or {}).get("geometry") or [])
+    base_points = reference_points or ubcf_points or ibcf_points
+    if not base_points:
+        st.info("No hay geometría disponible para dibujar la ruta.")
+        return
+    fmap = folium.Map(location=base_points[0], zoom_start=13, tiles="CartoDB positron", control_scale=True)
+    hotspots = st.session_state.get("hotspots") or []
+    if hotspots:
+        heat_data = [[spot["lat"], spot["lon"], spot.get("weight", 1.0)] for spot in hotspots if spot.get("lat") is not None and spot.get("lon") is not None]
+        if heat_data:
+            HeatMap(heat_data, radius=14, blur=12, max_zoom=12, name="Incidentes históricos").add_to(fmap)
+    for variant, points, color, dash in [
+        ("reference", reference_points, "#2563eb", "8"),
+        ("ubcf", ubcf_points, "#16a34a", None),
+        ("ibcf", ibcf_points, "#f97316", None),
+    ]:
+        if points:
+            folium.PolyLine(
+                points,
+                color=color,
+                weight=7,
+                opacity=0.9,
+                dash_array=dash,
+                tooltip=VARIANT_META[variant]["label"],
+            ).add_to(fmap)
+    origin = st.session_state["route_origin"]
+    destination = st.session_state["route_destination"]
+    folium.Marker([origin["lat"], origin["lon"]], tooltip="Origen", icon=folium.Icon(color="green")).add_to(fmap)
+    folium.Marker([destination["lat"], destination["lon"]], tooltip="Destino", icon=folium.Icon(color="red")).add_to(fmap)
+    folium.LayerControl(collapsed=False).add_to(fmap)
+    st_folium(fmap, height=620, width=None, use_container_width=True, key="route_map")
+    st.caption("Capas: ruta base, variantes colaborativas e intensidad de incidentes históricos.")
+
+
+def render_explanation_block(route_result: dict) -> None:
+    st.subheader("3. Tarjetas de explicación")
+    highlight_cols = st.columns(4)
+    for col, item in zip(highlight_cols, comparison_highlights(route_result)):
+        col.markdown(
+            f"<div class='info-card'><div class='metric-title'>{item['title']}</div><div class='metric-value' style='font-size:1.2rem'>{item['label']}</div></div>",
+            unsafe_allow_html=True,
+        )
+
+    cards = variant_summary_cards(route_result)
+    card_cols = st.columns(len(cards))
+    for col, card in zip(card_cols, cards):
+        with col:
+            st.markdown(f"#### {card['label']}")
+            st.caption(card["story"])
+            st.metric("Tiempo total", f"{card['total_minutes']:.1f} min")
+            st.metric("Distancia", f"{card['distance_km']:.2f} km")
+            st.metric("Riesgo", f"{card['risk_score']:.1f}/100")
+            st.metric("Exposición", f"{card['matched_incidents']} segmentos")
+            for reason in card["why_changed"]:
+                st.write(f"- {reason}")
+            penalized = card["top_penalized_segments"][:2]
+            preferred = card["top_preferred_vias"][:2]
+            if penalized:
+                st.caption("Segmentos conflictivos")
+                for item in penalized:
+                    st.write(f"- {item['via']} · {item['event_type']} · impacto {item['impact_score']:.1f}")
+            if preferred:
+                st.caption("Vías destacadas por el perfil")
+                for item in preferred:
+                    st.write(f"- {item['via']} · factor {item['factor']:.2f}")
+
+
+def render_evidence_block() -> None:
+    st.subheader("4. Evidencia de datos y modelo")
+    metadata = st.session_state.get("metadata") or {}
+    quality = (((st.session_state.get("ready_status") or {}).get("bootstrap") or {}).get("quality")) or {}
+    profile = TRAVELER_PROFILES[st.session_state.get("user_profile", "usuario_demo")]
+
+    left, right = st.columns((1.1, 0.9), gap="large")
+    with left:
+        st.markdown("**Lo que sostiene la demo**")
+        st.markdown(
+            f"- Perfil activo: **{st.session_state.get('dataset_status', {}).get('current_label', 'Concepción')}**"
+            f"\n- Días cubiertos: **{(quality.get('date_range') or {}).get('days', 0)}**"
+            f"\n- Vías visibles: **{metadata.get('total_vias', 0):,}**"
+            f"\n- Perfil simulado: **{profile['short_label']}**"
+        )
+        render_profile_recommendations()
+    with right:
+        st.markdown("**Límites conocidos**")
+        st.markdown(
+            "- Datos históricos de julio de 2025.\n"
+            "- No hay tiempo real ni trazas reales de usuarios.\n"
+            "- Los perfiles de viajero son sintéticos y se usan para comparar estrategias.\n"
+            "- La cobertura regional puede incluir más ruido en etiquetas de red vial."
+        )
+        if quality.get("anomalous_communes"):
+            st.caption("Etiquetas anómalas detectadas en la red: " + ", ".join(quality["anomalous_communes"][:5]))
+
+
+def load_profile_recommendations(force: bool = False) -> dict | None:
+    profile = st.session_state.get("user_profile", "usuario_demo")
+    if not force and st.session_state.get("playground_results") and st.session_state.get("playground_profile") == profile:
+        return st.session_state.get("playground_results")
+    payload = {
+        "user_id": profile,
+        "known_vias": [],
+        "limit": 12,
+        "strategies": ["ubcf", "ibcf"],
+    }
+    try:
+        result = client.playground(payload)
+    except requests.RequestException as err:
+        st.error(f"No se pudieron cargar rankings de vías para el perfil simulado: {err}")
+        return None
+    st.session_state["playground_results"] = result
+    st.session_state["playground_profile"] = profile
+    return result
+
+
+def build_route_preferences(results: dict | None) -> Dict[str, List[Dict[str, float]]]:
+    preferences = {"ubcf": [], "ibcf": []}
+    if not results:
+        return preferences
+    for strategy in ["ubcf", "ibcf"]:
+        recs = results.get(strategy) or []
+        selected = (recs[:8] + recs[-4:]) if len(recs) > 8 else recs
+        for item in selected:
+            rating = float(item.get("estimated_rating", 0.0))
+            preferences[strategy].append(
+                {
+                    "via": item["via"],
+                    "weight": round(max(0.0, min(1.0, rating / 5.0)), 3),
+                }
+            )
+    return preferences
+
+
+def render_profile_recommendations() -> None:
+    results = load_profile_recommendations(force=False)
+    if not results:
+        return
+    st.markdown("**Ranking de vías por perfil simulado**")
+    cols = st.columns(2)
+    for col, strategy in zip(cols, ["ubcf", "ibcf"]):
+        with col:
+            st.caption(VARIANT_META[strategy]["label"])
+            for item in (results.get(strategy) or [])[:5]:
+                st.write(f"- {item['via']} · score {item['estimated_rating']:.2f}")
+
+
+def generate_route() -> None:
+    recommendations = load_profile_recommendations(force=True)
+    prefs = build_route_preferences(recommendations)
+    payload = {
+        "origin": st.session_state["route_origin"],
+        "destination": st.session_state["route_destination"],
+        "preferences": [],
+        "ubcf_preferences": prefs.get("ubcf", []),
+        "ibcf_preferences": prefs.get("ibcf", []),
+        "day_of_week": st.session_state.get("trip_day", "Wednesday"),
+        "departure_hour": float(st.session_state.get("trip_hour", 8.0)),
+        "avoid_congestion": st.session_state.get("avoid_congestion", True),
+        "avoid_accidents": st.session_state.get("avoid_accidents", False),
+    }
+    try:
+        st.session_state["route_result"] = client.optimal_route(payload, timeout=max(REQUEST_TIMEOUT, 240))
+    except requests.HTTPError as err:
+        detail = err.response.text if err.response is not None else str(err)
+        st.error(f"El backend rechazó la simulación: {detail}")
+    except requests.RequestException as err:
+        st.error(f"No se pudo calcular la ruta: {err}")
 
 
 def main() -> None:
-    st.set_page_config(page_title="Ruta segura Biobío", page_icon="🧭", layout="wide")
+    st.set_page_config(page_title="Ruta Segura Explicable", page_icon="🧭", layout="wide")
     set_page_style()
-    st.title("🧭 Ruta Segura Biobío")
-    st.write(
-        "Planifica recorridos con datos actualizados de congestiones y accidentes. "
-        "La ruta que generes prioriza la seguridad ajustando los pesos del grafo vial."
-    )
     init_state()
-    render_sidebar_tools()
-    if not st.session_state.get("app_ready"):
-        st.info("Carga el backend cuando estés listo para trabajar con la red vial del Biobío.")
-        render_dataset_selector()
-        if st.button("Cargar datos de la Región del Biobío", type="primary", use_container_width=True):
-            with st.spinner("Consultando backend y preparando datos..."):
-                if load_backend_data(force=True):
-                    st.rerun()
+    render_header()
+
+    if not load_backend_context(force=False):
         st.stop()
-    metadata = st.session_state.get("metadata") or fetch_metadata()
 
-    # Generar recomendaciones automáticamente al cargar la app (solo la primera vez)
-    generate_recommendations_automatically()
+    top_cols = st.columns((0.75, 0.25), gap="large")
+    with top_cols[0]:
+        render_overview_metrics()
+    with top_cols[1]:
+        render_dataset_controls()
+        if st.button("Refrescar evidencia", use_container_width=True):
+            load_backend_context(force=True)
+            st.rerun()
 
-    cols = st.columns([1, 3])
-    if cols[0].button("Actualizar datos", use_container_width=True):
-        with st.spinner("Refrescando datos del backend..."):
-            if load_backend_data(force=True):
-                st.rerun()
-    render_overview(metadata)
-    render_dataset_selector()
-    render_guidelines()
-    routing_section()
-    st.divider()
-    playground_section(metadata)
+    render_data_quality_panel()
+    render_context_block()
+
+    if st.button("Generar comparación de rutas", type="primary", use_container_width=True):
+        generate_route()
+
+    route_result = st.session_state.get("route_result")
+    if route_result:
+        render_route_map(route_result)
+        render_explanation_block(route_result)
+
+    render_evidence_block()
 
 
 if __name__ == "__main__":

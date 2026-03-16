@@ -62,6 +62,39 @@ def test_routing_service_rebuilds_on_new_signature(monkeypatch):
     assert seen_signatures == signature_values
 
 
+def test_routing_service_uses_cache_without_loading_events(monkeypatch):
+    service = routing_service.RoutingService()
+
+    class DummyGraph:
+        def __init__(self):
+            self.nodes = {"node": None}
+
+    load_calls = {"count": 0}
+    signature = ("sig", 1, 1)
+
+    def fake_load_raw_events():
+        load_calls["count"] += 1
+        return _event_dataframe()
+
+    monkeypatch.setattr(routing_service.data_loader, "data_version", lambda: signature)
+    monkeypatch.setattr(routing_service.data_loader, "load_raw_events", fake_load_raw_events)
+    monkeypatch.setattr(
+        routing_service,
+        "_load_graph_cache",
+        lambda current_signature: {
+            "graph": DummyGraph(),
+            "segment_lookup": {"segA": {0: (-36.0, -73.0)}},
+        } if current_signature == signature else None,
+    )
+
+    service._build_structures()
+
+    assert load_calls["count"] == 0
+    assert service.events is None
+    assert service.graph is not None
+    assert service.segment_lookup == {"segA": {0: (-36.0, -73.0)}}
+
+
 def test_default_factor_remains_neutral_when_preferences_present(monkeypatch):
     service = routing_service.RoutingService()
 

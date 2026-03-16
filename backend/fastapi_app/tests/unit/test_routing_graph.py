@@ -149,3 +149,14 @@ def test_congestion_penalty_forces_alternate_path():
     )
     vias = [step.via for step in path]
     assert "Via Congestionada" not in vias
+
+
+def test_nearest_node_uses_spatial_index_and_exclude():
+    df = _base_segment(oneway=False)
+    graph = routing.RouteGraph.from_events(df)
+
+    source = graph.nearest_node(-36.82, -73.05)
+    target = graph.nearest_node(-36.82, -73.05, exclude={source.node_id})
+
+    assert source.node_id == "segA::0"
+    assert target.node_id == "segA::1"

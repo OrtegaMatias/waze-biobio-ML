@@ -7,34 +7,38 @@ services:
       target: backend
     environment:
       PYTHONPATH: /app
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health', timeout=5)",
-        ]
-      interval: 20s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     restart: unless-stopped
     volumes:
-      - ./data:/app/data
+      - ./data/raw:/app/data/raw:ro
+      - ./data/processed:/app/data/processed:ro
+      - backend_cache:/app/data/cache
 
   frontend:
     build:
       context: .
       target: frontend
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     environment:
       BACKEND_TIMEOUT: "${BACKEND_TIMEOUT:-180}"
       BACKEND_URL: http://backend:8000
     ports:
       - "${FRONTEND_PORT:-8501}:8501"
     restart: unless-stopped
+
+  frontend_react:
+    build:
+      context: .
+      target: react
+    depends_on:
+      - backend
+    environment:
+      VITE_BACKEND_URL: http://backend:8000
+    ports:
+      - "${FRONTEND_REACT_PORT:-3000}:3000"
+    restart: unless-stopped
+
+volumes:
+  backend_cache:

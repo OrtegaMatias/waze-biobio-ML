@@ -7,6 +7,11 @@ def test_available_profiles_include_concepcion():
     assert "concepcion" in profile_keys
 
 
+def test_default_profile_is_concepcion():
+    assert dataset.get_profile() == "concepcion"
+    assert data_loader.get_data_profile() == "concepcion"
+
+
 def test_set_profile_switches_ratings_path():
     original = dataset.get_profile()
     try:

@@ -10,4 +10,6 @@
 .venv
 .mypy_cache
 .ruff_cache
-data
+data/cache
+frontend/react_app/node_modules
+frontend/react_app/dist

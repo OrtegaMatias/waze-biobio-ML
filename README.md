@@ -1,63 +1,137 @@
 # waze-biobio-ML
 
-Sistema tipo Waze para la Región del Biobío que combina:
+Demo académica de **ruta segura explicable** para **Concepción y entorno**.
 
-- recomendaciones colaborativas de vías (`UBCF` e `IBCF`)
-- cálculo de rutas con Dijkstra
-- penalizaciones por congestiones y accidentes
-- una API en FastAPI y una interfaz interactiva en Streamlit
+La app no intenta reemplazar a Waze ni trabajar con datos en vivo. Su valor está en mostrar, de forma clara, cómo cambian las rutas cuando combinamos:
 
-## Qué incluye
+- incidentes históricos
+- horario de viaje
+- perfiles simulados de viajero
+- comparación entre ruta base, UBCF e IBCF
 
-| Componente | Ubicación | Función |
-| --- | --- | --- |
-| Datos | `data/` | CSV crudos, datasets procesados y cache persistente |
-| Algoritmos | `algorithms/recommenders/` | Carga de datos, filtrado colaborativo y ruteo |
-| Backend | `backend/fastapi_app/` | API FastAPI para metadatos, recomendaciones y rutas |
-| Frontend | `frontend/streamlit_app/` | Playground visual para probar recomendaciones y trayectos |
-| Scripts | `scripts/dev/` | Utilidades para regenerar red vial y ratings |
+## Qué muestra la demo
+
+La interfaz principal quedó organizada en 4 bloques:
+
+1. **Contexto del viaje**
+   Escenario curado o coordenadas manuales, día, hora y perfil simulado.
+2. **Mapa comparativo**
+   Ruta base, UBCF, IBCF y capa de incidentes históricos.
+3. **Tarjetas de explicación**
+   Tiempo total, riesgo, exposición y razones de cambio por variante.
+4. **Evidencia de datos y modelo**
+   Calidad de datos, ranking de vías por perfil y límites conocidos.
+
+## Idea central del producto
+
+La demo está pensada para presentación académica, tesis o portafolio técnico:
+
+- **Concepción** es el alcance principal porque da una experiencia más consistente.
+- Los perfiles de viajero son **sintéticos**, no usuarios reales.
+- La app usa **incidentes históricos** y simulación explicable.
+- El modo **regional** sigue disponible, pero como cobertura secundaria.
 
 ## Inicio rápido con Docker Compose
 
-Esta es la forma recomendada para levantar el proyecto.
-
-### Requisitos
+Requisito:
 
 - Docker Desktop con `docker compose`
 
-### Levantar la aplicación
+Levantar todo:
 
 ```bash
 docker compose up --build
 ```
 
-### Abrir servicios
+La imagen backend precalcula el cache de `concepcion` y Docker lo conserva en el volumen `backend_cache`.
+Eso hace que el primer arranque útil en Compose sea corto incluso si el host no tiene `data/cache` listo.
 
-- Frontend: [http://localhost:8501](http://localhost:8501)
+Servicios:
+
+- Frontend Streamlit: [http://localhost:8501](http://localhost:8501)
+- Frontend React v1: [http://localhost:3000](http://localhost:3000)
 - Backend: [http://localhost:8000](http://localhost:8000)
-- Healthcheck backend: [http://localhost:8000/health](http://localhost:8000/health)
-- Documentación OpenAPI: [http://localhost:8000/docs](http://localhost:8000/docs)
+- Liveness: [http://localhost:8000/health](http://localhost:8000/health)
+- Readiness: [http://localhost:8000/readyz](http://localhost:8000/readyz)
+- OpenAPI: [http://localhost:8000/docs](http://localhost:8000/docs)
 
-### Qué hace esta configuración
+Matriz de frontends:
 
-- construye dos servicios: `backend` y `frontend`
-- monta `./data` dentro del contenedor para no meter más de 1 GB de cache en la imagen
-- conserva `data/cache/` en tu máquina, así el bootstrap siguiente es mucho más rápido
-- hace que Streamlit espere a que FastAPI esté sano antes de arrancar
+- `Streamlit`: fallback operativo y demo completa actual
+- `React v1`: flujo principal de `escenario + comparación`
 
-### Comandos útiles
+Persistencia de cache en Docker:
 
-```bash
-docker compose up --build
-docker compose down
-docker compose logs -f backend
-docker compose logs -f frontend
-docker compose exec backend pytest backend/fastapi_app/tests
+- `backend_cache`: guarda el grafo y artefactos del backend dentro de Docker
+- `./data/raw` y `./data/processed`: siguen montados desde el repo como fuente de datos
+- `./data/cache` local queda para ejecución fuera de Docker y benchmarks locales
+
+## Flujo recomendado
+
+1. Abre el frontend.
+2. Espera a que el backend complete el `warm-up`.
+3. Usa un escenario curado de Concepción.
+4. Genera la comparación de rutas.
+5. Explica el tradeoff entre:
+   tiempo total, riesgo, exposición histórica y vías favorecidas por cada estrategia.
+
+Si React no está listo o quieres la demo completa actual, usa Streamlit como respaldo.
+
+## Endpoints clave
+
+### Estado y demo
+
+- `GET /health`: liveness del backend
+- `GET /readyz`: readiness real para demo
+- `POST /system/bootstrap`: fuerza warm-up del perfil activo
+- `GET /system/bootstrap/status`: estado del warm-up
+- `GET /system/dataset`: perfil activo de datos
+- `POST /system/dataset`: cambia entre `concepcion` y `regional`
+- `GET /system/demo-scenarios`: escenarios curados para la demo
+
+### Recomendaciones
+
+- `POST /recommendations/collaborative`
+- `POST /recommendations/playground`
+
+### Rutas
+
+- `GET /metadata/options`
+- `GET /metadata/hotspots`
+- `POST /routes/optimal`
+
+`/routes/optimal` ahora devuelve además:
+
+- `risk_score`
+- `incident_exposure`
+- `why_changed`
+- `top_penalized_segments`
+- `top_preferred_vias`
+- `comparison`
+
+## Estructura relevante
+
+```text
+waze-biobio-ML/
+├── algorithms/recommenders/
+├── backend/fastapi_app/
+├── frontend/react_app/
+├── frontend/streamlit_app/
+├── data/
+├── docs/demo-script.md
+├── compose.yaml
+└── README.md
 ```
+
+## Datos y límites conocidos
+
+- La cobertura histórica visible hoy corresponde a **julio de 2025**.
+- Los perfiles colaborativos son **simulados**.
+- No existe integración con datos en tiempo real.
+- Si `ACCIDENTES.csv` y `CONGESTIONES.csv` siguen siendo idénticos, la app los trata como evidencia de calidad limitada y evita vender esa distinción como insight fuerte.
+- El modo regional puede arrastrar etiquetas de red menos limpias que el foco en Concepción.
 
 ## Ejecución local sin Docker
-
-Si prefieres correrlo con tu entorno Python:
 
 ```bash
 python -m venv .venv
@@ -73,83 +147,28 @@ source .venv/bin/activate
 streamlit run frontend/streamlit_app/app.py
 ```
 
-## Flujo funcional
-
-1. Streamlit valida que el backend esté disponible.
-2. El frontend dispara `/system/bootstrap`.
-3. FastAPI carga datos, reconstruye o reutiliza cache y deja listo el grafo.
-4. La UI consulta metadatos, recomendaciones y rutas óptimas según el contexto del viaje.
-
-## Endpoints principales
-
-### Sistema
-
-- `GET /health`: estado básico del backend
-- `POST /system/bootstrap`: inicia la preparación de datos y del grafo
-- `GET /system/bootstrap/status`: devuelve el avance del bootstrap
-- `GET /system/dataset`: muestra el perfil activo
-- `POST /system/dataset`: cambia entre `regional` y `concepcion`
-
-### Recomendaciones
-
-- `POST /recommendations/collaborative`: recomendaciones para una estrategia puntual
-- `POST /recommendations/playground`: comparación lado a lado entre `UBCF` e `IBCF`
-
-### Rutas
-
-- `GET /metadata/options`: filtros y opciones disponibles
-- `GET /metadata/hotspots`: puntos de congestión usados en la UI
-- `POST /routes/optimal`: ruta base y ruta personalizada con penalizaciones
-
-## Estructura del repositorio
-
-```text
-waze-biobio-ML/
-├── algorithms/
-│   └── recommenders/
-├── backend/
-│   └── fastapi_app/
-│       ├── app/
-│       └── tests/
-├── data/
-│   ├── raw/
-│   ├── processed/
-│   └── cache/
-├── frontend/
-│   └── streamlit_app/
-├── scripts/
-│   └── dev/
-├── Dockerfile
-├── compose.yaml
-├── requirements.txt
-└── README.md
-```
-
-## Datos y cache
-
-- `data/raw/`: insumos base como `ACCIDENTES.csv` y `CONGESTIONES.csv`
-- `data/processed/`: red vial y ratings por perfil
-- `data/cache/`: artefactos generados como `raw_events.pkl`, `segment_summary.pkl` y `route_graph.pkl`
-
-La cache se invalida automáticamente cuando cambian los CSV de entrada relevantes.
-
-## Scripts de desarrollo
-
-### Regenerar red vial
+React v1 en desarrollo:
 
 ```bash
-python scripts/dev/build_road_network.py --place "Región del Biobío, Chile"
-```
-
-### Regenerar ratings sintéticos
-
-```bash
-python scripts/dev/build_user_ratings.py --mode regional
-python scripts/dev/build_user_ratings.py --mode concepcion
+cd frontend/react_app
+npm install
+npm run dev
 ```
 
 ## Pruebas
 
 ```bash
 pytest backend/fastapi_app/tests
+```
+
+```bash
+cd frontend/react_app
+npm test
+npm run build
+```
+
+Benchmark manual del flujo principal:
+
+```bash
+python scripts/dev/benchmark_demo_api.py --wait-ready
 ```

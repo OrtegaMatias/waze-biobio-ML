@@ -20,11 +20,12 @@ DATA_PROFILES: Dict[str, Dict[str, Path | str]] = {
     },
 }
 
-_current_profile = "regional"
+_current_profile = "concepcion"
 
 
 def _apply_profile(profile: str) -> None:
     info = DATA_PROFILES[profile]
+    data_loader.set_data_profile(profile)
     data_loader.set_user_ratings_path(Path(info["ratings_path"]))
 
 

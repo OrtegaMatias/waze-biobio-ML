@@ -13,6 +13,7 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import pandas as pd
+from sklearn.neighbors import BallTree
 
 from . import data_loader
 
@@ -51,9 +52,40 @@ class RouteStep:
 
 
 class RouteGraph:
-    def __init__(self, nodes: Dict[str, GraphNode], adjacency: Dict[str, List[Tuple[str, float]]]):
+    def __init__(
+        self,
+        nodes: Dict[str, GraphNode],
+        adjacency: Dict[str, List[Tuple[str, float]]],
+        spatial_node_ids: Optional[List[str]] = None,
+        spatial_coords: Optional[np.ndarray] = None,
+        spatial_tree: Optional[BallTree] = None,
+    ):
         self.nodes = nodes
         self.adjacency = adjacency
+        self._spatial_node_ids = list(spatial_node_ids or [])
+        self._spatial_coords = spatial_coords
+        self._spatial_tree = spatial_tree
+        self._ensure_spatial_index()
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._ensure_spatial_index()
+
+    def _ensure_spatial_index(self) -> None:
+        if self._spatial_coords is None:
+            if not self._spatial_node_ids:
+                self._spatial_node_ids = list(self.nodes.keys())
+            coords = [
+                (self.nodes[node_id].lat, self.nodes[node_id].lon)
+                for node_id in self._spatial_node_ids
+                if node_id in self.nodes
+            ]
+            if coords:
+                self._spatial_coords = np.radians(np.asarray(coords, dtype=float))
+            else:
+                self._spatial_coords = np.empty((0, 2), dtype=float)
+        if self._spatial_tree is None and len(self._spatial_coords):
+            self._spatial_tree = BallTree(self._spatial_coords, metric="haversine")
 
     @classmethod
     def from_events(
@@ -73,35 +105,41 @@ class RouteGraph:
         nodes: Dict[str, GraphNode] = {}
         adjacency: Dict[str, List[Tuple[str, float]]] = {}
         coord_groups = defaultdict(list)
+        spatial_node_ids: List[str] = []
+        spatial_coords: List[Tuple[float, float]] = []
 
-        for _, row in df.iterrows():
-            node_id = f"{row['segment_id']}::{row['segment_seq']}"
+        for row in df.itertuples(index=False):
+            lat = float(row.lat)
+            lon = float(row.lon)
+            velocidad = float(row.velocidad_kmh) if math.isfinite(float(row.velocidad_kmh)) else 0.0
+            duracion = float(row.duracion_hrs) if math.isfinite(float(row.duracion_hrs)) else 0.0
+            node_id = f"{row.segment_id}::{int(row.segment_seq)}"
             nodes[node_id] = GraphNode(
                 node_id=node_id,
-                segment_id=row["segment_id"],
-                segment_seq=int(row["segment_seq"]),
-                lat=float(row["lat"]),
-                lon=float(row["lon"]),
-                tipo_evento=row["tipo_evento"],
-                velocidad_kmh=float(row["velocidad_kmh"]) if not math.isnan(row["velocidad_kmh"]) else 0.0,
-                duracion_hrs=float(row["duracion_hrs"]) if not math.isnan(row["duracion_hrs"]) else 0.0,
-                via=row["via"],
-                comuna=row["comuna"],
-                penalty_factor=float(row.get("penalty_factor", 1.0) or 1.0),
-                dia_semana=str(row.get("dia_semana", "") or ""),
-                franja_horaria=str(row.get("franja_horaria", "") or ""),
+                segment_id=row.segment_id,
+                segment_seq=int(row.segment_seq),
+                lat=lat,
+                lon=lon,
+                tipo_evento=row.tipo_evento,
+                velocidad_kmh=velocidad,
+                duracion_hrs=duracion,
+                via=row.via,
+                comuna=row.comuna,
+                penalty_factor=float(getattr(row, "penalty_factor", 1.0) or 1.0),
+                dia_semana=str(getattr(row, "dia_semana", "") or ""),
+                franja_horaria=str(getattr(row, "franja_horaria", "") or ""),
             )
-            key = (round(float(row["lat"]), 5), round(float(row["lon"]), 5))
+            key = (round(lat, 5), round(lon, 5))
             coord_groups[key].append(node_id)
+            spatial_node_ids.append(node_id)
+            spatial_coords.append((lat, lon))
             processed_rows += 1
             if processed_rows % 50000 == 0 and total_rows:
                 notify("nodes", processed_rows / total_rows)
 
         df_sorted = df.sort_values(["segment_id", "segment_seq"])
-        groups = list(df_sorted.groupby("segment_id"))
-        total_groups = len(groups) if groups else 1
-        for gi, (segment_id, group) in enumerate(groups):
-            group = group.sort_values("segment_seq")
+        total_groups = max(int(df_sorted["segment_id"].nunique()), 1)
+        for gi, (segment_id, group) in enumerate(df_sorted.groupby("segment_id", sort=False)):
             node_ids = [f"{segment_id}::{int(seq)}" for seq in group["segment_seq"]]
             is_oneway = bool(group["oneway"].iloc[0]) if "oneway" in group.columns else False
             for idx in range(len(node_ids) - 1):
@@ -128,7 +166,19 @@ class RouteGraph:
                     adjacency.setdefault(b.node_id, []).append((a.node_id, base_dist))
             if ci % 5000 == 0 and coord_items:
                 notify("junctions", ci / len(coord_items))
-        return cls(nodes=nodes, adjacency=adjacency)
+        coords_array = (
+            np.radians(np.asarray(spatial_coords, dtype=float))
+            if spatial_coords
+            else np.empty((0, 2), dtype=float)
+        )
+        spatial_tree = BallTree(coords_array, metric="haversine") if len(coords_array) else None
+        return cls(
+            nodes=nodes,
+            adjacency=adjacency,
+            spatial_node_ids=spatial_node_ids,
+            spatial_coords=coords_array,
+            spatial_tree=spatial_tree,
+        )
 
     @staticmethod
     def _base_distance(a: GraphNode, b: GraphNode) -> float:
@@ -139,18 +189,33 @@ class RouteGraph:
 
     def nearest_node(self, lat: float, lon: float, exclude: Optional[Set[str]] = None) -> GraphNode:
         exclude = exclude or set()
-        best_node = None
-        best_dist = float("inf")
-        for node_id, node in self.nodes.items():
-            if node_id in exclude:
-                continue
-            d = haversine_km(lat, lon, node.lat, node.lon)
-            if d < best_dist:
-                best_dist = d
-                best_node = node
-        if best_node is None:
-            raise ValueError("No se encontraron nodos en el grafo.")
-        return best_node
+        if self._spatial_tree is None or not self._spatial_node_ids:
+            best_node = None
+            best_dist = float("inf")
+            for node_id, node in self.nodes.items():
+                if node_id in exclude:
+                    continue
+                d = haversine_km(lat, lon, node.lat, node.lon)
+                if d < best_dist:
+                    best_dist = d
+                    best_node = node
+            if best_node is None:
+                raise ValueError("No se encontraron nodos en el grafo.")
+            return best_node
+
+        point = np.radians(np.asarray([[lat, lon]], dtype=float))
+        total_candidates = len(self._spatial_node_ids)
+        k = min(max(len(exclude) + 1, 4), total_candidates)
+        while k <= total_candidates:
+            _, indices = self._spatial_tree.query(point, k=k)
+            for idx in indices[0]:
+                node_id = self._spatial_node_ids[int(idx)]
+                if node_id not in exclude:
+                    return self.nodes[node_id]
+            if k == total_candidates:
+                break
+            k = min(total_candidates, k * 2)
+        raise ValueError("No se encontraron nodos en el grafo.")
 
     def shortest_path(
         self,
@@ -173,10 +238,12 @@ class RouteGraph:
 
         source = source_node.node_id
         target = target_node.node_id
-        distances = {node_id: float("inf") for node_id in self.nodes}
-        previous: Dict[str, Optional[str]] = {node_id: None for node_id in self.nodes}
-        distances[source] = 0.0
+        distances: Dict[str, float] = {source: 0.0}
+        previous: Dict[str, Optional[str]] = {source: None}
+        visited: Set[str] = set()
         queue: List[Tuple[float, str]] = [(0.0, source)]
+        nodes = self.nodes
+        adjacency = self.adjacency
 
         def preference_factor(via: str) -> float:
             if via_factors:
@@ -254,19 +321,21 @@ class RouteGraph:
 
         while queue:
             current_dist, node_id = heapq.heappop(queue)
+            if node_id in visited:
+                continue
+            visited.add(node_id)
             if node_id == target:
                 break
-            if current_dist > distances[node_id]:
-                continue
-            for neighbor, base_weight in self.adjacency.get(node_id, []):
-                current_node = self.nodes[node_id]
-                neighbor_node = self.nodes[neighbor]
+            current_node = nodes[node_id]
+            for neighbor, base_weight in adjacency.get(node_id, []):
+                if neighbor in visited:
+                    continue
+                neighbor_node = nodes[neighbor]
                 if apply_penalties:
                     penalty = max((current_node.penalty_factor + neighbor_node.penalty_factor) / 2, 1.0)
-                    speeds = np.array([current_node.velocidad_kmh, neighbor_node.velocidad_kmh], dtype=float)
-                    avg_speed = float(np.nanmean(speeds)) if not np.isnan(speeds).all() else 0.0
-                    if avg_speed <= 0 or not math.isfinite(avg_speed):
-                        avg_speed = 0.0
+                    speed_a = current_node.velocidad_kmh if math.isfinite(current_node.velocidad_kmh) else 0.0
+                    speed_b = neighbor_node.velocidad_kmh if math.isfinite(neighbor_node.velocidad_kmh) else 0.0
+                    avg_speed = (speed_a + speed_b) / 2 if speed_a > 0 and speed_b > 0 else max(speed_a, speed_b, 0.0)
                     effective_speed = max(avg_speed, 5.0)
                     speed_factor = max(0.3, 40 / effective_speed)
                 else:
@@ -276,7 +345,7 @@ class RouteGraph:
                 incident = incident_factor(neighbor_node)
                 adjusted_weight = base_weight * penalty * speed_factor * preference * incident
                 new_dist = current_dist + adjusted_weight
-                if new_dist < distances[neighbor]:
+                if new_dist < distances.get(neighbor, float("inf")):
                     distances[neighbor] = new_dist
                     previous[neighbor] = node_id
                     heapq.heappush(queue, (new_dist, neighbor))
@@ -286,13 +355,14 @@ class RouteGraph:
         path: List[RouteStep] = []
         current = target
         while current is not None:
-            node = self.nodes[current]
+            node = nodes[current]
             peso = distances[current]
             node_lat = node.lat
             node_lon = node.lon
             if not math.isfinite(node_lat) or not math.isfinite(node_lon):
-                if previous[current] is not None:
-                    prev_node = self.nodes[previous[current]]
+                prev_id = previous.get(current)
+                if prev_id is not None:
+                    prev_node = nodes[prev_id]
                     node_lat = prev_node.lat
                     node_lon = prev_node.lon
                 else:
@@ -313,7 +383,7 @@ class RouteGraph:
                     franja_horaria=node.franja_horaria,
                 )
             )
-            current = previous[current]
+            current = previous.get(current)
         path.reverse()
         return path
 

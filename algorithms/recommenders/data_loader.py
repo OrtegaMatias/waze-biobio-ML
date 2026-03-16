@@ -19,12 +19,14 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 CACHE_DIR = ROOT_DIR / "data" / "cache"
 RAW_DIR = ROOT_DIR / "data" / "raw"
 PROCESSED_DIR = ROOT_DIR / "data" / "processed"
+CONCEPCION_BBOX = (-36.95, -36.7, -73.2, -72.9)
 
 ACCIDENT_PATH = RAW_DIR / "ACCIDENTES.csv"
 CONGESTION_PATH = RAW_DIR / "CONGESTIONES.csv"
 USER_RATINGS_PATH = PROCESSED_DIR / "user_ratings.csv"
 ROAD_NETWORK_PATH = PROCESSED_DIR / "road_network.csv"
 _CURRENT_USER_RATINGS_PATH = USER_RATINGS_PATH
+_CURRENT_DATA_PROFILE = "regional"
 
 HOUR_BUCKETS: List[Tuple[int, int, str]] = [
     (0, 6, "Madrugada (00-05h)"),
@@ -90,9 +92,10 @@ def _file_signature(path: Path) -> float:
         return 0.0
 
 
-def data_version() -> Tuple[float, float, float]:
+def data_version() -> Tuple[str, float, float, float]:
     """Sello temporal para invalidar caches cuando cambian los datos base."""
     return (
+        _CURRENT_DATA_PROFILE,
         _file_signature(ACCIDENT_PATH),
         _file_signature(CONGESTION_PATH),
         _file_signature(ROAD_NETWORK_PATH),
@@ -254,17 +257,34 @@ def _prepare_dataframe(df: pd.DataFrame, label: str) -> pd.DataFrame:
     return df
 
 
+def _apply_dataset_profile(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or _CURRENT_DATA_PROFILE != "concepcion":
+        return df
+    if not {"lat", "lon"}.issubset(df.columns):
+        return df
+    lat_min, lat_max, lon_min, lon_max = CONCEPCION_BBOX
+    profiled = df.copy()
+    profiled["lat"] = pd.to_numeric(profiled["lat"], errors="coerce")
+    profiled["lon"] = pd.to_numeric(profiled["lon"], errors="coerce")
+    return profiled[
+        profiled["lat"].between(lat_min, lat_max)
+        & profiled["lon"].between(lon_min, lon_max)
+    ].reset_index(drop=True)
+
+
 def load_raw_events() -> pd.DataFrame:
     return _load_raw_events(data_version())
 
 
-@lru_cache(maxsize=1)
-def _load_raw_events(signature: Tuple[float, float, float]) -> pd.DataFrame:
+@lru_cache(maxsize=2)
+def _load_raw_events(signature: Tuple[str, float, float, float]) -> pd.DataFrame:
     cached = _load_cached_dataframe("raw_events", signature)
     if cached is not None:
         return cached
     accidentes = _prepare_dataframe(pd.read_csv(ACCIDENT_PATH), label="accidente")
     congestiones = _prepare_dataframe(pd.read_csv(CONGESTION_PATH), label="congestion")
+    accidentes = _apply_dataset_profile(accidentes)
+    congestiones = _apply_dataset_profile(congestiones)
     reference = load_reference_network()
     event_frames = [df for df in (accidentes, congestiones) if not df.empty]
     events = (
@@ -291,7 +311,7 @@ def load_reference_network(path: Path | None = None) -> pd.DataFrame:
     return _load_reference_network(str(csv_path), signature)
 
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=8)
 def _load_reference_network(path_str: str, signature: float) -> pd.DataFrame:
     csv_path = Path(path_str)
     if not csv_path.exists():
@@ -315,7 +335,7 @@ def _load_reference_network(path_str: str, signature: float) -> pd.DataFrame:
     if missing:
         raise ValueError(f"El archivo {csv_path} no contiene las columnas requeridas: {missing}")
     df["oneway"] = df.get("oneway", False)
-    return _prepare_dataframe(df, label="referencia")
+    return _apply_dataset_profile(_prepare_dataframe(df, label="referencia"))
 
 
 def load_segment_summary() -> pd.DataFrame:
@@ -323,7 +343,7 @@ def load_segment_summary() -> pd.DataFrame:
 
 
 @lru_cache(maxsize=1)
-def _load_segment_summary(signature: Tuple[float, float, float]) -> pd.DataFrame:
+def _load_segment_summary(signature: Tuple[str, float, float, float]) -> pd.DataFrame:
     cached = _load_cached_dataframe("segment_summary", signature)
     if cached is not None:
         return cached
@@ -362,7 +382,7 @@ def load_transactions() -> pd.DataFrame:
 
 
 @lru_cache(maxsize=1)
-def _load_transactions(signature: Tuple[float, float, float]) -> pd.DataFrame:
+def _load_transactions(signature: Tuple[str, float, float, float]) -> pd.DataFrame:
     cached = _load_cached_dataframe("transactions", signature)
     if cached is not None:
         return cached
@@ -384,6 +404,23 @@ def set_user_ratings_path(path: Path) -> None:
         return
     _CURRENT_USER_RATINGS_PATH = new_path
     _load_user_ratings.cache_clear()
+
+
+def set_data_profile(profile: str) -> None:
+    global _CURRENT_DATA_PROFILE
+    if profile == _CURRENT_DATA_PROFILE:
+        return
+    if profile not in {"regional", "concepcion"}:
+        raise ValueError(f"Perfil de datos no soportado: {profile}")
+    _CURRENT_DATA_PROFILE = profile
+    _load_raw_events.cache_clear()
+    _load_reference_network.cache_clear()
+    _load_segment_summary.cache_clear()
+    _load_transactions.cache_clear()
+
+
+def get_data_profile() -> str:
+    return _CURRENT_DATA_PROFILE
 
 
 def get_user_ratings_path() -> Path:

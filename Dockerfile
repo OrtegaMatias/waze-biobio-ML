@@ -20,8 +20,13 @@ RUN pip install --upgrade pip && pip install -r requirements.backend.txt
 
 COPY algorithms ./algorithms
 COPY backend ./backend
+COPY data/raw ./data/raw
+COPY data/processed ./data/processed
 COPY scripts ./scripts
 COPY README.md ./
+
+RUN mkdir -p /app/data/cache && \
+    python -c "from backend.fastapi_app.app.core import dataset; from backend.fastapi_app.app.services.routing_service import RoutingService; dataset.set_profile('concepcion'); RoutingService().build()"
 
 EXPOSE 8000
 
@@ -47,3 +52,17 @@ COPY frontend ./frontend
 EXPOSE 8501
 
 CMD ["streamlit", "run", "frontend/streamlit_app/app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true", "--browser.gatherUsageStats=false"]
+
+FROM node:20-bookworm-slim AS react
+
+WORKDIR /app/frontend/react_app
+
+COPY frontend/react_app/package*.json ./
+
+RUN npm install
+
+COPY frontend/react_app ./
+
+EXPOSE 3000
+
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3000"]

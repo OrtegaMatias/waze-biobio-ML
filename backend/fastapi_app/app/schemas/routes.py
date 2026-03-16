@@ -72,12 +72,56 @@ class RouteStepResponse(BaseModel):
     cumulative_cost: float
 
 
+class IncidentExposure(BaseModel):
+    total_incident_segments: int = 0
+    matched_incident_segments: int = 0
+    congestion_segments: int = 0
+    accident_segments: int = 0
+    exposure_minutes: float = 0.0
+
+
+class SegmentImpact(BaseModel):
+    segment_id: str
+    via: str
+    comuna: str
+    event_type: str
+    impact_score: float
+    reason: str
+
+
+class PreferredViaImpact(BaseModel):
+    via: str
+    factor: float
+    reason: str
+
+
 class RouteVariant(BaseModel):
     distance_km: float
     estimated_duration_min: float
     steps: List[RouteStepResponse]
     geometry: List[RoutePoint]
     extra_delay_min: float = 0.0
+    risk_score: float = 0.0
+    incident_exposure: IncidentExposure = Field(default_factory=IncidentExposure)
+    why_changed: List[str] = Field(default_factory=list)
+    top_penalized_segments: List[SegmentImpact] = Field(default_factory=list)
+    top_preferred_vias: List[PreferredViaImpact] = Field(default_factory=list)
+
+
+class RouteDelta(BaseModel):
+    variant: str
+    distance_delta_km: float = 0.0
+    total_duration_delta_min: float = 0.0
+    risk_delta: float = 0.0
+    exposure_delta: float = 0.0
+
+
+class RouteComparison(BaseModel):
+    fastest_variant: str
+    safest_variant: str
+    lowest_exposure_variant: str
+    best_balance_variant: str
+    deltas: List[RouteDelta] = Field(default_factory=list)
 
 
 class RouteResponse(BaseModel):
@@ -85,3 +129,4 @@ class RouteResponse(BaseModel):
     ubcf: RouteVariant  # Ruta personalizada con UBCF (evita incidentes según usuarios similares)
     ibcf: RouteVariant  # Ruta personalizada con IBCF (evita incidentes según vías similares)
     personalized: RouteVariant | None = None  # Deprecated: mantener para compatibilidad hacia atrás
+    comparison: RouteComparison
