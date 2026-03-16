@@ -141,7 +141,10 @@ def optimal_route(
     service: RoutingService = Depends(get_routing_service),
 ) -> RouteResponse:
     start = time.perf_counter()
-    route = service.compute_route(payload)
+    try:
+        route = service.compute_route(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     duration = (time.perf_counter() - start) * 1000
     reference = route.reference
     personalized = route.personalized

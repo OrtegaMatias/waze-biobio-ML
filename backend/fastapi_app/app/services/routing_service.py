@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 CACHE_DIR = Path(__file__).resolve().parents[4] / "data" / "cache"
 GRAPH_CACHE = CACHE_DIR / "route_graph.pkl"
 GRAPH_META = CACHE_DIR / "route_graph.meta.json"
+GRAPH_CACHE_VERSION = 2
+MAX_POINT_SNAP_KM = 0.5
 DAY_ALIASES = {
     "lunes": "Monday",
     "martes": "Tuesday",
@@ -40,7 +42,7 @@ def _load_graph_cache(signature):
         meta = json.loads(GRAPH_META.read_text())
     except Exception:
         return None
-    if meta.get("signature") != list(signature):
+    if meta.get("signature") != [GRAPH_CACHE_VERSION, *list(signature)]:
         return None
     try:
         with GRAPH_CACHE.open("rb") as fh:
@@ -53,7 +55,7 @@ def _store_graph_cache(signature, bundle):
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     with GRAPH_CACHE.open("wb") as fh:
         pickle.dump(bundle, fh)
-    GRAPH_META.write_text(json.dumps({"signature": list(signature)}))
+    GRAPH_META.write_text(json.dumps({"signature": [GRAPH_CACHE_VERSION, *list(signature)]}))
 
 
 def _normalize_day(value: str | None) -> str:
@@ -170,6 +172,20 @@ class RoutingService:
         self._ensure_fresh_data()
         if self.graph is None:
             raise ValueError("El grafo de rutas aún no está listo. Intenta nuevamente en unos segundos.")
+        origin_candidates = self.graph.nearest_nodes(payload.origin.lat, payload.origin.lon, limit=1)
+        destination_candidates = self.graph.nearest_nodes(payload.destination.lat, payload.destination.lon, limit=1)
+        origin_snap_km = origin_candidates[0][1] if origin_candidates else float("inf")
+        destination_snap_km = destination_candidates[0][1] if destination_candidates else float("inf")
+        if origin_snap_km > MAX_POINT_SNAP_KM:
+            raise ValueError(
+                f"El origen esta a {origin_snap_km:.2f} km de la red vial disponible. "
+                "Mueve el punto a una calle con cobertura de datos."
+            )
+        if destination_snap_km > MAX_POINT_SNAP_KM:
+            raise ValueError(
+                f"El destino esta a {destination_snap_km:.2f} km de la red vial disponible. "
+                "Mueve el punto a una calle con cobertura de datos."
+            )
         day_value = _normalize_day(payload.day_of_week)
         hour_bucket = data_loader.hour_bucket(payload.departure_hour)
         delay_context = {
@@ -308,7 +324,9 @@ class RoutingService:
             apply_penalties=False,
         )
         if not reference_path:
-            raise ValueError("No se pudo construir una ruta con los datos disponibles.")
+            raise ValueError(
+                "No existe un camino continuo entre el origen y el destino con los datos viales disponibles."
+            )
 
         # Optimización: si no hay preferencias de CF, generar solo 1 ruta con penalizaciones
         has_ubcf = bool(ubcf_factors)

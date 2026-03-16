@@ -57,6 +57,71 @@ def test_route_graph_two_way_connects_both_sides():
     assert "segA::0" in incoming
 
 
+def test_route_graph_connects_nearby_segments():
+    df = pd.DataFrame(
+        [
+            {
+                "segment_id": "segA",
+                "segment_seq": 0,
+                "lat": 0.0,
+                "lon": 0.0,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.2,
+                "via": "Ruta A",
+                "comuna": "Test",
+                "oneway": False,
+                "penalty_factor": 1.0,
+            },
+            {
+                "segment_id": "segA",
+                "segment_seq": 1,
+                "lat": 0.0,
+                "lon": 0.00020,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.2,
+                "via": "Ruta A",
+                "comuna": "Test",
+                "oneway": False,
+                "penalty_factor": 1.0,
+            },
+            {
+                "segment_id": "segB",
+                "segment_seq": 0,
+                "lat": 0.0,
+                "lon": 0.00022,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.2,
+                "via": "Ruta B",
+                "comuna": "Test",
+                "oneway": False,
+                "penalty_factor": 1.0,
+            },
+            {
+                "segment_id": "segB",
+                "segment_seq": 1,
+                "lat": 0.0,
+                "lon": 0.00042,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.2,
+                "via": "Ruta B",
+                "comuna": "Test",
+                "oneway": False,
+                "penalty_factor": 1.0,
+            },
+        ]
+    )
+    graph = routing.RouteGraph.from_events(df)
+
+    path = graph.shortest_path((0.0, 0.0), (0.0, 0.00042), apply_penalties=False)
+
+    assert path
+    assert path[-1].segment_id == "segB"
+
+
 def test_edge_weight_increases_with_penalty():
     df = _base_segment(oneway=False)
     graph = routing.RouteGraph.from_events(df)
@@ -101,6 +166,29 @@ def test_shortest_path_applies_preferences():
     )
     vias = [step.via for step in pref_path]
     assert "Ruta Roja" in vias
+
+
+def test_shortest_path_uses_reachable_destination_candidate():
+    nodes = {
+        "start": routing.GraphNode("start", "seg_start", 0, 0.0, 0.0, "Referencia", 30.0, 0.1, "Inicio", "Test"),
+        "mid": routing.GraphNode("mid", "seg_mid", 1, 0.0, 0.001, "Referencia", 30.0, 0.1, "Via Media", "Test"),
+        "reachable_end": routing.GraphNode(
+            "reachable_end", "seg_end", 2, 0.0, 0.002, "Referencia", 30.0, 0.1, "Fin Alcanzable", "Test"
+        ),
+        "blocked_end": routing.GraphNode(
+            "blocked_end", "seg_blocked", 2, 0.0, 0.00205, "Referencia", 30.0, 0.1, "Fin Aislado", "Test"
+        ),
+    }
+    adjacency = {
+        "start": [("mid", 1.0)],
+        "mid": [("reachable_end", 1.0)],
+    }
+    graph = routing.RouteGraph(nodes=nodes, adjacency=adjacency)
+
+    path = graph.shortest_path((0.0, 0.0), (0.0, 0.00205), apply_penalties=False)
+
+    assert path
+    assert path[-1].node_id == "reachable_end"
 
 
 def test_congestion_penalty_forces_alternate_path():

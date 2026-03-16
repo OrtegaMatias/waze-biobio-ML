@@ -7,14 +7,22 @@ from __future__ import annotations
 
 import heapq
 import math
-from dataclasses import dataclass
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import pandas as pd
+from sklearn.neighbors import BallTree
 
 from . import data_loader
+
+EARTH_RADIUS_KM = 6_371.0
+JUNCTION_RADIUS_M = 35
+MAX_JUNCTION_NEIGHBORS = 6
+SOURCE_CANDIDATES = 8
+TARGET_CANDIDATES = 256
+MAX_DESTINATION_GAP_KM = 0.35
 
 
 @dataclass
@@ -54,6 +62,24 @@ class RouteGraph:
     def __init__(self, nodes: Dict[str, GraphNode], adjacency: Dict[str, List[Tuple[str, float]]]):
         self.nodes = nodes
         self.adjacency = adjacency
+        self._spatial_node_ids: List[str] = []
+        self._ball_tree: BallTree | None = None
+        if nodes:
+            valid_ids = []
+            valid_coords = []
+            for node_id, node in nodes.items():
+                if math.isfinite(node.lat) and math.isfinite(node.lon):
+                    valid_ids.append(node_id)
+                    valid_coords.append((node.lat, node.lon))
+            self._spatial_node_ids = valid_ids
+            if valid_coords:
+                self._ball_tree = BallTree(np.radians(np.asarray(valid_coords, dtype=float)), metric="haversine")
+
+    @staticmethod
+    def _add_edge(adjacency: Dict[str, Dict[str, float]], source: str, target: str, weight: float) -> None:
+        current = adjacency[source].get(target)
+        if current is None or weight < current:
+            adjacency[source][target] = weight
 
     @classmethod
     def from_events(
@@ -71,7 +97,7 @@ class RouteGraph:
                 except Exception:
                     pass
         nodes: Dict[str, GraphNode] = {}
-        adjacency: Dict[str, List[Tuple[str, float]]] = {}
+        adjacency_maps: Dict[str, Dict[str, float]] = defaultdict(dict)
         coord_groups = defaultdict(list)
 
         for _, row in df.iterrows():
@@ -108,9 +134,9 @@ class RouteGraph:
                 a = node_ids[idx]
                 b = node_ids[idx + 1]
                 base_dist = cls._base_distance(nodes[a], nodes[b])
-                adjacency.setdefault(a, []).append((b, base_dist))
+                cls._add_edge(adjacency_maps, a, b, base_dist)
                 if not is_oneway:
-                    adjacency.setdefault(b, []).append((a, base_dist))
+                    cls._add_edge(adjacency_maps, b, a, base_dist)
             if gi % 1000 == 0:
                 notify("segments", gi / total_groups)
 
@@ -124,10 +150,55 @@ class RouteGraph:
                     a = base_nodes[i]
                     b = base_nodes[j]
                     base_dist = cls._base_distance(a, b) * 0.25
-                    adjacency.setdefault(a.node_id, []).append((b.node_id, base_dist))
-                    adjacency.setdefault(b.node_id, []).append((a.node_id, base_dist))
+                    cls._add_edge(adjacency_maps, a.node_id, b.node_id, base_dist)
+                    cls._add_edge(adjacency_maps, b.node_id, a.node_id, base_dist)
             if ci % 5000 == 0 and coord_items:
                 notify("junctions", ci / len(coord_items))
+
+        node_ids = list(nodes.keys())
+        valid_indices = [
+            idx for idx, node_id in enumerate(node_ids)
+            if math.isfinite(nodes[node_id].lat) and math.isfinite(nodes[node_id].lon)
+        ]
+        if valid_indices:
+            coords = np.asarray(
+                [[nodes[node_ids[idx]].lat, nodes[node_ids[idx]].lon] for idx in valid_indices],
+                dtype=float,
+            )
+            tree = BallTree(np.radians(coords), metric="haversine")
+            radius = JUNCTION_RADIUS_M / (EARTH_RADIUS_KM * 1000)
+            nearby_indices, nearby_distances = tree.query_radius(
+                np.radians(coords),
+                r=radius,
+                return_distance=True,
+                sort_results=True,
+            )
+            total_valid = len(valid_indices)
+            for pos, (neighbors, distances) in enumerate(zip(nearby_indices, nearby_distances)):
+                source_node_id = node_ids[valid_indices[pos]]
+                source_node = nodes[source_node_id]
+                added = 0
+                for neighbor_idx, raw_distance in zip(neighbors[1:], distances[1:]):
+                    target_node_id = node_ids[valid_indices[int(neighbor_idx)]]
+                    target_node = nodes[target_node_id]
+                    if source_node.segment_id == target_node.segment_id:
+                        continue
+                    distance_km = float(raw_distance) * EARTH_RADIUS_KM
+                    if distance_km <= 0:
+                        continue
+                    connection_weight = max(0.01, distance_km * 0.35)
+                    cls._add_edge(adjacency_maps, source_node_id, target_node_id, connection_weight)
+                    cls._add_edge(adjacency_maps, target_node_id, source_node_id, connection_weight)
+                    added += 1
+                    if added >= MAX_JUNCTION_NEIGHBORS:
+                        break
+                if pos % 1000 == 0:
+                    notify("junctions", pos / total_valid)
+
+        adjacency = {
+            node_id: list(neighbors.items())
+            for node_id, neighbors in adjacency_maps.items()
+        }
         return cls(nodes=nodes, adjacency=adjacency)
 
     @staticmethod
@@ -137,20 +208,52 @@ class RouteGraph:
             return 0.05
         return distance
 
-    def nearest_node(self, lat: float, lon: float, exclude: Optional[Set[str]] = None) -> GraphNode:
+    def nearest_nodes(
+        self,
+        lat: float,
+        lon: float,
+        exclude: Optional[Set[str]] = None,
+        limit: int = 1,
+    ) -> List[Tuple[GraphNode, float]]:
         exclude = exclude or set()
-        best_node = None
-        best_dist = float("inf")
-        for node_id, node in self.nodes.items():
-            if node_id in exclude:
-                continue
-            d = haversine_km(lat, lon, node.lat, node.lon)
-            if d < best_dist:
-                best_dist = d
-                best_node = node
-        if best_node is None:
+        if not self.nodes:
             raise ValueError("No se encontraron nodos en el grafo.")
-        return best_node
+        limit = max(1, int(limit))
+        if not self._ball_tree or not self._spatial_node_ids:
+            ranked = sorted(
+                (
+                    (self.nodes[node_id], haversine_km(lat, lon, node.lat, node.lon))
+                    for node_id, node in self.nodes.items()
+                    if node_id not in exclude
+                ),
+                key=lambda item: item[1],
+            )
+            return ranked[:limit]
+
+        query_point = np.radians(np.asarray([[lat, lon]], dtype=float))
+        total_nodes = len(self._spatial_node_ids)
+        requested = min(total_nodes, max(limit * 4, limit + len(exclude)))
+        while True:
+            distances, indices = self._ball_tree.query(query_point, k=requested)
+            ranked: List[Tuple[GraphNode, float]] = []
+            seen: Set[str] = set()
+            for raw_distance, raw_index in zip(distances[0], indices[0]):
+                node_id = self._spatial_node_ids[int(raw_index)]
+                if node_id in exclude or node_id in seen:
+                    continue
+                seen.add(node_id)
+                ranked.append((self.nodes[node_id], float(raw_distance) * EARTH_RADIUS_KM))
+                if len(ranked) >= limit:
+                    return ranked
+            if requested >= total_nodes:
+                return ranked
+            requested = min(total_nodes, requested * 2)
+
+    def nearest_node(self, lat: float, lon: float, exclude: Optional[Set[str]] = None) -> GraphNode:
+        ranked = self.nearest_nodes(lat, lon, exclude=exclude, limit=1)
+        if not ranked:
+            raise ValueError("No se encontraron nodos en el grafo.")
+        return ranked[0][0]
 
     def shortest_path(
         self,
@@ -161,22 +264,28 @@ class RouteGraph:
         incident_ctx: Optional[Dict[str, str | bool]] = None,
         apply_penalties: bool = True,
     ) -> List[RouteStep]:
-        source_node = self.nearest_node(*origin)
-        try:
-            target_node = self.nearest_node(*destination, exclude={source_node.node_id})
-        except ValueError:
-            neighbors = sorted(self.adjacency.get(source_node.node_id, []), key=lambda x: x[1])
-            if neighbors:
-                target_node = self.nodes[neighbors[0][0]]
-            else:
-                target_node = source_node
-
-        source = source_node.node_id
-        target = target_node.node_id
+        source_candidates = self.nearest_nodes(*origin, limit=SOURCE_CANDIDATES)
+        source_ids = {node.node_id for node, _ in source_candidates}
+        target_candidates = self.nearest_nodes(
+            *destination,
+            exclude=source_ids,
+            limit=TARGET_CANDIDATES,
+        )
+        if not target_candidates:
+            target_candidates = self.nearest_nodes(*destination, limit=1)
+        target_ids = {node.node_id for node, _ in target_candidates}
         distances = {node_id: float("inf") for node_id in self.nodes}
         previous: Dict[str, Optional[str]] = {node_id: None for node_id in self.nodes}
-        distances[source] = 0.0
-        queue: List[Tuple[float, str]] = [(0.0, source)]
+        queue: List[Tuple[float, str]] = []
+        best_target = None
+
+        for source_node, snap_distance in source_candidates:
+            initial_cost = max(0.0, snap_distance)
+            if initial_cost < distances[source_node.node_id]:
+                distances[source_node.node_id] = initial_cost
+                queue.append((initial_cost, source_node.node_id))
+
+        heapq.heapify(queue)
 
         def preference_factor(via: str) -> float:
             if via_factors:
@@ -254,7 +363,8 @@ class RouteGraph:
 
         while queue:
             current_dist, node_id = heapq.heappop(queue)
-            if node_id == target:
+            if node_id in target_ids:
+                best_target = node_id
                 break
             if current_dist > distances[node_id]:
                 continue
@@ -280,11 +390,26 @@ class RouteGraph:
                     distances[neighbor] = new_dist
                     previous[neighbor] = node_id
                     heapq.heappush(queue, (new_dist, neighbor))
-        if not math.isfinite(distances.get(target, float("inf"))):
+
+        if best_target is None:
+            reachable_target = None
+            reachable_gap = float("inf")
+            for node_id, total_cost in distances.items():
+                if not math.isfinite(total_cost):
+                    continue
+                node = self.nodes[node_id]
+                gap = haversine_km(destination[0], destination[1], node.lat, node.lon)
+                if gap < reachable_gap:
+                    reachable_gap = gap
+                    reachable_target = node_id
+            if reachable_target is not None and reachable_gap <= MAX_DESTINATION_GAP_KM:
+                best_target = reachable_target
+
+        if best_target is None or not math.isfinite(distances.get(best_target, float("inf"))):
             return []
 
         path: List[RouteStep] = []
-        current = target
+        current = best_target
         while current is not None:
             node = self.nodes[current]
             peso = distances[current]

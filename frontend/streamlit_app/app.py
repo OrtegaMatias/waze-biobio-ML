@@ -279,7 +279,16 @@ def call_backend(endpoint: str, payload: dict, timeout: float | None = None) -> 
     except requests.ConnectionError:
         st.error("No se pudo conectar con el backend. Asegúrate de ejecutar FastAPI en el puerto 8000.")
     except requests.HTTPError as err:
-        st.error(f"Error del backend: {err.response.text}")
+        message = None
+        try:
+            error_payload = err.response.json()
+        except ValueError:
+            error_payload = None
+        if isinstance(error_payload, dict):
+            message = error_payload.get("detail") or error_payload.get("message")
+        if not message:
+            message = err.response.text or f"HTTP {err.response.status_code}"
+        st.error(f"Error del backend: {message}")
     except requests.RequestException as err:
         st.error(f"Ocurrió un error al llamar al backend: {err}")
     return None
@@ -1187,7 +1196,9 @@ def routing_section() -> None:
             }
             route_result = call_backend("/routes/optimal", route_payload, timeout=timeout)
 
-        if _has_route_steps(route_result):
+        if route_result is None:
+            st.session_state["last_route_result"] = None
+        elif _has_route_steps(route_result):
             st.session_state["last_route_result"] = route_result
             with results_container:
                 render_route_summary(route_result)
