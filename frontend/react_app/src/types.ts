@@ -70,6 +70,10 @@ export type RouteVariant = {
   estimated_duration_min: number;
   extra_delay_min: number;
   risk_score: number;
+  geometry: Array<{
+    lat: number;
+    lon: number;
+  }>;
   why_changed: string[];
   top_penalized_segments: Array<{
     segment_id: string;

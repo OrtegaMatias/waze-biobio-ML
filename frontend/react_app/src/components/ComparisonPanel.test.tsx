@@ -12,6 +12,11 @@ describe("ComparisonPanel", () => {
             estimated_duration_min: 10,
             extra_delay_min: 2,
             risk_score: 12,
+            geometry: [
+              { lat: -36.82, lon: -73.05 },
+              { lat: -36.815, lon: -73.045 },
+              { lat: -36.81, lon: -73.04 },
+            ],
             why_changed: ["Ruta base sin sesgo colaborativo."],
             top_penalized_segments: [],
             top_preferred_vias: [],
@@ -28,6 +33,11 @@ describe("ComparisonPanel", () => {
             estimated_duration_min: 9,
             extra_delay_min: 0,
             risk_score: 5,
+            geometry: [
+              { lat: -36.82, lon: -73.05 },
+              { lat: -36.817, lon: -73.052 },
+              { lat: -36.81, lon: -73.04 },
+            ],
             why_changed: ["Esta variante combina simulación de incidentes históricos con un perfil de viajero sintético."],
             top_penalized_segments: [{ segment_id: "seg-1", via: "Barros Arana", comuna: "Concepción", event_type: "Congestión", impact_score: 4.2, reason: "x" }],
             top_preferred_vias: [{ via: "O'Higgins", factor: 0.4, reason: "x" }],
@@ -44,6 +54,11 @@ describe("ComparisonPanel", () => {
             estimated_duration_min: 9.5,
             extra_delay_min: 1,
             risk_score: 8,
+            geometry: [
+              { lat: -36.82, lon: -73.05 },
+              { lat: -36.818, lon: -73.047 },
+              { lat: -36.81, lon: -73.04 },
+            ],
             why_changed: ["Perfil por vías."],
             top_penalized_segments: [],
             top_preferred_vias: [],
@@ -69,6 +84,7 @@ describe("ComparisonPanel", () => {
 
     expect(screen.getByText(/más rápida/i)).toBeInTheDocument();
     expect(screen.getAllByText(/perfil por usuarios/i)[0]).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /mapa comparativo de rutas/i })).toBeInTheDocument();
     expect(screen.getByText(/barros arana/i)).toBeInTheDocument();
     expect(screen.getByText(/o'higgins/i)).toBeInTheDocument();
   });

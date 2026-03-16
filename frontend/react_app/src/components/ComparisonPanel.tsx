@@ -1,4 +1,5 @@
 import type { RouteResponse } from "../types";
+import { RouteMap } from "./RouteMap";
 
 const VARIANT_LABELS: Record<string, string> = {
   reference: "Ruta base",
@@ -52,6 +53,8 @@ export function ComparisonPanel({ route }: ComparisonPanelProps) {
           </article>
         ))}
       </div>
+
+      <RouteMap route={route} />
 
       <div className="comparison-grid">
         {(["reference", "ubcf", "ibcf"] as const).map((variantKey) => {

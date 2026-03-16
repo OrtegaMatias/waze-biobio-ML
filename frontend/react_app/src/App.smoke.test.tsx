@@ -92,6 +92,11 @@ describe("App smoke flow", () => {
               estimated_duration_min: 10,
               extra_delay_min: 2,
               risk_score: 12,
+              geometry: [
+                { lat: -36.82, lon: -73.05 },
+                { lat: -36.815, lon: -73.045 },
+                { lat: -36.81, lon: -73.04 },
+              ],
               why_changed: ["Ruta base sin sesgo colaborativo."],
               top_penalized_segments: [],
               top_preferred_vias: [],
@@ -108,6 +113,11 @@ describe("App smoke flow", () => {
               estimated_duration_min: 8,
               extra_delay_min: 0,
               risk_score: 5,
+              geometry: [
+                { lat: -36.82, lon: -73.05 },
+                { lat: -36.817, lon: -73.052 },
+                { lat: -36.81, lon: -73.04 },
+              ],
               why_changed: [
                 "Esta variante combina simulación de incidentes históricos con un perfil de viajero sintético.",
               ],
@@ -126,6 +136,11 @@ describe("App smoke flow", () => {
               estimated_duration_min: 9,
               extra_delay_min: 1,
               risk_score: 8,
+              geometry: [
+                { lat: -36.82, lon: -73.05 },
+                { lat: -36.818, lon: -73.047 },
+                { lat: -36.81, lon: -73.04 },
+              ],
               why_changed: ["Perfil por vías."],
               top_penalized_segments: [],
               top_preferred_vias: [{ via: "O'Higgins", factor: 0.5, reason: "x" }],
@@ -154,13 +169,14 @@ describe("App smoke flow", () => {
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByText(/flujo principal de react v1/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/flujo principal de la aplicación/i)).toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole("button", { name: /generar comparación/i })).toBeEnabled());
 
     fireEvent.click(screen.getByRole("button", { name: /generar comparación/i }));
 
     await waitFor(() => expect(screen.getByText(/resultado de la simulación/i)).toBeInTheDocument());
     expect(screen.getAllByText(/perfil por usuarios/i)[0]).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /mapa comparativo de rutas/i })).toBeInTheDocument();
     expect(screen.getByText(/barros arana/i)).toBeInTheDocument();
   });
 });

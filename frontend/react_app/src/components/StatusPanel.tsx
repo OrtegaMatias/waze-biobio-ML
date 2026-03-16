@@ -11,10 +11,9 @@ export function StatusPanel({ readiness, onRefresh, busy }: StatusPanelProps) {
   return (
     <section className="panel hero-panel">
       <div className="eyebrow">Estado del backend</div>
-      <h1>Ruta Segura Explicable · React v1</h1>
+      <h1>Ruta Segura Explicable · React</h1>
       <p className="lead">
-        Flujo principal de demo para escenario y comparación. Streamlit sigue operativo como fallback
-        mientras esta SPA madura.
+        Flujo único de demo para escenario, comparación y explicación de rutas dentro de la SPA.
       </p>
       <div className="status-grid">
         <article className="status-card">

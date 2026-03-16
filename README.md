@@ -48,17 +48,11 @@ Eso hace que el primer arranque útil en Compose sea corto incluso si el host no
 
 Servicios:
 
-- Frontend Streamlit: [http://localhost:8501](http://localhost:8501)
-- Frontend React v1: [http://localhost:3000](http://localhost:3000)
+- Frontend React: [http://localhost:3000](http://localhost:3000)
 - Backend: [http://localhost:8000](http://localhost:8000)
 - Liveness: [http://localhost:8000/health](http://localhost:8000/health)
 - Readiness: [http://localhost:8000/readyz](http://localhost:8000/readyz)
 - OpenAPI: [http://localhost:8000/docs](http://localhost:8000/docs)
-
-Matriz de frontends:
-
-- `Streamlit`: fallback operativo y demo completa actual
-- `React v1`: flujo principal de `escenario + comparación`
 
 Persistencia de cache en Docker:
 
@@ -74,8 +68,6 @@ Persistencia de cache en Docker:
 4. Genera la comparación de rutas.
 5. Explica el tradeoff entre:
    tiempo total, riesgo, exposición histórica y vías favorecidas por cada estrategia.
-
-Si React no está listo o quieres la demo completa actual, usa Streamlit como respaldo.
 
 ## Endpoints clave
 
@@ -116,7 +108,6 @@ waze-biobio-ML/
 ├── algorithms/recommenders/
 ├── backend/fastapi_app/
 ├── frontend/react_app/
-├── frontend/streamlit_app/
 ├── data/
 ├── docs/demo-script.md
 ├── compose.yaml
@@ -141,13 +132,6 @@ uvicorn backend.fastapi_app.app.main:app --reload
 ```
 
 En otra terminal:
-
-```bash
-source .venv/bin/activate
-streamlit run frontend/streamlit_app/app.py
-```
-
-React v1 en desarrollo:
 
 ```bash
 cd frontend/react_app

@@ -32,37 +32,29 @@ EXPOSE 8000
 
 CMD ["uvicorn", "backend.fastapi_app.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
-FROM python:3.11-slim-bookworm AS frontend
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PYTHONPATH=/app \
-    BACKEND_URL=http://backend:8000 \
-    BACKEND_TIMEOUT=180
-
-WORKDIR /app
-
-COPY requirements.frontend.txt ./
-
-RUN pip install --upgrade pip && pip install -r requirements.frontend.txt
-
-COPY frontend ./frontend
-
-EXPOSE 8501
-
-CMD ["streamlit", "run", "frontend/streamlit_app/app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true", "--browser.gatherUsageStats=false"]
-
-FROM node:20-bookworm-slim AS react
+FROM node:20-bookworm-slim AS frontend-build
 
 WORKDIR /app/frontend/react_app
 
+ARG VITE_BACKEND_URL=http://localhost:8000
+ENV VITE_BACKEND_URL=${VITE_BACKEND_URL}
+
 COPY frontend/react_app/package*.json ./
 
-RUN npm install
+RUN npm ci
 
 COPY frontend/react_app ./
 
+RUN npm run build
+
+FROM node:20-bookworm-slim AS frontend
+
+WORKDIR /app/frontend/react_app
+
+RUN npm install --global serve
+
+COPY --from=frontend-build /app/frontend/react_app/dist ./dist
+
 EXPOSE 3000
 
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3000"]
+CMD ["serve", "-s", "dist", "-l", "3000"]

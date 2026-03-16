@@ -258,7 +258,7 @@ class RoutingService:
             """
             factors: Dict[str, float] = {}
             for pref in preferences:
-                # pref.weight viene de Streamlit ya normalizado en [0,1]
+                # pref.weight viene del cliente ya normalizado en [0,1]
                 score = max(0.0, min(1.0, float(pref.weight)))
 
                 # Fórmula exponencial para amplificar diferencias

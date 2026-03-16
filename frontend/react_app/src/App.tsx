@@ -162,7 +162,7 @@ export default function App() {
         <div className="section-header">
           <div>
             <div className="eyebrow">Escenario + comparación</div>
-            <h2>Flujo principal de React v1</h2>
+            <h2>Flujo principal de la aplicación</h2>
           </div>
           <div className="action-row">
             <label className="control-inline">
