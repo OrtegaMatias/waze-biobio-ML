@@ -13,6 +13,8 @@ services:
     volumes:
       - ./data/raw:/app/data/raw:ro
       - ./data/processed:/app/data/processed:ro
+      - ./data_processed:/app/data_processed:ro
+      - ./data_analysis:/app/data_analysis:ro
       - backend_cache:/app/data/cache
 
   frontend:

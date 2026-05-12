@@ -15,18 +15,18 @@ import pandas as pd
 from mlxtend.preprocessing import TransactionEncoder
 from sklearn.neighbors import BallTree
 
+from algorithms.recommenders.geo_profiles import canonicalize_data_profile, filter_dataframe_for_profile
+
 ROOT_DIR = Path(__file__).resolve().parents[2]
 CACHE_DIR = ROOT_DIR / "data" / "cache"
 RAW_DIR = ROOT_DIR / "data" / "raw"
 PROCESSED_DIR = ROOT_DIR / "data" / "processed"
-CONCEPCION_BBOX = (-36.95, -36.7, -73.2, -72.9)
 
-ACCIDENT_PATH = RAW_DIR / "ACCIDENTES.csv"
 CONGESTION_PATH = RAW_DIR / "CONGESTIONES.csv"
 USER_RATINGS_PATH = PROCESSED_DIR / "user_ratings.csv"
 ROAD_NETWORK_PATH = PROCESSED_DIR / "road_network.csv"
 _CURRENT_USER_RATINGS_PATH = USER_RATINGS_PATH
-_CURRENT_DATA_PROFILE = "regional"
+_CURRENT_DATA_PROFILE = "gran_concepcion"
 
 HOUR_BUCKETS: List[Tuple[int, int, str]] = [
     (0, 6, "Madrugada (00-05h)"),
@@ -38,6 +38,9 @@ HOUR_BUCKETS: List[Tuple[int, int, str]] = [
 
 ACCIDENT_PENALTY = 1.75
 CONGESTION_PENALTY = 1.35
+CONGESTION_PENALTY_MIN = 1.15
+CONGESTION_PENALTY_MAX = 2.75
+PENALTY_MODEL_VERSION = "congestion-v2"
 PENALTY_RADIUS_M = 60
 EARTH_RADIUS_M = 6_371_000
 
@@ -92,11 +95,11 @@ def _file_signature(path: Path) -> float:
         return 0.0
 
 
-def data_version() -> Tuple[str, float, float, float]:
+def data_version() -> Tuple[str, str, float, float]:
     """Sello temporal para invalidar caches cuando cambian los datos base."""
     return (
         _CURRENT_DATA_PROFILE,
-        _file_signature(ACCIDENT_PATH),
+        PENALTY_MODEL_VERSION,
         _file_signature(CONGESTION_PATH),
         _file_signature(ROAD_NETWORK_PATH),
     )
@@ -218,6 +221,40 @@ def _apply_penalties(reference: pd.DataFrame, lookup) -> pd.DataFrame:
     return ref
 
 
+def _normalize_numeric(series: pd.Series, lower: float, upper: float, inverse: bool = False) -> pd.Series:
+    values = pd.to_numeric(series, errors="coerce")
+    if inverse:
+        score = (upper - values) / max(upper - lower, 1e-9)
+    else:
+        score = (values - lower) / max(upper - lower, 1e-9)
+    return score.clip(0.0, 1.0).fillna(0.0)
+
+
+def _apply_congestion_penalty_model(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    result = df.copy()
+    duration_minutes = pd.to_numeric(result["duracion_hrs"], errors="coerce").fillna(0.0) * 60.0
+    duration_score = _normalize_numeric(duration_minutes, lower=10.0, upper=60.0)
+    speed_score = _normalize_numeric(result["velocidad_kmh"], lower=10.0, upper=35.0, inverse=True)
+    distance_score = _normalize_numeric(result["distancia_km"], lower=0.3, upper=2.0)
+
+    group_cols = ["comuna", "via", "franja_horaria"]
+    frequency = result.groupby(group_cols, dropna=False)["segment_id"].transform("nunique")
+    frequency_score = (np.log1p(frequency) / np.log1p(20.0)).clip(0.0, 1.0).fillna(0.0)
+
+    penalty = (
+        1.0
+        + 0.20
+        + 0.45 * duration_score
+        + 0.55 * speed_score
+        + 0.25 * distance_score
+        + 0.30 * frequency_score
+    )
+    result["penalty_factor"] = penalty.clip(CONGESTION_PENALTY_MIN, CONGESTION_PENALTY_MAX).round(3)
+    return result
+
+
 def _prepare_dataframe(df: pd.DataFrame, label: str) -> pd.DataFrame:
     df = df.copy()
     tipo_evento = {
@@ -254,22 +291,13 @@ def _prepare_dataframe(df: pd.DataFrame, label: str) -> pd.DataFrame:
     else:
         df = df.sort_values(["segment_id"]).reset_index(drop=True)
     df["segment_seq"] = df.groupby("segment_id").cumcount()
+    if label == "congestion":
+        df = _apply_congestion_penalty_model(df)
     return df
 
 
 def _apply_dataset_profile(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty or _CURRENT_DATA_PROFILE != "concepcion":
-        return df
-    if not {"lat", "lon"}.issubset(df.columns):
-        return df
-    lat_min, lat_max, lon_min, lon_max = CONCEPCION_BBOX
-    profiled = df.copy()
-    profiled["lat"] = pd.to_numeric(profiled["lat"], errors="coerce")
-    profiled["lon"] = pd.to_numeric(profiled["lon"], errors="coerce")
-    return profiled[
-        profiled["lat"].between(lat_min, lat_max)
-        & profiled["lon"].between(lon_min, lon_max)
-    ].reset_index(drop=True)
+    return filter_dataframe_for_profile(df, _CURRENT_DATA_PROFILE)
 
 
 def load_raw_events() -> pd.DataFrame:
@@ -277,32 +305,44 @@ def load_raw_events() -> pd.DataFrame:
 
 
 @lru_cache(maxsize=2)
-def _load_raw_events(signature: Tuple[str, float, float, float]) -> pd.DataFrame:
+def _load_raw_events(signature: Tuple[str, str, float, float]) -> pd.DataFrame:
+    return load_congestion_events()
+
+
+def load_congestion_events() -> pd.DataFrame:
+    return _load_congestion_events(data_version())
+
+
+@lru_cache(maxsize=2)
+def _load_congestion_events(signature: Tuple[str, str, float, float]) -> pd.DataFrame:
     cached = _load_cached_dataframe("raw_events", signature)
     if cached is not None:
         return cached
-    accidentes = _prepare_dataframe(pd.read_csv(ACCIDENT_PATH), label="accidente")
     congestiones = _prepare_dataframe(pd.read_csv(CONGESTION_PATH), label="congestion")
-    accidentes = _apply_dataset_profile(accidentes)
     congestiones = _apply_dataset_profile(congestiones)
-    reference = load_reference_network()
-    event_frames = [df for df in (accidentes, congestiones) if not df.empty]
-    events = (
-        pd.concat(event_frames, ignore_index=True) if event_frames else pd.DataFrame(columns=accidentes.columns)
-    )
-    combined_frames = []
-    if not events.empty:
-        combined_frames.append(events)
-    if not reference.empty:
-        penalty_lookup = _build_penalty_lookup(events) if not events.empty else None
-        reference = _apply_penalties(reference, penalty_lookup)
-        combined_frames.append(reference)
-    if not combined_frames:
-        return pd.DataFrame(columns=accidentes.columns)
-    eventos = pd.concat(combined_frames, ignore_index=True)
-    eventos = eventos.sort_values(["segment_id", "segment_seq"]).reset_index(drop=True)
+    eventos = congestiones.sort_values(["segment_id", "segment_seq"]).reset_index(drop=True)
     _store_cached_dataframe("raw_events", signature, eventos)
     return eventos
+
+
+def load_route_network() -> pd.DataFrame:
+    return _load_route_network(data_version())
+
+
+@lru_cache(maxsize=2)
+def _load_route_network(signature: Tuple[str, str, float, float]) -> pd.DataFrame:
+    cached = _load_cached_dataframe("route_network", signature)
+    if cached is not None:
+        return cached
+    reference = load_reference_network()
+    if reference.empty:
+        return reference
+    congestions = load_congestion_events()
+    if not congestions.empty:
+        reference = _apply_penalties(reference, _build_penalty_lookup(congestions))
+    reference = reference.sort_values(["segment_id", "segment_seq"]).reset_index(drop=True)
+    _store_cached_dataframe("route_network", signature, reference)
+    return reference
 
 
 def load_reference_network(path: Path | None = None) -> pd.DataFrame:
@@ -343,7 +383,7 @@ def load_segment_summary() -> pd.DataFrame:
 
 
 @lru_cache(maxsize=1)
-def _load_segment_summary(signature: Tuple[str, float, float, float]) -> pd.DataFrame:
+def _load_segment_summary(signature: Tuple[str, str, float, float]) -> pd.DataFrame:
     cached = _load_cached_dataframe("segment_summary", signature)
     if cached is not None:
         return cached
@@ -382,7 +422,7 @@ def load_transactions() -> pd.DataFrame:
 
 
 @lru_cache(maxsize=1)
-def _load_transactions(signature: Tuple[str, float, float, float]) -> pd.DataFrame:
+def _load_transactions(signature: Tuple[str, str, float, float]) -> pd.DataFrame:
     cached = _load_cached_dataframe("transactions", signature)
     if cached is not None:
         return cached
@@ -408,12 +448,13 @@ def set_user_ratings_path(path: Path) -> None:
 
 def set_data_profile(profile: str) -> None:
     global _CURRENT_DATA_PROFILE
-    if profile == _CURRENT_DATA_PROFILE:
+    canonical_profile = canonicalize_data_profile(profile)
+    if canonical_profile == _CURRENT_DATA_PROFILE:
         return
-    if profile not in {"regional", "concepcion"}:
-        raise ValueError(f"Perfil de datos no soportado: {profile}")
-    _CURRENT_DATA_PROFILE = profile
+    _CURRENT_DATA_PROFILE = canonical_profile
     _load_raw_events.cache_clear()
+    _load_congestion_events.cache_clear()
+    _load_route_network.cache_clear()
     _load_reference_network.cache_clear()
     _load_segment_summary.cache_clear()
     _load_transactions.cache_clear()

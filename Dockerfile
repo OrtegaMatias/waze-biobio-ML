@@ -18,15 +18,14 @@ COPY requirements.backend.txt ./
 
 RUN pip install --upgrade pip && pip install -r requirements.backend.txt
 
+ARG APP_SOURCE_VERSION=gran-concepcion-profiles
+
 COPY algorithms ./algorithms
 COPY backend ./backend
-COPY data/raw ./data/raw
-COPY data/processed ./data/processed
 COPY scripts ./scripts
 COPY README.md ./
 
-RUN mkdir -p /app/data/cache && \
-    python -c "from backend.fastapi_app.app.core import dataset; from backend.fastapi_app.app.services.routing_service import RoutingService; dataset.set_profile('concepcion'); RoutingService().build()"
+RUN mkdir -p /app/data/raw /app/data/processed /app/data/cache
 
 EXPOSE 8000
 

@@ -10,17 +10,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[4]
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 
 DATA_PROFILES: Dict[str, Dict[str, Path | str]] = {
-    "regional": {
-        "label": "Cobertura regional",
+    "gran_concepcion": {
+        "label": "Gran Concepcion",
         "ratings_path": PROCESSED_DIR / "user_ratings.csv",
-    },
-    "concepcion": {
-        "label": "Solo Concepción",
-        "ratings_path": PROCESSED_DIR / "user_ratings_concepcion.csv",
     },
 }
 
-_current_profile = "concepcion"
+_current_profile = "gran_concepcion"
 
 
 def _apply_profile(profile: str) -> None:
@@ -48,7 +44,7 @@ def get_profile_label(profile: str | None = None) -> str:
 def set_profile(profile: str) -> None:
     global _current_profile
     if profile not in DATA_PROFILES:
-        raise ValueError(f"Perfil de datos no soportado: {profile}")
+        raise ValueError("Este entorno solo soporta el perfil gran_concepcion.")
     if profile == _current_profile:
         return
     _apply_profile(profile)

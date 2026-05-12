@@ -11,5 +11,7 @@
 .mypy_cache
 .ruff_cache
 data/cache
+data/raw
+data/processed
 frontend/react_app/node_modules
 frontend/react_app/dist

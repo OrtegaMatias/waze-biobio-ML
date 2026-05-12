@@ -17,10 +17,6 @@ class DatasetStatus(BaseModel):
     available: List[DatasetInfo] = Field(default_factory=list)
 
 
-class DatasetChangeRequest(BaseModel):
-    profile: str
-
-
 class DateCoverage(BaseModel):
     start: str | None = None
     end: str | None = None

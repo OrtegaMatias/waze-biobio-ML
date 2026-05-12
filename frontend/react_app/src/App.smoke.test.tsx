@@ -6,11 +6,17 @@ function buildResponse(payload: unknown) {
   return {
     ok: true,
     json: async () => payload,
+    text: async () => JSON.stringify(payload),
   };
 }
 
 describe("App smoke flow", () => {
-  it("loads the scenario and generates a comparison", async () => {
+  afterEach(() => {
+    window.history.pushState({}, "", "/");
+    vi.unstubAllGlobals();
+  });
+
+  it("renders the product planner at '/' and returns user-facing routes", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL | Request) => {
@@ -24,8 +30,8 @@ describe("App smoke flow", () => {
           return buildResponse({
             status: "ready",
             ready: true,
-            message: "Backend listo para generar la demo.",
-            dataset_profile: "concepcion",
+            message: "Backend listo para planificar viajes.",
+            dataset_profile: "gran_concepcion",
             bootstrap: {
               status: "completed",
               message: "Infraestructura lista",
@@ -33,10 +39,169 @@ describe("App smoke flow", () => {
               routing_nodes: 100,
               routing_segments: 20,
               duration_ms: 1200,
-              dataset_profile: "concepcion",
+              dataset_profile: "gran_concepcion",
+              quality: null,
+            },
+          });
+        }
+
+        if (url.endsWith("/routes/plan")) {
+          return buildResponse({
+            selected_route_key: "least_congestion",
+            routes: [
+              {
+                key: "base",
+                label: "Ruta base",
+                badges: [{ key: "base", label: "Base" }],
+                duration_min: 9.5,
+                distance_km: 3.0,
+                delay_min: 1.4,
+                risk_level: "medium",
+                summary: "9.5 min en total, 1 zonas historicas en ruta.",
+                geometry: [
+                  { lat: -36.82, lon: -73.05 },
+                  { lat: -36.816, lon: -73.047 },
+                  { lat: -36.81, lon: -73.04 },
+                ],
+                top_alerts: [],
+                why_changed: ["Esta ruta usa Dijkstra puro y prioriza el trayecto base mas directo."],
+                top_penalized_segments: [],
+                top_preferred_vias: [],
+                incident_exposure: {
+                  total_incident_segments: 1,
+                  matched_incident_segments: 1,
+                  congestion_segments: 1,
+                  accident_segments: 0,
+                  exposure_minutes: 1.4,
+                },
+              },
+              {
+                key: "least_congestion",
+                label: "Menor congestion",
+                badges: [{ key: "least_congestion", label: "Menor congestion" }],
+                duration_min: 7.5,
+                distance_km: 3.2,
+                delay_min: 0,
+                risk_level: "low",
+                summary: "7.5 min en total, 0 zonas historicas en ruta.",
+                geometry: [
+                  { lat: -36.82, lon: -73.05 },
+                  { lat: -36.815, lon: -73.045 },
+                  { lat: -36.81, lon: -73.04 },
+                ],
+                top_alerts: [],
+                why_changed: ["La ruta evita zonas con mayor congestion historica del horario."],
+                top_penalized_segments: [],
+                top_preferred_vias: [{ via: "Barros Arana", factor: 0.5, reason: "Via favorecida." }],
+                incident_exposure: {
+                  total_incident_segments: 1,
+                  matched_incident_segments: 0,
+                  congestion_segments: 1,
+                  accident_segments: 0,
+                  exposure_minutes: 0,
+                },
+              },
+              {
+                key: "healthiest",
+                label: "Mas saludable",
+                badges: [{ key: "healthiest", label: "Mas saludable" }],
+                duration_min: 8.1,
+                distance_km: 3.5,
+                delay_min: 0.2,
+                risk_level: "low",
+                summary: "8.1 min en total, 0 zonas historicas en ruta.",
+                geometry: [
+                  { lat: -36.82, lon: -73.05 },
+                  { lat: -36.818, lon: -73.047 },
+                  { lat: -36.81, lon: -73.04 },
+                ],
+                top_alerts: [],
+                why_changed: ["Pasa por menos zonas con congestion historica."],
+                top_penalized_segments: [],
+                top_preferred_vias: [],
+                incident_exposure: {
+                  total_incident_segments: 1,
+                  matched_incident_segments: 0,
+                  congestion_segments: 1,
+                  accident_segments: 0,
+                  exposure_minutes: 0,
+                },
+              },
+            ],
+            summary: {
+              eta_total_min: 7.5,
+              distance_km: 3.2,
+              delay_min: 0,
+              alerts_on_route: 0,
+              main_reason: "La ruta evita zonas con mayor congestion historica del horario.",
+            },
+            alerts: [],
+            hotspots: [
+              {
+                lat: -36.819,
+                lon: -73.045,
+                weight: 0.4,
+                day: "Wednesday",
+                bucket: "Punta AM (06-09h)",
+                segment_id: "seg-1",
+              },
+            ],
+            map_bounds: {
+              lat_min: -36.82,
+              lat_max: -36.81,
+              lon_min: -73.05,
+              lon_max: -73.04,
+            },
+          });
+        }
+
+        throw new Error(`Unexpected fetch call: ${url}`);
+      }),
+    );
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText(/planifica tu viaje con congestion historica/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /planificar viaje/i })).toBeEnabled());
+
+    fireEvent.click(screen.getByRole("button", { name: /planificar viaje/i }));
+
+    await waitFor(() => expect(screen.getAllByText(/menor congestion/i).length).toBeGreaterThan(0));
+    expect(screen.getAllByText(/ruta base/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/mas saludable/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/la ruta evita zonas con mayor congestion historica del horario/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/busqueda enriquecida desactivada/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps the academic experience available at '/demo'", async () => {
+    window.history.pushState({}, "", "/demo");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+        if (url.endsWith("/system/bootstrap")) {
+          return buildResponse({ status: "running" });
+        }
+
+        if (url.endsWith("/readyz")) {
+          return buildResponse({
+            status: "ready",
+            ready: true,
+            message: "Backend listo para planificar viajes.",
+            dataset_profile: "gran_concepcion",
+            bootstrap: {
+              status: "completed",
+              message: "Infraestructura lista",
+              percent: 100,
+              routing_nodes: 100,
+              routing_segments: 20,
+              duration_ms: 1200,
+              dataset_profile: "gran_concepcion",
               quality: {
                 status: "warning",
-                dataset_profile: "concepcion",
+                dataset_profile: "gran_concepcion",
                 duplicate_incident_sources: true,
                 date_range: { start: "2025-07-01", end: "2025-07-31", days: 31 },
                 missing_via_ratio: 0.08,
@@ -51,12 +216,9 @@ describe("App smoke flow", () => {
 
         if (url.endsWith("/system/dataset")) {
           return buildResponse({
-            current: "concepcion",
-            current_label: "Solo Concepción",
-            available: [
-              { key: "concepcion", label: "Solo Concepción" },
-              { key: "regional", label: "Cobertura regional" },
-            ],
+            current: "gran_concepcion",
+            current_label: "Gran Concepcion",
+            available: [{ key: "gran_concepcion", label: "Gran Concepcion" }],
           });
         }
 
@@ -118,9 +280,7 @@ describe("App smoke flow", () => {
                 { lat: -36.817, lon: -73.052 },
                 { lat: -36.81, lon: -73.04 },
               ],
-              why_changed: [
-                "Esta variante combina simulación de incidentes históricos con un perfil de viajero sintético.",
-              ],
+              why_changed: ["Esta variante combina congestion historica con un perfil sintetico."],
               top_penalized_segments: [],
               top_preferred_vias: [{ via: "Barros Arana", factor: 0.4, reason: "x" }],
               incident_exposure: {
@@ -141,7 +301,7 @@ describe("App smoke flow", () => {
                 { lat: -36.818, lon: -73.047 },
                 { lat: -36.81, lon: -73.04 },
               ],
-              why_changed: ["Perfil por vías."],
+              why_changed: ["Perfil por vias."],
               top_penalized_segments: [],
               top_preferred_vias: [{ via: "O'Higgins", factor: 0.5, reason: "x" }],
               incident_exposure: {
@@ -169,14 +329,8 @@ describe("App smoke flow", () => {
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByText(/flujo principal de la aplicación/i)).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByRole("button", { name: /generar comparación/i })).toBeEnabled());
-
-    fireEvent.click(screen.getByRole("button", { name: /generar comparación/i }));
-
-    await waitFor(() => expect(screen.getByText(/resultado de la simulación/i)).toBeInTheDocument());
-    expect(screen.getAllByText(/perfil por usuarios/i)[0]).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: /mapa comparativo de rutas/i })).toBeInTheDocument();
-    expect(screen.getByText(/barros arana/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/flujo principal de la aplicacion academica/i)).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /generar comparacion/i })).toBeInTheDocument();
+    expect(screen.getByText(/escenario curado/i)).toBeInTheDocument();
   });
 });

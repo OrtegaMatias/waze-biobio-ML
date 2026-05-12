@@ -49,7 +49,7 @@ def test_routing_service_rebuilds_on_new_signature(monkeypatch):
 
     seen_signatures = []
 
-    monkeypatch.setattr(routing_service.data_loader, "load_raw_events", lambda: events)
+    monkeypatch.setattr(routing_service.data_loader, "load_route_network", lambda: events)
     monkeypatch.setattr(routing_service.data_loader, "data_version", fake_data_version)
     monkeypatch.setattr(routing_service, "_load_graph_cache", lambda signature: seen_signatures.append(signature))
     monkeypatch.setattr(routing_service, "_store_graph_cache", lambda *args, **kwargs: None)
@@ -72,12 +72,12 @@ def test_routing_service_uses_cache_without_loading_events(monkeypatch):
     load_calls = {"count": 0}
     signature = ("sig", 1, 1)
 
-    def fake_load_raw_events():
+    def fake_load_route_network():
         load_calls["count"] += 1
         return _event_dataframe()
 
     monkeypatch.setattr(routing_service.data_loader, "data_version", lambda: signature)
-    monkeypatch.setattr(routing_service.data_loader, "load_raw_events", fake_load_raw_events)
+    monkeypatch.setattr(routing_service.data_loader, "load_route_network", fake_load_route_network)
     monkeypatch.setattr(
         routing_service,
         "_load_graph_cache",

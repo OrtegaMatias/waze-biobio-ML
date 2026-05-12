@@ -10,7 +10,7 @@ describe("StatusPanel", () => {
           status: "ready",
           ready: true,
           message: "Backend listo para generar la demo.",
-          dataset_profile: "concepcion",
+          dataset_profile: "gran_concepcion",
           bootstrap: {
             status: "completed",
             message: "Infraestructura lista",
@@ -18,10 +18,10 @@ describe("StatusPanel", () => {
             routing_nodes: 100,
             routing_segments: 20,
             duration_ms: 1200,
-            dataset_profile: "concepcion",
+            dataset_profile: "gran_concepcion",
             quality: {
               status: "warning",
-              dataset_profile: "concepcion",
+              dataset_profile: "gran_concepcion",
               duplicate_incident_sources: true,
               date_range: { start: "2025-07-01", end: "2025-07-31", days: 31 },
               missing_via_ratio: 0.08,

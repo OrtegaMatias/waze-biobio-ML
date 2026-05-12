@@ -313,15 +313,16 @@ class RouteGraph:
         if not target_candidates:
             target_candidates = self._filter_snap_candidates(self.nearest_nodes(*destination, limit=1))
         target_ids = {node.node_id for node, _ in target_candidates}
-        distances = {node_id: float("inf") for node_id in self.nodes}
-        previous: Dict[str, Optional[str]] = {node_id: None for node_id in self.nodes}
+        distances: Dict[str, float] = {}
+        previous: Dict[str, Optional[str]] = {}
         queue: List[Tuple[float, str]] = []
         best_target = None
 
         for source_node, snap_distance in source_candidates:
             initial_cost = max(0.0, snap_distance)
-            if initial_cost < distances[source_node.node_id]:
+            if initial_cost < distances.get(source_node.node_id, float("inf")):
                 distances[source_node.node_id] = initial_cost
+                previous[source_node.node_id] = None
                 queue.append((initial_cost, source_node.node_id))
 
         heapq.heapify(queue)
@@ -350,10 +351,9 @@ class RouteGraph:
             day = incident_ctx.get("day")
             hour_bucket = incident_ctx.get("hour_bucket")
             avoid_congestion = bool(incident_ctx.get("avoid_congestion"))
-            avoid_accidents = bool(incident_ctx.get("avoid_accidents"))
 
             # Si el usuario no pidió evitar nada, no aplicamos incidente extra
-            if not (avoid_congestion or avoid_accidents):
+            if not avoid_congestion:
                 return 1.0
 
             matches_day = bool(
@@ -366,6 +366,14 @@ class RouteGraph:
                 and node.franja_horaria
                 and node.franja_horaria == hour_bucket
             )
+            if str(node.tipo_evento).startswith("Congesti"):
+                if matches_day and matches_hour:
+                    return 1.75
+                if matches_hour:
+                    return 1.35
+                if matches_day:
+                    return 1.15
+                return 1.0
             has_penalty = bool(node.penalty_factor and node.penalty_factor > 1.0)
 
             # Factor base ligado a la severidad histórica
@@ -388,22 +396,12 @@ class RouteGraph:
                 # Solo factor histórico suave (si lo hubiera)
                 return max(1.0, base_incident)
 
-            # --- Accidentes ---
-            if avoid_accidents and node.tipo_evento == "Accidente":
-                if matches_day and matches_hour:
-                    return max(1.0, base_incident * 200.0)
-
-                if matches_day or matches_hour or has_penalty:
-                    return max(1.0, base_incident * 2.0)
-
-                return max(1.0, base_incident)
-
             # Otros tipos de evento: solo factor histórico (si lo hay)
             return max(1.0, base_incident)
 
         while queue:
             current_dist, node_id = heapq.heappop(queue)
-            if current_dist > distances[node_id]:
+            if current_dist > distances.get(node_id, float("inf")):
                 continue
             if node_id in target_ids:
                 best_target = node_id

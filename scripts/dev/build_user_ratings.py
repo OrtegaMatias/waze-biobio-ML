@@ -1,27 +1,27 @@
 # -*- coding: utf-8 -*-
 """
-Genera datasets de ratings sintéticos a partir del road_network.
-Permite cubrir todas las vías con distintos perfiles de usuario (velocidad, distancia, tiempo, balanceado).
+Genera datasets de ratings sinteticos a partir del road_network.
+Permite cubrir todas las vias con distintos perfiles de usuario.
 """
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict
 
 import numpy as np
 import pandas as pd
+
+from algorithms.recommenders.geo_profiles import canonicalize_data_profile, filter_dataframe_for_profile
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 ROAD_NETWORK_PATH = PROCESSED_DIR / "road_network.csv"
 OUTPUTS: Dict[str, Path] = {
-    "regional": PROCESSED_DIR / "user_ratings.csv",
-    "concepcion": PROCESSED_DIR / "user_ratings_concepcion.csv",
+    "gran_concepcion": PROCESSED_DIR / "user_ratings.csv",
+    "gran_concepcion_core": PROCESSED_DIR / "user_ratings_concepcion.csv",
 }
-
-CONCEPCION_BBOX: Tuple[float, float, float, float] = (-36.95, -36.7, -73.2, -72.9)
 
 
 def _normalize(series: pd.Series) -> pd.Series:
@@ -38,26 +38,19 @@ def _to_rating(score: pd.Series) -> pd.Series:
 
 
 def load_road_network(region: str) -> pd.DataFrame:
+    region = canonicalize_data_profile(region)
     if not ROAD_NETWORK_PATH.exists():
         raise FileNotFoundError(f"No existe {ROAD_NETWORK_PATH}")
     df = pd.read_csv(ROAD_NETWORK_PATH)
-    for column in ("velocidad_kmh", "distancia_km", "duracion_hrs", "lat", "lon"):
+    for column in ("velocidad_kmh", "distancia_km", "duracion_hrs"):
         df[column] = pd.to_numeric(df.get(column), errors="coerce")
     df["via"] = df["via"].astype(str).str.strip()
     df = df[df["via"] != ""]
-    if region == "concepcion":
-        lat_min, lat_max, lon_min, lon_max = CONCEPCION_BBOX
-        df = df[
-            df["lat"].between(lat_min, lat_max)
-            & df["lon"].between(lon_min, lon_max)
-        ]
+    df = filter_dataframe_for_profile(df, region)
     if df.empty:
-        bbox_msg = ""
-        if region == "concepcion":
-            bbox_msg = f" dentro del bbox {CONCEPCION_BBOX}"
         raise ValueError(
-            f"No se encontraron vías para la región '{region}'{bbox_msg}. "
-            "Verifica que data/processed/road_network.csv esté actualizado."
+            f"No se encontraron vias para el perfil '{region}'. "
+            "Verifica que data/processed/road_network.csv este actualizado."
         )
     grouped = (
         df.groupby("via", as_index=False)
@@ -72,6 +65,7 @@ def load_road_network(region: str) -> pd.DataFrame:
 
 
 def build_ratings(region: str) -> pd.DataFrame:
+    region = canonicalize_data_profile(region)
     roads = load_road_network(region)
     speed_norm = _normalize(roads["velocidad_kmh"])
     distance_norm = _normalize(roads["distancia_km"])
@@ -104,25 +98,26 @@ def build_ratings(region: str) -> pd.DataFrame:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Genera user_ratings sintéticos basados en road_network.csv")
+    parser = argparse.ArgumentParser(description="Genera user_ratings sinteticos basados en road_network.csv")
     parser.add_argument(
         "--mode",
-        choices=["regional", "concepcion"],
-        default="regional",
+        choices=["gran_concepcion", "gran_concepcion_core", "regional", "concepcion"],
+        default="gran_concepcion",
         help="Subset del road_network a considerar.",
     )
     parser.add_argument(
         "--output",
         type=str,
         default=None,
-        help="Ruta de salida opcional. Por defecto sobrescribe el archivo oficial según el modo.",
+        help="Ruta de salida opcional. Por defecto sobrescribe el archivo oficial segun el modo.",
     )
     args = parser.parse_args()
-    output_path = Path(args.output) if args.output else OUTPUTS[args.mode]
-    ratings_df = build_ratings(args.mode)
+    mode = canonicalize_data_profile(args.mode)
+    output_path = Path(args.output) if args.output else OUTPUTS[mode]
+    ratings_df = build_ratings(mode)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     ratings_df.to_csv(output_path, index=False)
-    print(f"Escribí {len(ratings_df)} ratings en {output_path}")
+    print(f"Escribi {len(ratings_df)} ratings en {output_path}")
 
 
 if __name__ == "__main__":

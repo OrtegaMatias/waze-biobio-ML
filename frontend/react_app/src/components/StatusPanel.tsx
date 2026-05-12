@@ -29,7 +29,7 @@ export function StatusPanel({ readiness, onRefresh, busy }: StatusPanelProps) {
         <article className="status-card">
           <span className="metric-label">Calidad de datos</span>
           <strong className="metric-value">{quality?.status ?? "..."}</strong>
-          <p>{quality?.raw_counts.combined?.toLocaleString() ?? "0"} incidentes crudos</p>
+          <p>{quality?.raw_counts.combined?.toLocaleString() ?? "0"} registros historicos</p>
         </article>
       </div>
       {quality?.warnings?.length ? (

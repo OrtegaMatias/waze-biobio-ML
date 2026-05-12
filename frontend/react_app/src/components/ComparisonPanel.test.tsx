@@ -38,7 +38,7 @@ describe("ComparisonPanel", () => {
               { lat: -36.817, lon: -73.052 },
               { lat: -36.81, lon: -73.04 },
             ],
-            why_changed: ["Esta variante combina simulación de incidentes históricos con un perfil de viajero sintético."],
+            why_changed: ["Esta variante combina congestion historica con un perfil de viajero sintetico."],
             top_penalized_segments: [{ segment_id: "seg-1", via: "Barros Arana", comuna: "Concepción", event_type: "Congestión", impact_score: 4.2, reason: "x" }],
             top_preferred_vias: [{ via: "O'Higgins", factor: 0.4, reason: "x" }],
             incident_exposure: {

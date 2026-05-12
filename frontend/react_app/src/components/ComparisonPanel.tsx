@@ -10,7 +10,7 @@ const VARIANT_LABELS: Record<string, string> = {
 const HIGHLIGHT_LABELS: Record<string, string> = {
   fastest_variant: "Más rápida",
   safest_variant: "Más segura",
-  lowest_exposure_variant: "Menor exposición",
+  lowest_exposure_variant: "Menor congestion historica",
   best_balance_variant: "Mejor balance",
 };
 
@@ -26,6 +26,13 @@ type HighlightKey = (typeof HIGHLIGHT_KEYS)[number];
 type ComparisonPanelProps = {
   route: RouteResponse;
 };
+
+function formatPm25(route: RouteResponse[keyof Pick<RouteResponse, "reference" | "ubcf" | "ibcf">]): string {
+  if (!route.pm25_exposure) {
+    return "PM2.5 no disponible";
+  }
+  return `PM2.5 ${route.pm25_exposure.average_pm25.toFixed(1)} ug/m3 | ${route.pm25_exposure.category}`;
+}
 
 export function ComparisonPanel({ route }: ComparisonPanelProps) {
   const highlights = HIGHLIGHT_KEYS.map((key) => {
@@ -68,7 +75,8 @@ export function ComparisonPanel({ route }: ComparisonPanelProps) {
               <div className="stats-inline">
                 <span>{variant.distance_km.toFixed(2)} km</span>
                 <span>riesgo {variant.risk_score.toFixed(1)}/100</span>
-                <span>{variant.incident_exposure.matched_incident_segments} segmentos expuestos</span>
+                <span>{variant.incident_exposure.matched_incident_segments} zonas historicas</span>
+                <span>{formatPm25(variant)}</span>
               </div>
               <ul className="reason-list">
                 {variant.why_changed.map((reason) => (
@@ -77,7 +85,7 @@ export function ComparisonPanel({ route }: ComparisonPanelProps) {
               </ul>
               {variant.top_penalized_segments.length ? (
                 <>
-                  <strong className="subhead">Segmentos conflictivos</strong>
+                  <strong className="subhead">Zonas con mayor congestion historica</strong>
                   <ul className="compact-list">
                     {variant.top_penalized_segments.slice(0, 2).map((segment) => (
                       <li key={`${segment.segment_id}-${segment.via}`}>

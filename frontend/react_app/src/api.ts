@@ -1,10 +1,14 @@
 import type {
   DatasetStatus,
   DemoScenario,
+  HotspotPoint,
+  PlaceResult,
+  PlanRouteResponse,
   ReadinessStatus,
   RecommendationItem,
   RouteResponse,
   TravelerProfileId,
+  TravelStyle,
 } from "./types";
 
 export const BACKEND_URL =
@@ -37,13 +41,6 @@ export function startBootstrap(): Promise<unknown> {
 
 export function getDatasetStatus(): Promise<DatasetStatus> {
   return requestJson<DatasetStatus>("/system/dataset");
-}
-
-export function setDataset(profile: string): Promise<DatasetStatus> {
-  return requestJson<DatasetStatus>("/system/dataset", {
-    method: "POST",
-    body: JSON.stringify({ profile }),
-  });
 }
 
 export async function getScenarios(): Promise<DemoScenario[]> {
@@ -102,4 +99,54 @@ export async function generateRouteComparison(args: {
       avoid_accidents: args.avoid_accidents,
     }),
   });
+}
+
+export function planRoute(args: {
+  origin: { lat: number; lon: number };
+  destination: { lat: number; lon: number };
+  day_of_week: string;
+  departure_hour: number;
+  travel_style: TravelStyle;
+  avoid_congestion: boolean;
+  avoid_accidents: boolean;
+}): Promise<PlanRouteResponse> {
+  return requestJson<PlanRouteResponse>("/routes/plan", {
+    method: "POST",
+    body: JSON.stringify(args),
+  });
+}
+
+export async function searchPlaces(query: string, limit = 5): Promise<PlaceResult[]> {
+  const params = new URLSearchParams({ q: query, limit: String(limit) });
+  const response = await requestJson<{ results: PlaceResult[] }>(`/places/search?${params.toString()}`);
+  return response.results;
+}
+
+export async function reversePlace(lat: number, lon: number): Promise<PlaceResult | null> {
+  const params = new URLSearchParams({ lat: String(lat), lon: String(lon) });
+  const response = await requestJson<{ result: PlaceResult | null }>(`/places/reverse?${params.toString()}`);
+  return response.result;
+}
+
+export async function getHotspots(filters?: {
+  bbox?: string;
+  day_of_week?: string;
+  departure_hour?: number;
+  limit?: number;
+}): Promise<HotspotPoint[]> {
+  const params = new URLSearchParams();
+  if (filters?.bbox) {
+    params.set("bbox", filters.bbox);
+  }
+  if (filters?.day_of_week) {
+    params.set("day_of_week", filters.day_of_week);
+  }
+  if (filters?.departure_hour !== undefined) {
+    params.set("departure_hour", String(filters.departure_hour));
+  }
+  if (filters?.limit) {
+    params.set("limit", String(filters.limit));
+  }
+  const response = await requestJson<{ points: HotspotPoint[] }>(`/metadata/hotspots?${params.toString()}`);
+  return response.points;
 }

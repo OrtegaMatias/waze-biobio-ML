@@ -18,6 +18,7 @@ from algorithms.recommenders import data_loader, routing
 from ..schemas.routes import (
     IncidentExposure,
     PreferredViaImpact,
+    RoutePoint,
     RouteComparison,
     RouteDelta,
     RouteRequest,
@@ -26,6 +27,7 @@ from ..schemas.routes import (
     RouteVariant,
     SegmentImpact,
 )
+from .air_quality_service import get_air_quality_service
 
 logger = logging.getLogger(__name__)
 CACHE_DIR = Path(__file__).resolve().parents[4] / "data" / "cache"
@@ -120,10 +122,15 @@ class RoutingService:
                     progress("Grafo listo (cache)", 1.0)
                 return
             if progress:
-                progress("Cargando eventos", 0.2)
-            events = data_loader.load_raw_events()
+                progress("Cargando red vial", 0.2)
+            events = data_loader.load_route_network()
+            if events.empty:
+                raise ValueError(
+                    "No se encontro una red vial utilizable. Genera data/processed/road_network.csv "
+                    "desde data/processed/road_network_parts antes de iniciar el backend."
+                )
             if progress:
-                progress("Eventos cargados", 0.4)
+                progress("Red vial cargada", 0.4)
 
             def rg_progress(stage: str, ratio: float) -> None:
                 base = {"nodes": 0.4, "segments": 0.8, "junctions": 0.95}.get(stage, 0.4)
@@ -219,25 +226,23 @@ class RoutingService:
             "day": day_value,
             "hour_bucket": hour_bucket,
             "include_congestion": True,
-            "include_accidents": True,
+            "include_accidents": False,
             "match_filters": True,
         }
         routing_context = None
-        needs_context = payload.avoid_congestion or payload.avoid_accidents
+        needs_context = payload.avoid_congestion
         if needs_context:
             routing_context = {
                 "day": day_value,
                 "hour_bucket": hour_bucket,
                 "avoid_congestion": payload.avoid_congestion,
-                "avoid_accidents": payload.avoid_accidents,
+                "avoid_accidents": False,
             }
 
         # Log detallado sobre penalizaciones
         penalty_status = []
         if payload.avoid_congestion:
-            penalty_status.append("Congestiones (4x-400x)")
-        if payload.avoid_accidents:
-            penalty_status.append("Accidentes (2x-200x)")
+            penalty_status.append("Congestion historica por severidad y contexto")
         if not penalty_status:
             penalty_status.append("NINGUNA - Rutas solo diferirán por preferencias CF")
 
@@ -396,9 +401,9 @@ class RoutingService:
                 ibcf_path = list(reference_path)
             personalized_path = list(ubcf_path)
         else:
-            # 2. RUTA UBCF: Con preferencias UBCF + penalizaciones de incidentes
+            # 2. Ruta compatible UBCF: solo se usa si llegan preferencias academicas.
             if has_ubcf:
-                logger.info("Generando ruta UBCF (evita incidentes según usuarios similares)...")
+                logger.info("Generando ruta UBCF legacy con congestion historica...")
                 ubcf_path = self.graph.shortest_path(
                     (payload.origin.lat, payload.origin.lon),
                     (payload.destination.lat, payload.destination.lon),
@@ -425,9 +430,9 @@ class RoutingService:
                 else:
                     ubcf_path = list(reference_path)
 
-            # 3. RUTA IBCF: Con preferencias IBCF + penalizaciones de incidentes
+            # 3. Ruta compatible IBCF: solo se usa si llegan preferencias academicas.
             if has_ibcf:
-                logger.info("Generando ruta IBCF (evita incidentes según vías similares)...")
+                logger.info("Generando ruta IBCF legacy con congestion historica...")
                 ibcf_path = self.graph.shortest_path(
                     (payload.origin.lat, payload.origin.lon),
                     (payload.destination.lat, payload.destination.lon),
@@ -567,15 +572,15 @@ class RoutingService:
         variant_name: str,
         extra_minutes: float,
     ) -> tuple[IncidentExposure, float, List[str], List[SegmentImpact], List[PreferredViaImpact]]:
-        incident_steps = [step for step in path if step.tipo_evento in {"Congestión", "Accidente"}]
+        incident_steps = [step for step in path if step.tipo_evento == "Congestión"]
         matched_steps = [step for step in incident_steps if self._match_step_context(step, context)]
-        congestion_steps = [step for step in incident_steps if step.tipo_evento == "Congestión"]
-        accident_steps = [step for step in incident_steps if step.tipo_evento == "Accidente"]
+        congestion_steps = list(incident_steps)
+        accident_steps: List[routing.RouteStep] = []
 
         scored_segments: List[SegmentImpact] = []
         risk_units = 0.0
         for step in matched_steps:
-            type_weight = 1.3 if step.tipo_evento == "Congestión" else 1.8
+            type_weight = 1.3
             base_minutes = max(float(step.duracion_hrs or 0.0) * 60, 5.0)
             impact_score = round(type_weight * base_minutes / 10.0, 2)
             risk_units += impact_score
@@ -619,9 +624,7 @@ class RoutingService:
     def _incident_reason(step: routing.RouteStep) -> str:
         if step.tipo_evento == "Congestión":
             return f"Congestión histórica en {step.franja_horaria or 'franja no definida'}."
-        if step.tipo_evento == "Accidente":
-            return f"Accidente histórico asociado a {step.dia_semana or 'día no definido'}."
-        return "Segmento con historial de incidente."
+        return "Segmento con historial de congestion."
 
     @staticmethod
     def _preferred_via_impacts(
@@ -666,13 +669,13 @@ class RoutingService:
         if variant_name == "reference":
             reasons.append("Esta ruta usa Dijkstra puro y prioriza el trayecto base más directo.")
         else:
-            reasons.append("Esta variante combina simulación de incidentes históricos con un perfil de viajero sintético.")
+            reasons.append("Esta variante evita zonas con mayor congestion historica.")
         if exposure.matched_incident_segments:
             reasons.append(
-                f"Se detectaron {exposure.matched_incident_segments} segmentos con exposición en el contexto seleccionado."
+                f"Se detectaron {exposure.matched_incident_segments} zonas con congestion historica en el contexto seleccionado."
             )
         else:
-            reasons.append("No se detectó exposición histórica relevante para el día y horario elegidos.")
+            reasons.append("No se detecto congestion historica relevante para el dia y horario elegidos.")
         if top_penalized_segments:
             reasons.append(f"El principal punto conflictivo es {top_penalized_segments[0].via}.")
         if top_preferred_vias:
@@ -799,13 +802,12 @@ class RoutingService:
         extra_minutes = 0.0
         if context:
             include_congestion = bool(context.get("include_congestion", True))
-            include_accidents = bool(context.get("include_accidents", True))
             match_filters = bool(context.get("match_filters", True))
             day_value = str(context.get("day") or "").lower() if match_filters else ""
             hour_value = context.get("hour_bucket") if match_filters else None
             buckets: Dict[Tuple[str, str, str], List[float]] = {}
             for step in path:
-                if step.tipo_evento not in {"Congestión", "Accidente"}:
+                if step.tipo_evento != "Congestión":
                     continue
                 matches_day = True
                 if day_value:
@@ -816,8 +818,6 @@ class RoutingService:
                 if not (matches_day and matches_hour):
                     continue
                 if step.tipo_evento == "Congestión" and not include_congestion:
-                    continue
-                if step.tipo_evento == "Accidente" and not include_accidents:
                     continue
                 key = (step.segment_id, step.tipo_evento, step.franja_horaria or "")
                 minutes = max(step.duracion_hrs, 0.1) * 60
@@ -836,14 +836,25 @@ class RoutingService:
                 extra_minutes=extra_minutes,
             )
         )
+        geometry = [RoutePoint(**point) for point in self._build_geometry(full_path)]
+        try:
+            pm25_exposure = get_air_quality_service().estimate_route_exposure(
+                geometry=geometry,
+                departure_hour=payload.departure_hour,
+            )
+        except Exception as exc:  # pragma: no cover - defensive fallback for optional layer
+            logger.warning("No se pudo estimar exposicion PM2.5 para la ruta: %s", exc)
+            pm25_exposure = None
+
         return RouteVariant(
             distance_km=round(distance, 2),
             estimated_duration_min=round(estimated_minutes, 1),
             steps=steps,
-            geometry=self._build_geometry(full_path),
+            geometry=geometry,
             extra_delay_min=round(extra_minutes, 1),
             risk_score=risk_score,
             incident_exposure=exposure,
+            pm25_exposure=pm25_exposure,
             why_changed=why_changed,
             top_penalized_segments=top_penalized_segments,
             top_preferred_vias=top_preferred_vias,
