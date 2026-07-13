@@ -46,6 +46,17 @@ export type DatasetStatus = {
   available: Array<{ key: string; label: string }>;
 };
 
+export type CongestionDateCoverage = {
+  start: string | null;
+  end: string | null;
+  available_dates: string[];
+  missing_dates: string[];
+  rain_dates: string[];
+  available_days: number;
+  calendar_days: number;
+  data_source: string;
+};
+
 export type DemoScenario = {
   id: string;
   title: string;
@@ -97,6 +108,48 @@ export type Pm25Exposure = {
   data_source: string;
 };
 
+export type Pm25StationCondition = {
+  station_id: string;
+  station_name: string;
+  lat: number;
+  lon: number;
+  pm25: number;
+  category: "Baja" | "Media" | "Alta";
+};
+
+export type Pm25SnapshotResponse = {
+  available: boolean;
+  requested_at: string;
+  stations: Pm25StationCondition[];
+  average_pm25: number | null;
+  date_range: {
+    start?: string | null;
+    end?: string | null;
+  };
+  method: string;
+  data_source: string;
+};
+
+export type CyclewayCoverage = {
+  available: boolean;
+  coverage_ratio: number;
+  nearby_cycleway_km: number;
+  route_km: number;
+  nearby_buffer_m: number;
+  has_high_coverage: boolean;
+  data_source: string;
+};
+
+export type AirQualityLevel = "good" | "moderate" | "elevated" | "very_high" | "unknown";
+
+export type AirQualityInsight = {
+  level: AirQualityLevel;
+  label: string;
+  value: string;
+  headline: string;
+  messages: string[];
+};
+
 export type SegmentImpact = {
   segment_id: string;
   via: string;
@@ -123,12 +176,16 @@ export type RouteVariant = {
   top_preferred_vias: PreferredViaImpact[];
   incident_exposure: IncidentExposure;
   pm25_exposure?: Pm25Exposure | null;
+  urban_wellbeing?: UrbanWellbeingAnalysis | null;
+  healthy_route_score?: number | null;
 };
 
 export type RouteResponse = {
   reference: RouteVariant;
+  least_congestion?: RouteVariant | null;
   ubcf: RouteVariant;
   ibcf: RouteVariant;
+  healthiest?: RouteVariant | null;
   personalized: RouteVariant | null;
   comparison: {
     fastest_variant: string;
@@ -164,15 +221,217 @@ export type HotspotPoint = {
   hora_fin_float?: number | null;
 };
 
+export type EnvironmentalImpactPoint = {
+  lat: number;
+  lon: number;
+  score: number;
+  level: "low" | "medium" | "high";
+  congestion_score: number;
+  congestion_level: "low" | "medium" | "high";
+  pm25?: number | null;
+  rain_mm?: number | null;
+  wind_speed?: number | null;
+  segment_id: string;
+  via?: string | null;
+  comuna?: string | null;
+  message: string;
+};
+
+export type EnvironmentalImpactResponse = {
+  summary: {
+    available: boolean;
+    requested_at: string;
+    point_count: number;
+    dominant_level: "low" | "medium" | "high" | "none";
+    weather?: {
+      pm25?: number | null;
+      pm25_min?: number | null;
+      pm25_max?: number | null;
+      rain_mm?: number | null;
+      has_rain?: boolean | null;
+      rain_label: "Sin lluvia" | "Llovizna" | "Lluvia" | "Lluvia fuerte" | "Sin dato";
+      wind_speed?: number | null;
+      wind_speed_kmh?: number | null;
+      wind_speed_min?: number | null;
+      wind_speed_max?: number | null;
+      wind_speed_min_kmh?: number | null;
+      wind_speed_max_kmh?: number | null;
+      wind_label: "Viento suave" | "Viento moderado" | "Viento fuerte" | "Sin dato";
+      global_radiation?: number | null;
+      sky_label: "Despejado" | "Parcial" | "Nublado" | "Oscuro" | "Sin dato";
+    };
+    messages: string[];
+    method: string;
+    data_source: string;
+  };
+  points: EnvironmentalImpactPoint[];
+  zones?: {
+    type: "FeatureCollection";
+    features: Array<{
+      type: "Feature";
+      properties: Record<string, unknown>;
+      geometry: {
+        type: string;
+        coordinates: unknown;
+      };
+    }>;
+  };
+  congestion_lines?: {
+    type: "FeatureCollection";
+    features: Array<{
+      type: "Feature";
+      properties: Record<string, unknown>;
+      geometry: {
+        type: string;
+        coordinates: unknown;
+      };
+    }>;
+  };
+};
+
+export type CyclewayFeature = {
+  type: "Feature";
+  properties: {
+    osm_id?: number;
+    minvu_id?: number;
+    minvu_path_index?: number;
+    local_id?: string;
+    name?: string;
+    category?: string;
+    highway?: string;
+    cycleway?: string;
+    cycleway_left?: string;
+    cycleway_right?: string;
+    cycleway_both?: string;
+    bicycle?: string;
+    source?: string;
+    source_detail?: string;
+    source_url?: string;
+    comuna?: string;
+    start?: string;
+    end?: string;
+    km?: number;
+    stage?: string;
+    stage_detail?: string;
+  };
+  geometry: {
+    type: "LineString";
+    coordinates: Array<[number, number]>;
+  };
+};
+
+export type CyclewayCollection = {
+  type: "FeatureCollection";
+  name: string;
+  features: CyclewayFeature[];
+};
+
+export type UrbanWellbeingCategory =
+  | "green_space"
+  | "blue_space"
+  | "tree_cover"
+  | "public_space"
+  | "sustainability"
+  | "cycleway";
+
+export type UrbanWellbeingFeature = {
+  type: "Feature";
+  properties: {
+    feature_id?: string;
+    osm_id?: number;
+    name?: string;
+    category?: UrbanWellbeingCategory;
+    subtype?: string;
+    base_weight?: number;
+    source?: string;
+  };
+  geometry: {
+    type: string;
+    coordinates: unknown;
+  };
+};
+
+export type UrbanWellbeingCollection = {
+  type: "FeatureCollection";
+  name: string;
+  features: UrbanWellbeingFeature[];
+};
+
+export type WellbeingFeatureImpact = {
+  feature_id: string;
+  name: string;
+  category: UrbanWellbeingCategory;
+  subtype: string;
+  distance_m: number;
+  source: string;
+  base_weight: number;
+};
+
+export type UrbanWellbeingAnalysis = {
+  available: boolean;
+  score: number;
+  green_ratio: number;
+  blue_ratio: number;
+  tree_ratio: number;
+  public_space_ratio: number;
+  sustainability_ratio: number;
+  cycleway_ratio?: number;
+  nearby_feature_count: number;
+  nearby_buffer_m: number;
+  top_features: WellbeingFeatureImpact[];
+  method: string;
+  data_source: string;
+};
+
 export type RouteBadge = {
   key: "base" | "least_congestion" | "healthiest" | "recommended" | "fastest" | "least_exposure";
   label: string;
 };
 
+export type RouteType = "fastest" | "least_congested" | "healthiest";
+
 export type PlanRouteAlert = {
   title: string;
   detail: string;
   severity: "low" | "medium" | "high";
+};
+
+export type ContextualMobilityMessage = {
+  id: string;
+  title: string;
+  detail: string;
+  mode: "walk" | "bike" | "active_mobility";
+  priority: "low" | "medium" | "high";
+};
+
+export type MobilityMessageType =
+  | "air"
+  | "congestion"
+  | "time"
+  | "route_attribute"
+  | "weather"
+  | "recommendation";
+
+export type MobilityGuidanceMessage = {
+  id: string;
+  title: string;
+  detail: string;
+  type: MobilityMessageType;
+  priority: "low" | "medium" | "high";
+  action?: {
+    label: string;
+    targetRouteId: string;
+  };
+};
+
+export type ActiveMobilityEstimate = {
+  auto_min: number;
+  bike_min: number;
+  walk_min: number;
+  bike_extra_min: number;
+  walk_extra_min: number;
+  bike_speed_kmh: number;
+  walk_speed_kmh: number;
 };
 
 export type PlanRouteSummary = {
@@ -183,29 +442,54 @@ export type PlanRouteSummary = {
   main_reason: string;
 };
 
+export type RouteCongestionCoverage = {
+  route_m: number;
+  congested_m: number;
+  high_m: number;
+  medium_m: number;
+  low_m: number;
+  congested_pct: number;
+  high_pct: number;
+  medium_pct: number;
+  low_pct: number;
+  primary_via?: string | null;
+};
+
 export type PlanRouteCard = {
-  key: string;
+  key: RouteType;
   label: string;
   badges: RouteBadge[];
   duration_min: number;
   distance_km: number;
   delay_min: number;
+  congestion_score: number;
   risk_level: "low" | "medium" | "high";
   summary: string;
   geometry: RoutePoint[];
+  road_geometry?: RoutePoint[];
+  access_geometry?: RoutePoint[][];
   top_alerts: PlanRouteAlert[];
   why_changed: string[];
   top_penalized_segments: SegmentImpact[];
   top_preferred_vias: PreferredViaImpact[];
+  congestion_coverage?: RouteCongestionCoverage;
   incident_exposure: IncidentExposure;
   pm25_exposure?: Pm25Exposure | null;
+  urban_wellbeing?: UrbanWellbeingAnalysis | null;
+  healthy_route_score?: number | null;
+  cycleway_coverage?: CyclewayCoverage | null;
+  bicycle_suggestion?: string | null;
+  contextual_messages?: ContextualMobilityMessage[];
+  active_mobility_estimate?: ActiveMobilityEstimate | null;
 };
 
 export type PlanRouteResponse = {
-  selected_route_key: string;
+  selected_route_key: RouteType;
   routes: PlanRouteCard[];
+  routes_by_type: Record<RouteType, PlanRouteCard>;
   summary: PlanRouteSummary;
   alerts: PlanRouteAlert[];
+  contextual_messages?: ContextualMobilityMessage[];
   hotspots: HotspotPoint[];
   map_bounds: {
     lat_min: number;

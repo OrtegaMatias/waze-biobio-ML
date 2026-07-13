@@ -1,18 +1,22 @@
 import type {
+  CongestionDateCoverage,
+  CyclewayCollection,
   DatasetStatus,
   DemoScenario,
+  EnvironmentalImpactResponse,
   HotspotPoint,
   PlaceResult,
   PlanRouteResponse,
+  Pm25SnapshotResponse,
   ReadinessStatus,
   RecommendationItem,
   RouteResponse,
   TravelerProfileId,
   TravelStyle,
+  UrbanWellbeingCollection,
 } from "./types";
 
-export const BACKEND_URL =
-  import.meta.env.VITE_BACKEND_URL?.replace(/\/$/, "") || "http://localhost:8000";
+export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL?.replace(/\/$/, "") || "";
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${BACKEND_URL}${path}`, {
@@ -104,6 +108,7 @@ export async function generateRouteComparison(args: {
 export function planRoute(args: {
   origin: { lat: number; lon: number };
   destination: { lat: number; lon: number };
+  congestion_date?: string;
   day_of_week: string;
   departure_hour: number;
   travel_style: TravelStyle;
@@ -149,4 +154,26 @@ export async function getHotspots(filters?: {
   }
   const response = await requestJson<{ points: HotspotPoint[] }>(`/metadata/hotspots?${params.toString()}`);
   return response.points;
+}
+
+export function getCycleways(): Promise<CyclewayCollection> {
+  return requestJson<CyclewayCollection>("/metadata/cycleways");
+}
+
+export function getUrbanWellbeing(): Promise<UrbanWellbeingCollection> {
+  return requestJson<UrbanWellbeingCollection>("/metadata/urban-wellbeing");
+}
+
+export function getCongestionDates(): Promise<CongestionDateCoverage> {
+  return requestJson<CongestionDateCoverage>("/metadata/congestion/dates");
+}
+
+export function getPm25Snapshot(date: string, hour: number): Promise<Pm25SnapshotResponse> {
+  const params = new URLSearchParams({ date, hour: String(hour) });
+  return requestJson<Pm25SnapshotResponse>(`/metadata/pm25/snapshot?${params.toString()}`);
+}
+
+export function getEnvironmentalImpact(date: string, hour: number): Promise<EnvironmentalImpactResponse> {
+  const params = new URLSearchParams({ date, hour: String(hour) });
+  return requestJson<EnvironmentalImpactResponse>(`/metadata/environmental-impact?${params.toString()}`);
 }

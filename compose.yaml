@@ -7,12 +7,14 @@ services:
       target: backend
     environment:
       PYTHONPATH: /app
+      AUTO_BOOTSTRAP_ENABLED: "1"
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     restart: unless-stopped
     volumes:
       - ./data/raw:/app/data/raw:ro
       - ./data/processed:/app/data/processed:ro
+      - ./data/air_quality:/app/data/air_quality:ro
       - ./data_processed:/app/data_processed:ro
       - ./data_analysis:/app/data_analysis:ro
       - backend_cache:/app/data/cache
@@ -22,7 +24,9 @@ services:
       context: .
       target: frontend
       args:
-        VITE_BACKEND_URL: "${VITE_BACKEND_URL:-http://localhost:8000}"
+        VITE_BACKEND_URL: "${VITE_BACKEND_URL:-}"
+    environment:
+      BACKEND_URL: "http://backend:8000"
     depends_on:
       - backend
     ports:

@@ -1,8 +1,10 @@
 import type { RouteResponse } from "../types";
 
 const VARIANT_META = {
-  reference: { label: "Ruta base", color: "#2563eb" },
+  reference: { label: "Ruta mas corta", color: "#2563eb" },
+  least_congestion: { label: "Circulación más fluida", color: "#0f766e" },
   ubcf: { label: "Perfil por usuarios", color: "#15803d" },
+  healthiest: { label: "Menor exposición ambiental", color: "#16a34a" },
   ibcf: { label: "Perfil por vías", color: "#ea580c" },
 } as const;
 
@@ -16,12 +18,14 @@ type ProjectedPoint = {
 };
 
 export function RouteMap({ route }: RouteMapProps) {
-  const routes = ["reference", "ubcf", "ibcf"]
+  const routes = ["reference", "least_congestion", "ubcf", "ibcf", "healthiest"]
     .map((key) => ({
       key,
       label: VARIANT_META[key as keyof typeof VARIANT_META].label,
       color: VARIANT_META[key as keyof typeof VARIANT_META].color,
-      geometry: route[key as keyof Pick<RouteResponse, "reference" | "ubcf" | "ibcf">].geometry ?? [],
+      geometry:
+        route[key as keyof Pick<RouteResponse, "reference" | "least_congestion" | "ubcf" | "ibcf" | "healthiest">]
+          ?.geometry ?? [],
     }))
     .filter((item) => item.geometry.length > 1);
 

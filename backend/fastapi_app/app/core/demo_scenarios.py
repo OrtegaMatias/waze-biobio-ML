@@ -5,7 +5,7 @@ DEMO_SCENARIOS = [
     {
         "id": "centro_punta_am",
         "title": "Centro de Concepción en punta AM",
-        "description": "Caso urbano denso para comparar ruta base versus ruta con menor exposición histórica.",
+        "description": "Caso urbano denso para comparar ruta mas corta versus ruta con menor exposición histórica.",
         "origin": {"lat": -36.8267, "lon": -73.0498},
         "destination": {"lat": -36.8114, "lon": -73.0490},
         "day_of_week": "Wednesday",
@@ -38,7 +38,7 @@ DEMO_SCENARIOS = [
     {
         "id": "trayecto_nocturno",
         "title": "Trayecto nocturno balanceado",
-        "description": "Caso con menor presión horaria para evidenciar cuándo la ruta base sigue siendo suficiente.",
+        "description": "Caso con menor presión horaria para evidenciar cuándo la ruta mas corta sigue siendo suficiente.",
         "origin": {"lat": -36.8200, "lon": -73.0440},
         "destination": {"lat": -36.8502, "lon": -73.1292},
         "day_of_week": "Saturday",

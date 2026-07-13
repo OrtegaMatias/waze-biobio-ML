@@ -1,3 +1,18 @@
+FROM node:20-bookworm-slim AS frontend-build
+
+WORKDIR /app/frontend/react_app
+
+ARG VITE_BACKEND_URL=
+ENV VITE_BACKEND_URL=${VITE_BACKEND_URL}
+
+COPY frontend/react_app/package*.json ./
+
+RUN npm ci
+
+COPY frontend/react_app ./
+
+RUN npm run build
+
 FROM python:3.11-slim-bookworm AS backend
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -24,6 +39,7 @@ COPY algorithms ./algorithms
 COPY backend ./backend
 COPY scripts ./scripts
 COPY README.md ./
+COPY --from=frontend-build /app/frontend/react_app/dist ./frontend_dist
 
 RUN mkdir -p /app/data/raw /app/data/processed /app/data/cache
 
@@ -31,29 +47,13 @@ EXPOSE 8000
 
 CMD ["uvicorn", "backend.fastapi_app.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
-FROM node:20-bookworm-slim AS frontend-build
-
-WORKDIR /app/frontend/react_app
-
-ARG VITE_BACKEND_URL=http://localhost:8000
-ENV VITE_BACKEND_URL=${VITE_BACKEND_URL}
-
-COPY frontend/react_app/package*.json ./
-
-RUN npm ci
-
-COPY frontend/react_app ./
-
-RUN npm run build
-
 FROM node:20-bookworm-slim AS frontend
 
 WORKDIR /app/frontend/react_app
 
-RUN npm install --global serve
-
 COPY --from=frontend-build /app/frontend/react_app/dist ./dist
+COPY frontend/react_app/server.mjs ./server.mjs
 
 EXPOSE 3000
 
-CMD ["serve", "-s", "dist", "-l", "3000"]
+CMD ["node", "server.mjs"]

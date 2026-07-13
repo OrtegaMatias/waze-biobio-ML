@@ -54,6 +54,8 @@ Servicios:
 - Readiness: [http://localhost:8000/readyz](http://localhost:8000/readyz)
 - OpenAPI: [http://localhost:8000/docs](http://localhost:8000/docs)
 
+Para compartir la demo con otra persona, usa el link del backend. El backend sirve la app React y la API en el mismo origen, evitando que el navegador de la otra persona intente llamar a `localhost:8000`. El contenedor frontend de `3000` tambien proxyea la API hacia el backend cuando se usa Docker Compose.
+
 Persistencia de cache en Docker:
 
 - `backend_cache`: guarda el grafo y artefactos del backend dentro de Docker

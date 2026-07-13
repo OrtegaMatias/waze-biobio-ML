@@ -45,6 +45,15 @@ def test_prepare_dataframe_marks_reference_oneway():
     assert processed["penalty_factor"].eq(1.0).all()
 
 
+def test_prepare_dataframe_parses_false_oneway_strings():
+    raw = _base_raw_df()
+    raw["oneway"] = ["False"] * len(raw)
+
+    processed = data_loader._prepare_dataframe(raw, label="referencia")
+
+    assert not processed["oneway"].any()
+
+
 def test_prepare_dataframe_scores_congestion_severity():
     raw = pd.DataFrame(
         {

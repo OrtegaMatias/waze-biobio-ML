@@ -17,7 +17,7 @@ describe("ComparisonPanel", () => {
               { lat: -36.815, lon: -73.045 },
               { lat: -36.81, lon: -73.04 },
             ],
-            why_changed: ["Ruta base sin sesgo colaborativo."],
+            why_changed: ["Ruta mas corta sin sesgo colaborativo."],
             top_penalized_segments: [],
             top_preferred_vias: [],
             incident_exposure: {
@@ -82,7 +82,7 @@ describe("ComparisonPanel", () => {
       />,
     );
 
-    expect(screen.getByText(/más rápida/i)).toBeInTheDocument();
+    expect(screen.getByText(/llegar antes/i)).toBeInTheDocument();
     expect(screen.getAllByText(/perfil por usuarios/i)[0]).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /mapa comparativo de rutas/i })).toBeInTheDocument();
     expect(screen.getByText(/barros arana/i)).toBeInTheDocument();

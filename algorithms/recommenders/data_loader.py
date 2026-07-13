@@ -161,6 +161,18 @@ def _safe_title(value: str, fallback: str = "Sin dato") -> str:
     return cleaned.title()
 
 
+def _normalize_bool(value) -> bool:
+    if isinstance(value, str):
+        cleaned = value.strip().lower()
+        if cleaned in {"true", "1", "yes", "si", "s"}:
+            return True
+        if cleaned in {"false", "0", "no", "nan", ""}:
+            return False
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return False
+    return bool(value)
+
+
 def _get_value(row: pd.Series, column: str, fallback: str) -> str:
     value = row.get(column, fallback)
     if isinstance(value, str):
@@ -284,7 +296,7 @@ def _prepare_dataframe(df: pd.DataFrame, label: str) -> pd.DataFrame:
     df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
     df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
     df["oneway"] = df.get("oneway", False)
-    df["oneway"] = df["oneway"].fillna(False).astype(bool)
+    df["oneway"] = df["oneway"].apply(_normalize_bool)
     if "indice_coord" in df.columns:
         df["indice_coord"] = pd.to_numeric(df["indice_coord"], errors="coerce").fillna(0).astype(int)
         df = df.sort_values(["segment_id", "indice_coord"]).reset_index(drop=True)

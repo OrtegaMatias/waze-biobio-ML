@@ -76,3 +76,27 @@ def test_metadata_hotspots_filters_bbox_day_and_hour(monkeypatch):
     assert response.status_code == 200
     assert len(payload["points"]) == 1
     assert payload["points"][0]["segment_id"] == "seg-a"
+
+
+def test_metadata_congestion_dates_reports_available_and_missing_days(monkeypatch):
+    df = pd.DataFrame(
+        [
+            {"fecha": "2025-03-13"},
+            {"fecha": "2025-03-13"},
+            {"fecha": "2025-03-15"},
+        ]
+    )
+    monkeypatch.setattr(main.data_loader, "load_congestion_events", lambda: df)
+    monkeypatch.setattr(main, "CONGESTION_COVERAGE_FILES", {})
+
+    with TestClient(main.app) as client:
+        response = client.get("/metadata/congestion/dates")
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["start"] == "2025-03-13"
+    assert payload["end"] == "2025-03-15"
+    assert payload["available_dates"] == ["2025-03-13", "2025-03-15"]
+    assert payload["missing_dates"] == ["2025-03-14"]
+    assert payload["available_days"] == 2
+    assert payload["calendar_days"] == 3

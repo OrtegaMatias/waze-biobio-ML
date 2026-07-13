@@ -1,0 +1,4896 @@
+{
+  "type": "FeatureCollection",
+  "name": "gran_concepcion_cycleways_minvu",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 83,
+        "minvu_path_index": 0,
+        "name": "Barros Arana",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 0.25288354,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_84",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04611933273182,
+            -36.82471974986028
+          ],
+          [
+            -73.04359251966353,
+            -36.82369325623847
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 84,
+        "minvu_path_index": 0,
+        "name": "Castellón",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 0.12956059,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_85",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04670753587902,
+            -36.82627872530079
+          ],
+          [
+            -73.04736217589165,
+            -36.82523816520725
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 85,
+        "minvu_path_index": 0,
+        "name": "Diagonal",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 0.15487479,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_86",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04528631383232,
+            -36.82567986723188
+          ],
+          [
+            -73.04395172411529,
+            -36.825954753986075
+          ],
+          [
+            -73.04361002171362,
+            -36.82603562680883
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 86,
+        "minvu_path_index": 0,
+        "name": "Edmundo Larenas",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 0.09698662,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_87",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.03972357449136,
+            -36.82720376867572
+          ],
+          [
+            -73.03926245032001,
+            -36.82799405412454
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 87,
+        "minvu_path_index": 0,
+        "name": "Manuel Rodríguez",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 1.3953117,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_88",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04935728346483,
+            -36.814471406069714
+          ],
+          [
+            -73.0532663248069,
+            -36.81611571231647
+          ],
+          [
+            -73.05707324677365,
+            -36.817687804729815
+          ],
+          [
+            -73.06321229238786,
+            -36.82026915425508
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 88,
+        "minvu_path_index": 0,
+        "name": "O'Higgins",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 1.45120355,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_89",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04528631383232,
+            -36.82567986723188
+          ],
+          [
+            -73.0581259873176,
+            -36.831084622463585
+          ],
+          [
+            -73.05938517751161,
+            -36.83161292837132
+          ],
+          [
+            -73.05965449684952,
+            -36.83177123381056
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 89,
+        "minvu_path_index": 0,
+        "name": "Ongolmo",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 1.45105398,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_90",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04935728346483,
+            -36.814471406069714
+          ],
+          [
+            -73.04671784533527,
+            -36.818563799974434
+          ],
+          [
+            -73.04621755440472,
+            -36.819660148205195
+          ],
+          [
+            -73.04560494991864,
+            -36.820590761890486
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 89,
+        "minvu_path_index": 1,
+        "name": "Ongolmo",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 1.45105398,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_90",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04552189428124,
+            -36.82069327852316
+          ],
+          [
+            -73.04301294769473,
+            -36.82473318663202
+          ],
+          [
+            -73.04213653681167,
+            -36.82609988201417
+          ],
+          [
+            -73.04220543056098,
+            -36.82626709826583
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 90,
+        "minvu_path_index": 0,
+        "name": "Roosevelt",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 1.44788923,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_91",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.03240700038037,
+            -36.81644390164885
+          ],
+          [
+            -73.03316731852281,
+            -36.81723519809515
+          ],
+          [
+            -73.03412680338391,
+            -36.81831296562417
+          ],
+          [
+            -73.03438566024221,
+            -36.81852662095561
+          ],
+          [
+            -73.0343484150817,
+            -36.818559885295
+          ],
+          [
+            -73.0358290797363,
+            -36.820183921203125
+          ],
+          [
+            -73.03577065069325,
+            -36.820560608693974
+          ],
+          [
+            -73.03573875403622,
+            -36.820766238777416
+          ],
+          [
+            -73.03578275655697,
+            -36.821056548145066
+          ],
+          [
+            -73.03651723027222,
+            -36.823719429505616
+          ],
+          [
+            -73.03701084915517,
+            -36.82547659776726
+          ],
+          [
+            -73.03720765051341,
+            -36.826037821356884
+          ],
+          [
+            -73.03734092679758,
+            -36.826203379875906
+          ],
+          [
+            -73.03972357449136,
+            -36.82720376867572
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 91,
+        "minvu_path_index": 0,
+        "name": "Tucapel",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 0.12816147,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_92",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04547783535648,
+            -36.82575152734982
+          ],
+          [
+            -73.04611933273182,
+            -36.82471974986028
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 92,
+        "minvu_path_index": 0,
+        "name": "Alcalde Oñate",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08102",
+        "project": "Construcción Red de Ciclorutas de Coronel",
+        "km": 1.02699656,
+        "type": "Ciclovías MINVU",
+        "project_code": "30344077-0",
+        "cehu_code": "MPC9_93",
+        "system": "SIS-8-7",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.15290507498595,
+            -36.994680083594034
+          ],
+          [
+            -73.15321143385034,
+            -36.995613147290534
+          ],
+          [
+            -73.15322617761558,
+            -36.9957746973457
+          ],
+          [
+            -73.1532801368224,
+            -36.9960016058536
+          ],
+          [
+            -73.15340400856107,
+            -36.99631186461364
+          ],
+          [
+            -73.153484256768,
+            -36.99647588551617
+          ],
+          [
+            -73.15385697655798,
+            -36.99764495450475
+          ],
+          [
+            -73.15390578649092,
+            -36.99788634310099
+          ],
+          [
+            -73.1540397123284,
+            -36.998162881613666
+          ],
+          [
+            -73.15425659902077,
+            -36.99887123164896
+          ],
+          [
+            -73.15429944798939,
+            -36.99900319613011
+          ],
+          [
+            -73.15429303009039,
+            -36.99910352098813
+          ],
+          [
+            -73.15437558448254,
+            -36.999200726434495
+          ],
+          [
+            -73.1546120373973,
+            -36.999940803458244
+          ],
+          [
+            -73.15501007948278,
+            -37.00113757961653
+          ],
+          [
+            -73.15500210544172,
+            -37.0012093591011
+          ],
+          [
+            -73.15485387854044,
+            -37.001433823405804
+          ],
+          [
+            -73.1548515771541,
+            -37.00150063791054
+          ],
+          [
+            -73.15494447715166,
+            -37.001678512948125
+          ],
+          [
+            -73.15449485116261,
+            -37.00291549933312
+          ],
+          [
+            -73.15437478833394,
+            -37.003329642210105
+          ],
+          [
+            -73.15428071990894,
+            -37.00356650695175
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 93,
+        "minvu_path_index": 0,
+        "name": "Los Chiflones",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08102",
+        "project": "Construcción Red de Ciclorutas de Coronel",
+        "km": 0.6525403,
+        "type": "Ciclovías MINVU",
+        "project_code": "30344077-0",
+        "cehu_code": "MPC9_94",
+        "system": "SIS-8-7",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.15459236272292,
+            -36.99987922288639
+          ],
+          [
+            -73.15681747007909,
+            -36.99940680681655
+          ],
+          [
+            -73.1574286451971,
+            -36.99928049754437
+          ],
+          [
+            -73.15760711048813,
+            -36.999283769552626
+          ],
+          [
+            -73.15821138831586,
+            -36.99935789770983
+          ],
+          [
+            -73.15972801652164,
+            -36.99954299745698
+          ],
+          [
+            -73.16177296951861,
+            -36.999771488669325
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 94,
+        "minvu_path_index": 0,
+        "name": "Avenida Reconquista",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08112",
+        "project": "Construcción Red de Ciclorutas de Hualpén",
+        "km": 0.12371722,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352574-0",
+        "cehu_code": "MPC9_95",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.10573555972121,
+            -36.80089318969328
+          ],
+          [
+            -73.10569458233132,
+            -36.80090937106066
+          ],
+          [
+            -73.10532308716806,
+            -36.800848143487876
+          ],
+          [
+            -73.1052780866793,
+            -36.80100988525183
+          ],
+          [
+            -73.1047756417782,
+            -36.80090654118004
+          ],
+          [
+            -73.10455793268831,
+            -36.80083545067712
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 95,
+        "minvu_path_index": 0,
+        "name": "Curanilahue",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08112",
+        "project": "Construcción Red de Ciclorutas de Hualpén",
+        "km": 0.7122298,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352574-0",
+        "cehu_code": "MPC9_96",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.08679221284372,
+            -36.79008697413335
+          ],
+          [
+            -73.09075885000073,
+            -36.79008648362199
+          ],
+          [
+            -73.0921869532998,
+            -36.79100230693323
+          ],
+          [
+            -73.0943632819406,
+            -36.791033103600704
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 96,
+        "minvu_path_index": 0,
+        "name": "Finlandia",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08112",
+        "project": "Construcción Red de Ciclorutas de Hualpén",
+        "km": 0.79828253,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352574-0",
+        "cehu_code": "MPC9_97",
+        "system": "SIS-8-4",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.11049700506094,
+            -36.78502997746051
+          ],
+          [
+            -73.11187996907654,
+            -36.78529920156524
+          ],
+          [
+            -73.11201846942774,
+            -36.785317686361445
+          ],
+          [
+            -73.11250404031804,
+            -36.785410668782625
+          ],
+          [
+            -73.11249949795405,
+            -36.78544523361763
+          ],
+          [
+            -73.11402312595692,
+            -36.78576156650573
+          ],
+          [
+            -73.11458353429488,
+            -36.78586812610374
+          ],
+          [
+            -73.11551087000394,
+            -36.78604115644883
+          ],
+          [
+            -73.11544521314364,
+            -36.78621973652016
+          ],
+          [
+            -73.11540048153155,
+            -36.786279866700845
+          ],
+          [
+            -73.11794838314252,
+            -36.786755081777045
+          ],
+          [
+            -73.11871772478251,
+            -36.786607760250725
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 97,
+        "minvu_path_index": 0,
+        "name": "Nueva Imperial",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08112",
+        "project": "Construcción Red de Ciclorutas de Hualpén",
+        "km": 0.54961508,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352574-0",
+        "cehu_code": "MPC9_98",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.08243799731989,
+            -36.79621466201599
+          ],
+          [
+            -73.08266502505631,
+            -36.79630699988619
+          ],
+          [
+            -73.08356646054759,
+            -36.80009499481386
+          ],
+          [
+            -73.08368329087992,
+            -36.80020605590666
+          ],
+          [
+            -73.0845051440853,
+            -36.8005382769848
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 98,
+        "minvu_path_index": 0,
+        "name": "Océano Atlántico",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08112",
+        "project": "Construcción Red de Ciclorutas de Hualpén",
+        "km": 0.5279613,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352574-0",
+        "cehu_code": "MPC9_99",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.10455793268831,
+            -36.80083545067712
+          ],
+          [
+            -73.10414370082462,
+            -36.80111447939752
+          ],
+          [
+            -73.10406517805032,
+            -36.80112518658982
+          ],
+          [
+            -73.10399939856777,
+            -36.8011698716468
+          ],
+          [
+            -73.10348992691327,
+            -36.801346677511155
+          ],
+          [
+            -73.1031791140227,
+            -36.80144431917427
+          ],
+          [
+            -73.10299955193166,
+            -36.80150017478185
+          ],
+          [
+            -73.10262331276088,
+            -36.80161720858291
+          ],
+          [
+            -73.10224923087964,
+            -36.80173356943796
+          ],
+          [
+            -73.10183841034275,
+            -36.801861356886334
+          ],
+          [
+            -73.10126677517454,
+            -36.80203916326359
+          ],
+          [
+            -73.10126088902143,
+            -36.80203761900179
+          ],
+          [
+            -73.10117056392009,
+            -36.80201391540247
+          ],
+          [
+            -73.1011205949595,
+            -36.80203533057812
+          ],
+          [
+            -73.10108589876386,
+            -36.802096156829734
+          ],
+          [
+            -73.10056171966802,
+            -36.80225245675861
+          ],
+          [
+            -73.10050520716543,
+            -36.802255430936285
+          ],
+          [
+            -73.10044572011265,
+            -36.8021602520503
+          ],
+          [
+            -73.1004130031047,
+            -36.802157277830275
+          ],
+          [
+            -73.1003148506331,
+            -36.802210816050675
+          ],
+          [
+            -73.10008930769935,
+            -36.80234945045851
+          ],
+          [
+            -73.0992967383454,
+            -36.802570709540745
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 99,
+        "minvu_path_index": 0,
+        "name": "Pasaje Diecinueve",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08112",
+        "project": "Construcción Red de Ciclorutas de Hualpén",
+        "km": 0.29215642,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352574-0",
+        "cehu_code": "MPC9_100",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.0992967383454,
+            -36.802570709540745
+          ],
+          [
+            -73.0994760901697,
+            -36.80286219318263
+          ],
+          [
+            -73.09929694474805,
+            -36.80303450377196
+          ],
+          [
+            -73.09928926970045,
+            -36.803024694918385
+          ],
+          [
+            -73.099235169515,
+            -36.80302578177939
+          ],
+          [
+            -73.09919055455465,
+            -36.803034704344704
+          ],
+          [
+            -73.0991459399576,
+            -36.803076344584404
+          ],
+          [
+            -73.09907455656496,
+            -36.803147728858086
+          ],
+          [
+            -73.09895954515515,
+            -36.80327090925724
+          ],
+          [
+            -73.09964922672327,
+            -36.803871396867734
+          ],
+          [
+            -73.10001393748264,
+            -36.80418893454432
+          ],
+          [
+            -73.10037328245049,
+            -36.80451702832894
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 105,
+        "minvu_path_index": 0,
+        "name": "Alto Horno",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08110",
+        "project": "Construcción Red de Ciclorutas de Talcahuano",
+        "km": 0.8274065,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352575-0",
+        "cehu_code": "MPC9_108",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.1034420783768,
+            -36.747942187594774
+          ],
+          [
+            -73.10397316732708,
+            -36.7476738854657
+          ],
+          [
+            -73.10428428090879,
+            -36.74748884827959
+          ],
+          [
+            -73.10447428633879,
+            -36.747284280635064
+          ],
+          [
+            -73.10462274850704,
+            -36.74709186156295
+          ],
+          [
+            -73.10483426368751,
+            -36.746687446406106
+          ],
+          [
+            -73.10534912868353,
+            -36.74550851231998
+          ],
+          [
+            -73.10610711391409,
+            -36.74383297504481
+          ],
+          [
+            -73.10635333349519,
+            -36.743403128675595
+          ],
+          [
+            -73.10680546450399,
+            -36.742724074015676
+          ],
+          [
+            -73.10767547776884,
+            -36.741473229251504
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 106,
+        "minvu_path_index": 0,
+        "name": "Desiderio García",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08110",
+        "project": "Construcción Red de Ciclorutas de Talcahuano",
+        "km": 0.75613355,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352575-0",
+        "cehu_code": "MPC9_109",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.09754857227027,
+            -36.743681968804104
+          ],
+          [
+            -73.0986063240747,
+            -36.7440244465801
+          ],
+          [
+            -73.09895081118276,
+            -36.74416427331538
+          ],
+          [
+            -73.10000723763397,
+            -36.744527414542375
+          ],
+          [
+            -73.1001689082086,
+            -36.74459773362744
+          ],
+          [
+            -73.10022554770019,
+            -36.744523411281435
+          ],
+          [
+            -73.10060359459904,
+            -36.74466853366641
+          ],
+          [
+            -73.10089442298214,
+            -36.74479077505426
+          ],
+          [
+            -73.10122584013286,
+            -36.744969302196914
+          ],
+          [
+            -73.10138677325881,
+            -36.74509825786216
+          ],
+          [
+            -73.10164426548863,
+            -36.74536476709244
+          ],
+          [
+            -73.10202965066212,
+            -36.74590837263654
+          ],
+          [
+            -73.10232516494824,
+            -36.74588151665793
+          ],
+          [
+            -73.10269482944481,
+            -36.746230171928545
+          ],
+          [
+            -73.10266496573324,
+            -36.74675317312886
+          ],
+          [
+            -73.10306885359728,
+            -36.7473291220908
+          ],
+          [
+            -73.10336567354723,
+            -36.74773001077157
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 107,
+        "minvu_path_index": 0,
+        "name": "Lago Llanquihue",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08110",
+        "project": "Construcción Red de Ciclorutas de Talcahuano",
+        "km": 0.51242368,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352575-0",
+        "cehu_code": "MPC9_110",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.08754686528943,
+            -36.76489161282635
+          ],
+          [
+            -73.08780899931514,
+            -36.76497447289446
+          ],
+          [
+            -73.08833471110694,
+            -36.765167313101635
+          ],
+          [
+            -73.0885795413016,
+            -36.76525898973763
+          ],
+          [
+            -73.08896915458611,
+            -36.76539930859199
+          ],
+          [
+            -73.08940888812232,
+            -36.765562927191105
+          ],
+          [
+            -73.08997028135055,
+            -36.76575810675469
+          ],
+          [
+            -73.09023102790553,
+            -36.76573125184207
+          ],
+          [
+            -73.0904869587433,
+            -36.76569741237209
+          ],
+          [
+            -73.09172839830127,
+            -36.765561697968394
+          ],
+          [
+            -73.09238257190223,
+            -36.76549625864614
+          ],
+          [
+            -73.09275806819237,
+            -36.76545471927542
+          ],
+          [
+            -73.09302400782799,
+            -36.765441979870594
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 108,
+        "minvu_path_index": 0,
+        "name": "Las Hortensias",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08110",
+        "project": "Construcción Red de Ciclorutas de Talcahuano",
+        "km": 2.53553745,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352575-0",
+        "cehu_code": "MPC9_111",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.09890635300462,
+            -36.744328538077724
+          ],
+          [
+            -73.09838281492745,
+            -36.745258346942514
+          ],
+          [
+            -73.09824331070287,
+            -36.745393506728696
+          ],
+          [
+            -73.09822309954798,
+            -36.745541996481265
+          ],
+          [
+            -73.09692434799132,
+            -36.74773781939554
+          ],
+          [
+            -73.0960689624601,
+            -36.7491945148114
+          ],
+          [
+            -73.09529764119931,
+            -36.750561788089506
+          ],
+          [
+            -73.09472907103263,
+            -36.75156526940821
+          ],
+          [
+            -73.09398532940669,
+            -36.752867231470006
+          ],
+          [
+            -73.0933324789742,
+            -36.75399909883467
+          ],
+          [
+            -73.09303145781169,
+            -36.7545207173869
+          ],
+          [
+            -73.0927105380161,
+            -36.755085923466446
+          ],
+          [
+            -73.09268216822726,
+            -36.75517332861791
+          ],
+          [
+            -73.09243205893468,
+            -36.75557208500515
+          ],
+          [
+            -73.09239180594446,
+            -36.755984613932675
+          ],
+          [
+            -73.09220178110715,
+            -36.75633795046356
+          ],
+          [
+            -73.09199111334941,
+            -36.75647033759484
+          ],
+          [
+            -73.09171585725794,
+            -36.757058994037926
+          ],
+          [
+            -73.09176177971229,
+            -36.75716478494192
+          ],
+          [
+            -73.09154264826331,
+            -36.75751971950778
+          ],
+          [
+            -73.09142046625394,
+            -36.757752078703234
+          ],
+          [
+            -73.09133259898695,
+            -36.75783084191907
+          ],
+          [
+            -73.09129875838292,
+            -36.757946413003744
+          ],
+          [
+            -73.09077155378826,
+            -36.758894109718824
+          ],
+          [
+            -73.09016031008912,
+            -36.76001630515254
+          ],
+          [
+            -73.08952781894907,
+            -36.761115276430935
+          ],
+          [
+            -73.08926965241677,
+            -36.76152458181102
+          ],
+          [
+            -73.08920502136242,
+            -36.76156255786014
+          ],
+          [
+            -73.08907582889942,
+            -36.76155628023392
+          ],
+          [
+            -73.08901468336292,
+            -36.76157626113799
+          ],
+          [
+            -73.08887292194468,
+            -36.76183497722673
+          ],
+          [
+            -73.08881258373043,
+            -36.76203726246078
+          ],
+          [
+            -73.08881524037515,
+            -36.76208722350321
+          ],
+          [
+            -73.0885718908325,
+            -36.76252461863195
+          ],
+          [
+            -73.0882470795706,
+            -36.76310138754306
+          ],
+          [
+            -73.08823595503442,
+            -36.76347716192508
+          ],
+          [
+            -73.08779772244387,
+            -36.76426090278802
+          ],
+          [
+            -73.08754359362639,
+            -36.76466291512507
+          ],
+          [
+            -73.08745087431848,
+            -36.764841288319204
+          ],
+          [
+            -73.08749288074794,
+            -36.76487917003773
+          ],
+          [
+            -73.08754686528943,
+            -36.76489161282635
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 109,
+        "minvu_path_index": 0,
+        "name": "Río Maule - Lago Lanalhue",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08110",
+        "project": "Construcción Red de Ciclorutas de Talcahuano",
+        "km": 1.39705538,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352575-0",
+        "cehu_code": "MPC9_112",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.09321116000797,
+            -36.75420932550545
+          ],
+          [
+            -73.09339950211417,
+            -36.75428244214714
+          ],
+          [
+            -73.09343282466712,
+            -36.75432419557347
+          ],
+          [
+            -73.09364624821944,
+            -36.75482808774063
+          ],
+          [
+            -73.09373601956199,
+            -36.754928673367516
+          ],
+          [
+            -73.09486364614233,
+            -36.75758224989039
+          ],
+          [
+            -73.09510350957245,
+            -36.758081651954534
+          ],
+          [
+            -73.09510477496357,
+            -36.758188862953496
+          ],
+          [
+            -73.09522331442282,
+            -36.75849581397687
+          ],
+          [
+            -73.09530827590466,
+            -36.758589413304755
+          ],
+          [
+            -73.09540242238805,
+            -36.75861838798206
+          ],
+          [
+            -73.09535788376769,
+            -36.75877003570434
+          ],
+          [
+            -73.09522119220945,
+            -36.759040024389996
+          ],
+          [
+            -73.09491395739006,
+            -36.75961191432974
+          ],
+          [
+            -73.09470892177592,
+            -36.75993359482042
+          ],
+          [
+            -73.0945944934485,
+            -36.76003764419597
+          ],
+          [
+            -73.09418322252216,
+            -36.76024130327134
+          ],
+          [
+            -73.09426799493014,
+            -36.76033133446773
+          ],
+          [
+            -73.09421686285933,
+            -36.76037242413543
+          ],
+          [
+            -73.0940964777743,
+            -36.76044807636334
+          ],
+          [
+            -73.09398743211284,
+            -36.760569814686235
+          ],
+          [
+            -73.09370078131957,
+            -36.760944358972196
+          ],
+          [
+            -73.09344029251055,
+            -36.761393079199586
+          ],
+          [
+            -73.09339223373723,
+            -36.761424410309466
+          ],
+          [
+            -73.09341801964062,
+            -36.761491450015676
+          ],
+          [
+            -73.09346484226533,
+            -36.76153631344545
+          ],
+          [
+            -73.09369249451544,
+            -36.76163929685658
+          ],
+          [
+            -73.09377327841251,
+            -36.76165438857416
+          ],
+          [
+            -73.093839998022,
+            -36.76165566441451
+          ],
+          [
+            -73.09381370012748,
+            -36.76174594950655
+          ],
+          [
+            -73.09379380341153,
+            -36.761789536933286
+          ],
+          [
+            -73.09379797684522,
+            -36.762118305940625
+          ],
+          [
+            -73.0937156650118,
+            -36.762324926924556
+          ],
+          [
+            -73.09358455791637,
+            -36.762783488874895
+          ],
+          [
+            -73.09361262434341,
+            -36.76289335069245
+          ],
+          [
+            -73.09360759087866,
+            -36.7629657422121
+          ],
+          [
+            -73.09338586724937,
+            -36.76364193626112
+          ],
+          [
+            -73.09334822841117,
+            -36.76368613506543
+          ],
+          [
+            -73.09330976462454,
+            -36.76379829061848
+          ],
+          [
+            -73.0933002572259,
+            -36.76387012105686
+          ],
+          [
+            -73.09314810839594,
+            -36.76435085903479
+          ],
+          [
+            -73.09300324209676,
+            -36.76488497276674
+          ],
+          [
+            -73.09296971660038,
+            -36.76508991123885
+          ],
+          [
+            -73.09298865554999,
+            -36.76527874123788
+          ],
+          [
+            -73.09302400782799,
+            -36.765441979870594
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 312,
+        "minvu_path_index": 0,
+        "name": "Barros Arana",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 0.25288354,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_84",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04611933273182,
+            -36.82471974986028
+          ],
+          [
+            -73.04359251966353,
+            -36.82369325623847
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 313,
+        "minvu_path_index": 0,
+        "name": "Castellón",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 0.12956059,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_85",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04670753587902,
+            -36.82627872530079
+          ],
+          [
+            -73.04736217589165,
+            -36.82523816520725
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 314,
+        "minvu_path_index": 0,
+        "name": "Diagonal",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 0.15487479,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_86",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04528631383232,
+            -36.82567986723188
+          ],
+          [
+            -73.04395172411529,
+            -36.825954753986075
+          ],
+          [
+            -73.04361002171362,
+            -36.82603562680883
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 315,
+        "minvu_path_index": 0,
+        "name": "Edmundo Larenas",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 0.09698662,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_87",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.03972357449136,
+            -36.82720376867572
+          ],
+          [
+            -73.03926245032001,
+            -36.82799405412454
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 316,
+        "minvu_path_index": 0,
+        "name": "Manuel Rodríguez",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 1.3953117,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_88",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04935728346483,
+            -36.814471406069714
+          ],
+          [
+            -73.0532663248069,
+            -36.81611571231647
+          ],
+          [
+            -73.05707324677365,
+            -36.817687804729815
+          ],
+          [
+            -73.06321229238786,
+            -36.82026915425508
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 317,
+        "minvu_path_index": 0,
+        "name": "O'Higgins",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 1.45120355,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_89",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04528631383232,
+            -36.82567986723188
+          ],
+          [
+            -73.0581259873176,
+            -36.831084622463585
+          ],
+          [
+            -73.05938517751161,
+            -36.83161292837132
+          ],
+          [
+            -73.05965449684952,
+            -36.83177123381056
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 318,
+        "minvu_path_index": 0,
+        "name": "Ongolmo",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 1.45105398,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_90",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04935728346483,
+            -36.814471406069714
+          ],
+          [
+            -73.04671784533527,
+            -36.818563799974434
+          ],
+          [
+            -73.04621755440472,
+            -36.819660148205195
+          ],
+          [
+            -73.04560494991864,
+            -36.820590761890486
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 318,
+        "minvu_path_index": 1,
+        "name": "Ongolmo",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 1.45105398,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_90",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04552189428124,
+            -36.82069327852316
+          ],
+          [
+            -73.04301294769473,
+            -36.82473318663202
+          ],
+          [
+            -73.04213653681167,
+            -36.82609988201417
+          ],
+          [
+            -73.04220543056098,
+            -36.82626709826583
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 319,
+        "minvu_path_index": 0,
+        "name": "Roosevelt",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 1.44788923,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_91",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.03240700038037,
+            -36.81644390164885
+          ],
+          [
+            -73.03316731852281,
+            -36.81723519809515
+          ],
+          [
+            -73.03412680338391,
+            -36.81831296562417
+          ],
+          [
+            -73.03438566024221,
+            -36.81852662095561
+          ],
+          [
+            -73.0343484150817,
+            -36.818559885295
+          ],
+          [
+            -73.0358290797363,
+            -36.820183921203125
+          ],
+          [
+            -73.03577065069325,
+            -36.820560608693974
+          ],
+          [
+            -73.03573875403622,
+            -36.820766238777416
+          ],
+          [
+            -73.03578275655697,
+            -36.821056548145066
+          ],
+          [
+            -73.03651723027222,
+            -36.823719429505616
+          ],
+          [
+            -73.03701084915517,
+            -36.82547659776726
+          ],
+          [
+            -73.03720765051341,
+            -36.826037821356884
+          ],
+          [
+            -73.03734092679758,
+            -36.826203379875906
+          ],
+          [
+            -73.03972357449136,
+            -36.82720376867572
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 320,
+        "minvu_path_index": 0,
+        "name": "Tucapel",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 0.12816147,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_92",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04547783535648,
+            -36.82575152734982
+          ],
+          [
+            -73.04611933273182,
+            -36.82471974986028
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 321,
+        "minvu_path_index": 0,
+        "name": "Alcalde Oñate",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08102",
+        "project": "Construcción Red de Ciclorutas de Coronel",
+        "km": 1.02699656,
+        "type": "Ciclovías MINVU",
+        "project_code": "30344077-0",
+        "cehu_code": "MPC9_93",
+        "system": "SIS-8-7",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.15290507498595,
+            -36.994680083594034
+          ],
+          [
+            -73.15321143385034,
+            -36.995613147290534
+          ],
+          [
+            -73.15322617761558,
+            -36.9957746973457
+          ],
+          [
+            -73.1532801368224,
+            -36.9960016058536
+          ],
+          [
+            -73.15340400856107,
+            -36.99631186461364
+          ],
+          [
+            -73.153484256768,
+            -36.99647588551617
+          ],
+          [
+            -73.15385697655798,
+            -36.99764495450475
+          ],
+          [
+            -73.15390578649092,
+            -36.99788634310099
+          ],
+          [
+            -73.1540397123284,
+            -36.998162881613666
+          ],
+          [
+            -73.15425659902077,
+            -36.99887123164896
+          ],
+          [
+            -73.15429944798939,
+            -36.99900319613011
+          ],
+          [
+            -73.15429303009039,
+            -36.99910352098813
+          ],
+          [
+            -73.15437558448254,
+            -36.999200726434495
+          ],
+          [
+            -73.1546120373973,
+            -36.999940803458244
+          ],
+          [
+            -73.15501007948278,
+            -37.00113757961653
+          ],
+          [
+            -73.15500210544172,
+            -37.0012093591011
+          ],
+          [
+            -73.15485387854044,
+            -37.001433823405804
+          ],
+          [
+            -73.1548515771541,
+            -37.00150063791054
+          ],
+          [
+            -73.15494447715166,
+            -37.001678512948125
+          ],
+          [
+            -73.15449485116261,
+            -37.00291549933312
+          ],
+          [
+            -73.15437478833394,
+            -37.003329642210105
+          ],
+          [
+            -73.15428071990894,
+            -37.00356650695175
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 322,
+        "minvu_path_index": 0,
+        "name": "Los Chiflones",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08102",
+        "project": "Construcción Red de Ciclorutas de Coronel",
+        "km": 0.6525403,
+        "type": "Ciclovías MINVU",
+        "project_code": "30344077-0",
+        "cehu_code": "MPC9_94",
+        "system": "SIS-8-7",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.15459236272292,
+            -36.99987922288639
+          ],
+          [
+            -73.15681747007909,
+            -36.99940680681655
+          ],
+          [
+            -73.1574286451971,
+            -36.99928049754437
+          ],
+          [
+            -73.15760711048813,
+            -36.999283769552626
+          ],
+          [
+            -73.15821138831586,
+            -36.99935789770983
+          ],
+          [
+            -73.15972801652164,
+            -36.99954299745698
+          ],
+          [
+            -73.16177296951861,
+            -36.999771488669325
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 323,
+        "minvu_path_index": 0,
+        "name": "Avenida Reconquista",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08112",
+        "project": "Construcción Red de Ciclorutas de Hualpén",
+        "km": 0.12371722,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352574-0",
+        "cehu_code": "MPC9_95",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.10573555972121,
+            -36.80089318969328
+          ],
+          [
+            -73.10569458233132,
+            -36.80090937106066
+          ],
+          [
+            -73.10532308716806,
+            -36.800848143487876
+          ],
+          [
+            -73.1052780866793,
+            -36.80100988525183
+          ],
+          [
+            -73.1047756417782,
+            -36.80090654118004
+          ],
+          [
+            -73.10455793268831,
+            -36.80083545067712
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 324,
+        "minvu_path_index": 0,
+        "name": "Curanilahue",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08112",
+        "project": "Construcción Red de Ciclorutas de Hualpén",
+        "km": 0.7122298,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352574-0",
+        "cehu_code": "MPC9_96",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.08679221284372,
+            -36.79008697413335
+          ],
+          [
+            -73.09075885000073,
+            -36.79008648362199
+          ],
+          [
+            -73.0921869532998,
+            -36.79100230693323
+          ],
+          [
+            -73.0943632819406,
+            -36.791033103600704
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 325,
+        "minvu_path_index": 0,
+        "name": "Finlandia",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08112",
+        "project": "Construcción Red de Ciclorutas de Hualpén",
+        "km": 0.79828253,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352574-0",
+        "cehu_code": "MPC9_97",
+        "system": "SIS-8-4",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.11049700506094,
+            -36.78502997746051
+          ],
+          [
+            -73.11187996907654,
+            -36.78529920156524
+          ],
+          [
+            -73.11201846942774,
+            -36.785317686361445
+          ],
+          [
+            -73.11250404031804,
+            -36.785410668782625
+          ],
+          [
+            -73.11249949795405,
+            -36.78544523361763
+          ],
+          [
+            -73.11402312595692,
+            -36.78576156650573
+          ],
+          [
+            -73.11458353429488,
+            -36.78586812610374
+          ],
+          [
+            -73.11551087000394,
+            -36.78604115644883
+          ],
+          [
+            -73.11544521314364,
+            -36.78621973652016
+          ],
+          [
+            -73.11540048153155,
+            -36.786279866700845
+          ],
+          [
+            -73.11794838314252,
+            -36.786755081777045
+          ],
+          [
+            -73.11871772478251,
+            -36.786607760250725
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 326,
+        "minvu_path_index": 0,
+        "name": "Nueva Imperial",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08112",
+        "project": "Construcción Red de Ciclorutas de Hualpén",
+        "km": 0.54961508,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352574-0",
+        "cehu_code": "MPC9_98",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.08243799731989,
+            -36.79621466201599
+          ],
+          [
+            -73.08266502505631,
+            -36.79630699988619
+          ],
+          [
+            -73.08356646054759,
+            -36.80009499481386
+          ],
+          [
+            -73.08368329087992,
+            -36.80020605590666
+          ],
+          [
+            -73.0845051440853,
+            -36.8005382769848
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 327,
+        "minvu_path_index": 0,
+        "name": "Océano Atlántico",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08112",
+        "project": "Construcción Red de Ciclorutas de Hualpén",
+        "km": 0.5279613,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352574-0",
+        "cehu_code": "MPC9_99",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.10455793268831,
+            -36.80083545067712
+          ],
+          [
+            -73.10414370082462,
+            -36.80111447939752
+          ],
+          [
+            -73.10406517805032,
+            -36.80112518658982
+          ],
+          [
+            -73.10399939856777,
+            -36.8011698716468
+          ],
+          [
+            -73.10348992691327,
+            -36.801346677511155
+          ],
+          [
+            -73.1031791140227,
+            -36.80144431917427
+          ],
+          [
+            -73.10299955193166,
+            -36.80150017478185
+          ],
+          [
+            -73.10262331276088,
+            -36.80161720858291
+          ],
+          [
+            -73.10224923087964,
+            -36.80173356943796
+          ],
+          [
+            -73.10183841034275,
+            -36.801861356886334
+          ],
+          [
+            -73.10126677517454,
+            -36.80203916326359
+          ],
+          [
+            -73.10126088902143,
+            -36.80203761900179
+          ],
+          [
+            -73.10117056392009,
+            -36.80201391540247
+          ],
+          [
+            -73.1011205949595,
+            -36.80203533057812
+          ],
+          [
+            -73.10108589876386,
+            -36.802096156829734
+          ],
+          [
+            -73.10056171966802,
+            -36.80225245675861
+          ],
+          [
+            -73.10050520716543,
+            -36.802255430936285
+          ],
+          [
+            -73.10044572011265,
+            -36.8021602520503
+          ],
+          [
+            -73.1004130031047,
+            -36.802157277830275
+          ],
+          [
+            -73.1003148506331,
+            -36.802210816050675
+          ],
+          [
+            -73.10008930769935,
+            -36.80234945045851
+          ],
+          [
+            -73.0992967383454,
+            -36.802570709540745
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 328,
+        "minvu_path_index": 0,
+        "name": "Pasaje Diecinueve",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08112",
+        "project": "Construcción Red de Ciclorutas de Hualpén",
+        "km": 0.29215642,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352574-0",
+        "cehu_code": "MPC9_100",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.0992967383454,
+            -36.802570709540745
+          ],
+          [
+            -73.0994760901697,
+            -36.80286219318263
+          ],
+          [
+            -73.09929694474805,
+            -36.80303450377196
+          ],
+          [
+            -73.09928926970045,
+            -36.803024694918385
+          ],
+          [
+            -73.099235169515,
+            -36.80302578177939
+          ],
+          [
+            -73.09919055455465,
+            -36.803034704344704
+          ],
+          [
+            -73.0991459399576,
+            -36.803076344584404
+          ],
+          [
+            -73.09907455656496,
+            -36.803147728858086
+          ],
+          [
+            -73.09895954515515,
+            -36.80327090925724
+          ],
+          [
+            -73.09964922672327,
+            -36.803871396867734
+          ],
+          [
+            -73.10001393748264,
+            -36.80418893454432
+          ],
+          [
+            -73.10037328245049,
+            -36.80451702832894
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 334,
+        "minvu_path_index": 0,
+        "name": "Alto Horno",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08110",
+        "project": "Construcción Red de Ciclorutas de Talcahuano",
+        "km": 0.8274065,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352575-0",
+        "cehu_code": "MPC9_108",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.1034420783768,
+            -36.747942187594774
+          ],
+          [
+            -73.10397316732708,
+            -36.7476738854657
+          ],
+          [
+            -73.10428428090879,
+            -36.74748884827959
+          ],
+          [
+            -73.10447428633879,
+            -36.747284280635064
+          ],
+          [
+            -73.10462274850704,
+            -36.74709186156295
+          ],
+          [
+            -73.10483426368751,
+            -36.746687446406106
+          ],
+          [
+            -73.10534912868353,
+            -36.74550851231998
+          ],
+          [
+            -73.10610711391409,
+            -36.74383297504481
+          ],
+          [
+            -73.10635333349519,
+            -36.743403128675595
+          ],
+          [
+            -73.10680546450399,
+            -36.742724074015676
+          ],
+          [
+            -73.10767547776884,
+            -36.741473229251504
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 335,
+        "minvu_path_index": 0,
+        "name": "Desiderio García",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08110",
+        "project": "Construcción Red de Ciclorutas de Talcahuano",
+        "km": 0.75613355,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352575-0",
+        "cehu_code": "MPC9_109",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.09754857227027,
+            -36.743681968804104
+          ],
+          [
+            -73.0986063240747,
+            -36.7440244465801
+          ],
+          [
+            -73.09895081118276,
+            -36.74416427331538
+          ],
+          [
+            -73.10000723763397,
+            -36.744527414542375
+          ],
+          [
+            -73.1001689082086,
+            -36.74459773362744
+          ],
+          [
+            -73.10022554770019,
+            -36.744523411281435
+          ],
+          [
+            -73.10060359459904,
+            -36.74466853366641
+          ],
+          [
+            -73.10089442298214,
+            -36.74479077505426
+          ],
+          [
+            -73.10122584013286,
+            -36.744969302196914
+          ],
+          [
+            -73.10138677325881,
+            -36.74509825786216
+          ],
+          [
+            -73.10164426548863,
+            -36.74536476709244
+          ],
+          [
+            -73.10202965066212,
+            -36.74590837263654
+          ],
+          [
+            -73.10232516494824,
+            -36.74588151665793
+          ],
+          [
+            -73.10269482944481,
+            -36.746230171928545
+          ],
+          [
+            -73.10266496573324,
+            -36.74675317312886
+          ],
+          [
+            -73.10306885359728,
+            -36.7473291220908
+          ],
+          [
+            -73.10336567354723,
+            -36.74773001077157
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 336,
+        "minvu_path_index": 0,
+        "name": "Lago Llanquihue",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08110",
+        "project": "Construcción Red de Ciclorutas de Talcahuano",
+        "km": 0.51242368,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352575-0",
+        "cehu_code": "MPC9_110",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.08754686528943,
+            -36.76489161282635
+          ],
+          [
+            -73.08780899931514,
+            -36.76497447289446
+          ],
+          [
+            -73.08833471110694,
+            -36.765167313101635
+          ],
+          [
+            -73.0885795413016,
+            -36.76525898973763
+          ],
+          [
+            -73.08896915458611,
+            -36.76539930859199
+          ],
+          [
+            -73.08940888812232,
+            -36.765562927191105
+          ],
+          [
+            -73.08997028135055,
+            -36.76575810675469
+          ],
+          [
+            -73.09023102790553,
+            -36.76573125184207
+          ],
+          [
+            -73.0904869587433,
+            -36.76569741237209
+          ],
+          [
+            -73.09172839830127,
+            -36.765561697968394
+          ],
+          [
+            -73.09238257190223,
+            -36.76549625864614
+          ],
+          [
+            -73.09275806819237,
+            -36.76545471927542
+          ],
+          [
+            -73.09302400782799,
+            -36.765441979870594
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 337,
+        "minvu_path_index": 0,
+        "name": "Las Hortensias",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08110",
+        "project": "Construcción Red de Ciclorutas de Talcahuano",
+        "km": 2.53553745,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352575-0",
+        "cehu_code": "MPC9_111",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.09890635300462,
+            -36.744328538077724
+          ],
+          [
+            -73.09838281492745,
+            -36.745258346942514
+          ],
+          [
+            -73.09824331070287,
+            -36.745393506728696
+          ],
+          [
+            -73.09822309954798,
+            -36.745541996481265
+          ],
+          [
+            -73.09692434799132,
+            -36.74773781939554
+          ],
+          [
+            -73.0960689624601,
+            -36.7491945148114
+          ],
+          [
+            -73.09529764119931,
+            -36.750561788089506
+          ],
+          [
+            -73.09472907103263,
+            -36.75156526940821
+          ],
+          [
+            -73.09398532940669,
+            -36.752867231470006
+          ],
+          [
+            -73.0933324789742,
+            -36.75399909883467
+          ],
+          [
+            -73.09303145781169,
+            -36.7545207173869
+          ],
+          [
+            -73.0927105380161,
+            -36.755085923466446
+          ],
+          [
+            -73.09268216822726,
+            -36.75517332861791
+          ],
+          [
+            -73.09243205893468,
+            -36.75557208500515
+          ],
+          [
+            -73.09239180594446,
+            -36.755984613932675
+          ],
+          [
+            -73.09220178110715,
+            -36.75633795046356
+          ],
+          [
+            -73.09199111334941,
+            -36.75647033759484
+          ],
+          [
+            -73.09171585725794,
+            -36.757058994037926
+          ],
+          [
+            -73.09176177971229,
+            -36.75716478494192
+          ],
+          [
+            -73.09154264826331,
+            -36.75751971950778
+          ],
+          [
+            -73.09142046625394,
+            -36.757752078703234
+          ],
+          [
+            -73.09133259898695,
+            -36.75783084191907
+          ],
+          [
+            -73.09129875838292,
+            -36.757946413003744
+          ],
+          [
+            -73.09077155378826,
+            -36.758894109718824
+          ],
+          [
+            -73.09016031008912,
+            -36.76001630515254
+          ],
+          [
+            -73.08952781894907,
+            -36.761115276430935
+          ],
+          [
+            -73.08926965241677,
+            -36.76152458181102
+          ],
+          [
+            -73.08920502136242,
+            -36.76156255786014
+          ],
+          [
+            -73.08907582889942,
+            -36.76155628023392
+          ],
+          [
+            -73.08901468336292,
+            -36.76157626113799
+          ],
+          [
+            -73.08887292194468,
+            -36.76183497722673
+          ],
+          [
+            -73.08881258373043,
+            -36.76203726246078
+          ],
+          [
+            -73.08881524037515,
+            -36.76208722350321
+          ],
+          [
+            -73.0885718908325,
+            -36.76252461863195
+          ],
+          [
+            -73.0882470795706,
+            -36.76310138754306
+          ],
+          [
+            -73.08823595503442,
+            -36.76347716192508
+          ],
+          [
+            -73.08779772244387,
+            -36.76426090278802
+          ],
+          [
+            -73.08754359362639,
+            -36.76466291512507
+          ],
+          [
+            -73.08745087431848,
+            -36.764841288319204
+          ],
+          [
+            -73.08749288074794,
+            -36.76487917003773
+          ],
+          [
+            -73.08754686528943,
+            -36.76489161282635
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 338,
+        "minvu_path_index": 0,
+        "name": "Río Maule - Lago Lanalhue",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08110",
+        "project": "Construcción Red de Ciclorutas de Talcahuano",
+        "km": 1.39705538,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352575-0",
+        "cehu_code": "MPC9_112",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.09321116000797,
+            -36.75420932550545
+          ],
+          [
+            -73.09339950211417,
+            -36.75428244214714
+          ],
+          [
+            -73.09343282466712,
+            -36.75432419557347
+          ],
+          [
+            -73.09364624821944,
+            -36.75482808774063
+          ],
+          [
+            -73.09373601956199,
+            -36.754928673367516
+          ],
+          [
+            -73.09486364614233,
+            -36.75758224989039
+          ],
+          [
+            -73.09510350957245,
+            -36.758081651954534
+          ],
+          [
+            -73.09510477496357,
+            -36.758188862953496
+          ],
+          [
+            -73.09522331442282,
+            -36.75849581397687
+          ],
+          [
+            -73.09530827590466,
+            -36.758589413304755
+          ],
+          [
+            -73.09540242238805,
+            -36.75861838798206
+          ],
+          [
+            -73.09535788376769,
+            -36.75877003570434
+          ],
+          [
+            -73.09522119220945,
+            -36.759040024389996
+          ],
+          [
+            -73.09491395739006,
+            -36.75961191432974
+          ],
+          [
+            -73.09470892177592,
+            -36.75993359482042
+          ],
+          [
+            -73.0945944934485,
+            -36.76003764419597
+          ],
+          [
+            -73.09418322252216,
+            -36.76024130327134
+          ],
+          [
+            -73.09426799493014,
+            -36.76033133446773
+          ],
+          [
+            -73.09421686285933,
+            -36.76037242413543
+          ],
+          [
+            -73.0940964777743,
+            -36.76044807636334
+          ],
+          [
+            -73.09398743211284,
+            -36.760569814686235
+          ],
+          [
+            -73.09370078131957,
+            -36.760944358972196
+          ],
+          [
+            -73.09344029251055,
+            -36.761393079199586
+          ],
+          [
+            -73.09339223373723,
+            -36.761424410309466
+          ],
+          [
+            -73.09341801964062,
+            -36.761491450015676
+          ],
+          [
+            -73.09346484226533,
+            -36.76153631344545
+          ],
+          [
+            -73.09369249451544,
+            -36.76163929685658
+          ],
+          [
+            -73.09377327841251,
+            -36.76165438857416
+          ],
+          [
+            -73.093839998022,
+            -36.76165566441451
+          ],
+          [
+            -73.09381370012748,
+            -36.76174594950655
+          ],
+          [
+            -73.09379380341153,
+            -36.761789536933286
+          ],
+          [
+            -73.09379797684522,
+            -36.762118305940625
+          ],
+          [
+            -73.0937156650118,
+            -36.762324926924556
+          ],
+          [
+            -73.09358455791637,
+            -36.762783488874895
+          ],
+          [
+            -73.09361262434341,
+            -36.76289335069245
+          ],
+          [
+            -73.09360759087866,
+            -36.7629657422121
+          ],
+          [
+            -73.09338586724937,
+            -36.76364193626112
+          ],
+          [
+            -73.09334822841117,
+            -36.76368613506543
+          ],
+          [
+            -73.09330976462454,
+            -36.76379829061848
+          ],
+          [
+            -73.0933002572259,
+            -36.76387012105686
+          ],
+          [
+            -73.09314810839594,
+            -36.76435085903479
+          ],
+          [
+            -73.09300324209676,
+            -36.76488497276674
+          ],
+          [
+            -73.09296971660038,
+            -36.76508991123885
+          ],
+          [
+            -73.09298865554999,
+            -36.76527874123788
+          ],
+          [
+            -73.09302400782799,
+            -36.765441979870594
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 541,
+        "minvu_path_index": 0,
+        "name": "Barros Arana",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 0.25288354,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_84",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04611933273182,
+            -36.82471974986028
+          ],
+          [
+            -73.04359251966353,
+            -36.82369325623847
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 542,
+        "minvu_path_index": 0,
+        "name": "Castellón",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 0.12956059,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_85",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04670753587902,
+            -36.82627872530079
+          ],
+          [
+            -73.04736217589165,
+            -36.82523816520725
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 543,
+        "minvu_path_index": 0,
+        "name": "Diagonal",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 0.15487479,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_86",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04528631383232,
+            -36.82567986723188
+          ],
+          [
+            -73.04395172411529,
+            -36.825954753986075
+          ],
+          [
+            -73.04361002171362,
+            -36.82603562680883
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 544,
+        "minvu_path_index": 0,
+        "name": "Edmundo Larenas",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 0.09698662,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_87",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.03972357449136,
+            -36.82720376867572
+          ],
+          [
+            -73.03926245032001,
+            -36.82799405412454
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 545,
+        "minvu_path_index": 0,
+        "name": "Manuel Rodríguez",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 1.3953117,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_88",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04935728346483,
+            -36.814471406069714
+          ],
+          [
+            -73.0532663248069,
+            -36.81611571231647
+          ],
+          [
+            -73.05707324677365,
+            -36.817687804729815
+          ],
+          [
+            -73.06321229238786,
+            -36.82026915425508
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 546,
+        "minvu_path_index": 0,
+        "name": "O'Higgins",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 1.45120355,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_89",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04528631383232,
+            -36.82567986723188
+          ],
+          [
+            -73.0581259873176,
+            -36.831084622463585
+          ],
+          [
+            -73.05938517751161,
+            -36.83161292837132
+          ],
+          [
+            -73.05965449684952,
+            -36.83177123381056
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 547,
+        "minvu_path_index": 0,
+        "name": "Ongolmo",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 1.45105398,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_90",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04935728346483,
+            -36.814471406069714
+          ],
+          [
+            -73.04671784533527,
+            -36.818563799974434
+          ],
+          [
+            -73.04621755440472,
+            -36.819660148205195
+          ],
+          [
+            -73.04560494991864,
+            -36.820590761890486
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 547,
+        "minvu_path_index": 1,
+        "name": "Ongolmo",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 1.45105398,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_90",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04552189428124,
+            -36.82069327852316
+          ],
+          [
+            -73.04301294769473,
+            -36.82473318663202
+          ],
+          [
+            -73.04213653681167,
+            -36.82609988201417
+          ],
+          [
+            -73.04220543056098,
+            -36.82626709826583
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 548,
+        "minvu_path_index": 0,
+        "name": "Roosevelt",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 1.44788923,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_91",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.03240700038037,
+            -36.81644390164885
+          ],
+          [
+            -73.03316731852281,
+            -36.81723519809515
+          ],
+          [
+            -73.03412680338391,
+            -36.81831296562417
+          ],
+          [
+            -73.03438566024221,
+            -36.81852662095561
+          ],
+          [
+            -73.0343484150817,
+            -36.818559885295
+          ],
+          [
+            -73.0358290797363,
+            -36.820183921203125
+          ],
+          [
+            -73.03577065069325,
+            -36.820560608693974
+          ],
+          [
+            -73.03573875403622,
+            -36.820766238777416
+          ],
+          [
+            -73.03578275655697,
+            -36.821056548145066
+          ],
+          [
+            -73.03651723027222,
+            -36.823719429505616
+          ],
+          [
+            -73.03701084915517,
+            -36.82547659776726
+          ],
+          [
+            -73.03720765051341,
+            -36.826037821356884
+          ],
+          [
+            -73.03734092679758,
+            -36.826203379875906
+          ],
+          [
+            -73.03972357449136,
+            -36.82720376867572
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 549,
+        "minvu_path_index": 0,
+        "name": "Tucapel",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08101",
+        "project": "Construcción Red de Ciclorutas de Concepcion",
+        "km": 0.12816147,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352027-0",
+        "cehu_code": "MPC9_92",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.04547783535648,
+            -36.82575152734982
+          ],
+          [
+            -73.04611933273182,
+            -36.82471974986028
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 550,
+        "minvu_path_index": 0,
+        "name": "Alcalde Oñate",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08102",
+        "project": "Construcción Red de Ciclorutas de Coronel",
+        "km": 1.02699656,
+        "type": "Ciclovías MINVU",
+        "project_code": "30344077-0",
+        "cehu_code": "MPC9_93",
+        "system": "SIS-8-7",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.15290507498595,
+            -36.994680083594034
+          ],
+          [
+            -73.15321143385034,
+            -36.995613147290534
+          ],
+          [
+            -73.15322617761558,
+            -36.9957746973457
+          ],
+          [
+            -73.1532801368224,
+            -36.9960016058536
+          ],
+          [
+            -73.15340400856107,
+            -36.99631186461364
+          ],
+          [
+            -73.153484256768,
+            -36.99647588551617
+          ],
+          [
+            -73.15385697655798,
+            -36.99764495450475
+          ],
+          [
+            -73.15390578649092,
+            -36.99788634310099
+          ],
+          [
+            -73.1540397123284,
+            -36.998162881613666
+          ],
+          [
+            -73.15425659902077,
+            -36.99887123164896
+          ],
+          [
+            -73.15429944798939,
+            -36.99900319613011
+          ],
+          [
+            -73.15429303009039,
+            -36.99910352098813
+          ],
+          [
+            -73.15437558448254,
+            -36.999200726434495
+          ],
+          [
+            -73.1546120373973,
+            -36.999940803458244
+          ],
+          [
+            -73.15501007948278,
+            -37.00113757961653
+          ],
+          [
+            -73.15500210544172,
+            -37.0012093591011
+          ],
+          [
+            -73.15485387854044,
+            -37.001433823405804
+          ],
+          [
+            -73.1548515771541,
+            -37.00150063791054
+          ],
+          [
+            -73.15494447715166,
+            -37.001678512948125
+          ],
+          [
+            -73.15449485116261,
+            -37.00291549933312
+          ],
+          [
+            -73.15437478833394,
+            -37.003329642210105
+          ],
+          [
+            -73.15428071990894,
+            -37.00356650695175
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 551,
+        "minvu_path_index": 0,
+        "name": "Los Chiflones",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08102",
+        "project": "Construcción Red de Ciclorutas de Coronel",
+        "km": 0.6525403,
+        "type": "Ciclovías MINVU",
+        "project_code": "30344077-0",
+        "cehu_code": "MPC9_94",
+        "system": "SIS-8-7",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.15459236272292,
+            -36.99987922288639
+          ],
+          [
+            -73.15681747007909,
+            -36.99940680681655
+          ],
+          [
+            -73.1574286451971,
+            -36.99928049754437
+          ],
+          [
+            -73.15760711048813,
+            -36.999283769552626
+          ],
+          [
+            -73.15821138831586,
+            -36.99935789770983
+          ],
+          [
+            -73.15972801652164,
+            -36.99954299745698
+          ],
+          [
+            -73.16177296951861,
+            -36.999771488669325
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 552,
+        "minvu_path_index": 0,
+        "name": "Avenida Reconquista",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08112",
+        "project": "Construcción Red de Ciclorutas de Hualpén",
+        "km": 0.12371722,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352574-0",
+        "cehu_code": "MPC9_95",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.10573555972121,
+            -36.80089318969328
+          ],
+          [
+            -73.10569458233132,
+            -36.80090937106066
+          ],
+          [
+            -73.10532308716806,
+            -36.800848143487876
+          ],
+          [
+            -73.1052780866793,
+            -36.80100988525183
+          ],
+          [
+            -73.1047756417782,
+            -36.80090654118004
+          ],
+          [
+            -73.10455793268831,
+            -36.80083545067712
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 553,
+        "minvu_path_index": 0,
+        "name": "Curanilahue",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08112",
+        "project": "Construcción Red de Ciclorutas de Hualpén",
+        "km": 0.7122298,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352574-0",
+        "cehu_code": "MPC9_96",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.08679221284372,
+            -36.79008697413335
+          ],
+          [
+            -73.09075885000073,
+            -36.79008648362199
+          ],
+          [
+            -73.0921869532998,
+            -36.79100230693323
+          ],
+          [
+            -73.0943632819406,
+            -36.791033103600704
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 554,
+        "minvu_path_index": 0,
+        "name": "Finlandia",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08112",
+        "project": "Construcción Red de Ciclorutas de Hualpén",
+        "km": 0.79828253,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352574-0",
+        "cehu_code": "MPC9_97",
+        "system": "SIS-8-4",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.11049700506094,
+            -36.78502997746051
+          ],
+          [
+            -73.11187996907654,
+            -36.78529920156524
+          ],
+          [
+            -73.11201846942774,
+            -36.785317686361445
+          ],
+          [
+            -73.11250404031804,
+            -36.785410668782625
+          ],
+          [
+            -73.11249949795405,
+            -36.78544523361763
+          ],
+          [
+            -73.11402312595692,
+            -36.78576156650573
+          ],
+          [
+            -73.11458353429488,
+            -36.78586812610374
+          ],
+          [
+            -73.11551087000394,
+            -36.78604115644883
+          ],
+          [
+            -73.11544521314364,
+            -36.78621973652016
+          ],
+          [
+            -73.11540048153155,
+            -36.786279866700845
+          ],
+          [
+            -73.11794838314252,
+            -36.786755081777045
+          ],
+          [
+            -73.11871772478251,
+            -36.786607760250725
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 555,
+        "minvu_path_index": 0,
+        "name": "Nueva Imperial",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08112",
+        "project": "Construcción Red de Ciclorutas de Hualpén",
+        "km": 0.54961508,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352574-0",
+        "cehu_code": "MPC9_98",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.08243799731989,
+            -36.79621466201599
+          ],
+          [
+            -73.08266502505631,
+            -36.79630699988619
+          ],
+          [
+            -73.08356646054759,
+            -36.80009499481386
+          ],
+          [
+            -73.08368329087992,
+            -36.80020605590666
+          ],
+          [
+            -73.0845051440853,
+            -36.8005382769848
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 556,
+        "minvu_path_index": 0,
+        "name": "Océano Atlántico",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08112",
+        "project": "Construcción Red de Ciclorutas de Hualpén",
+        "km": 0.5279613,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352574-0",
+        "cehu_code": "MPC9_99",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.10455793268831,
+            -36.80083545067712
+          ],
+          [
+            -73.10414370082462,
+            -36.80111447939752
+          ],
+          [
+            -73.10406517805032,
+            -36.80112518658982
+          ],
+          [
+            -73.10399939856777,
+            -36.8011698716468
+          ],
+          [
+            -73.10348992691327,
+            -36.801346677511155
+          ],
+          [
+            -73.1031791140227,
+            -36.80144431917427
+          ],
+          [
+            -73.10299955193166,
+            -36.80150017478185
+          ],
+          [
+            -73.10262331276088,
+            -36.80161720858291
+          ],
+          [
+            -73.10224923087964,
+            -36.80173356943796
+          ],
+          [
+            -73.10183841034275,
+            -36.801861356886334
+          ],
+          [
+            -73.10126677517454,
+            -36.80203916326359
+          ],
+          [
+            -73.10126088902143,
+            -36.80203761900179
+          ],
+          [
+            -73.10117056392009,
+            -36.80201391540247
+          ],
+          [
+            -73.1011205949595,
+            -36.80203533057812
+          ],
+          [
+            -73.10108589876386,
+            -36.802096156829734
+          ],
+          [
+            -73.10056171966802,
+            -36.80225245675861
+          ],
+          [
+            -73.10050520716543,
+            -36.802255430936285
+          ],
+          [
+            -73.10044572011265,
+            -36.8021602520503
+          ],
+          [
+            -73.1004130031047,
+            -36.802157277830275
+          ],
+          [
+            -73.1003148506331,
+            -36.802210816050675
+          ],
+          [
+            -73.10008930769935,
+            -36.80234945045851
+          ],
+          [
+            -73.0992967383454,
+            -36.802570709540745
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 557,
+        "minvu_path_index": 0,
+        "name": "Pasaje Diecinueve",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08112",
+        "project": "Construcción Red de Ciclorutas de Hualpén",
+        "km": 0.29215642,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352574-0",
+        "cehu_code": "MPC9_100",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.0992967383454,
+            -36.802570709540745
+          ],
+          [
+            -73.0994760901697,
+            -36.80286219318263
+          ],
+          [
+            -73.09929694474805,
+            -36.80303450377196
+          ],
+          [
+            -73.09928926970045,
+            -36.803024694918385
+          ],
+          [
+            -73.099235169515,
+            -36.80302578177939
+          ],
+          [
+            -73.09919055455465,
+            -36.803034704344704
+          ],
+          [
+            -73.0991459399576,
+            -36.803076344584404
+          ],
+          [
+            -73.09907455656496,
+            -36.803147728858086
+          ],
+          [
+            -73.09895954515515,
+            -36.80327090925724
+          ],
+          [
+            -73.09964922672327,
+            -36.803871396867734
+          ],
+          [
+            -73.10001393748264,
+            -36.80418893454432
+          ],
+          [
+            -73.10037328245049,
+            -36.80451702832894
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 563,
+        "minvu_path_index": 0,
+        "name": "Alto Horno",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08110",
+        "project": "Construcción Red de Ciclorutas de Talcahuano",
+        "km": 0.8274065,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352575-0",
+        "cehu_code": "MPC9_108",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.1034420783768,
+            -36.747942187594774
+          ],
+          [
+            -73.10397316732708,
+            -36.7476738854657
+          ],
+          [
+            -73.10428428090879,
+            -36.74748884827959
+          ],
+          [
+            -73.10447428633879,
+            -36.747284280635064
+          ],
+          [
+            -73.10462274850704,
+            -36.74709186156295
+          ],
+          [
+            -73.10483426368751,
+            -36.746687446406106
+          ],
+          [
+            -73.10534912868353,
+            -36.74550851231998
+          ],
+          [
+            -73.10610711391409,
+            -36.74383297504481
+          ],
+          [
+            -73.10635333349519,
+            -36.743403128675595
+          ],
+          [
+            -73.10680546450399,
+            -36.742724074015676
+          ],
+          [
+            -73.10767547776884,
+            -36.741473229251504
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 564,
+        "minvu_path_index": 0,
+        "name": "Desiderio García",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08110",
+        "project": "Construcción Red de Ciclorutas de Talcahuano",
+        "km": 0.75613355,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352575-0",
+        "cehu_code": "MPC9_109",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.09754857227027,
+            -36.743681968804104
+          ],
+          [
+            -73.0986063240747,
+            -36.7440244465801
+          ],
+          [
+            -73.09895081118276,
+            -36.74416427331538
+          ],
+          [
+            -73.10000723763397,
+            -36.744527414542375
+          ],
+          [
+            -73.1001689082086,
+            -36.74459773362744
+          ],
+          [
+            -73.10022554770019,
+            -36.744523411281435
+          ],
+          [
+            -73.10060359459904,
+            -36.74466853366641
+          ],
+          [
+            -73.10089442298214,
+            -36.74479077505426
+          ],
+          [
+            -73.10122584013286,
+            -36.744969302196914
+          ],
+          [
+            -73.10138677325881,
+            -36.74509825786216
+          ],
+          [
+            -73.10164426548863,
+            -36.74536476709244
+          ],
+          [
+            -73.10202965066212,
+            -36.74590837263654
+          ],
+          [
+            -73.10232516494824,
+            -36.74588151665793
+          ],
+          [
+            -73.10269482944481,
+            -36.746230171928545
+          ],
+          [
+            -73.10266496573324,
+            -36.74675317312886
+          ],
+          [
+            -73.10306885359728,
+            -36.7473291220908
+          ],
+          [
+            -73.10336567354723,
+            -36.74773001077157
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 565,
+        "minvu_path_index": 0,
+        "name": "Lago Llanquihue",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08110",
+        "project": "Construcción Red de Ciclorutas de Talcahuano",
+        "km": 0.51242368,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352575-0",
+        "cehu_code": "MPC9_110",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.08754686528943,
+            -36.76489161282635
+          ],
+          [
+            -73.08780899931514,
+            -36.76497447289446
+          ],
+          [
+            -73.08833471110694,
+            -36.765167313101635
+          ],
+          [
+            -73.0885795413016,
+            -36.76525898973763
+          ],
+          [
+            -73.08896915458611,
+            -36.76539930859199
+          ],
+          [
+            -73.08940888812232,
+            -36.765562927191105
+          ],
+          [
+            -73.08997028135055,
+            -36.76575810675469
+          ],
+          [
+            -73.09023102790553,
+            -36.76573125184207
+          ],
+          [
+            -73.0904869587433,
+            -36.76569741237209
+          ],
+          [
+            -73.09172839830127,
+            -36.765561697968394
+          ],
+          [
+            -73.09238257190223,
+            -36.76549625864614
+          ],
+          [
+            -73.09275806819237,
+            -36.76545471927542
+          ],
+          [
+            -73.09302400782799,
+            -36.765441979870594
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 566,
+        "minvu_path_index": 0,
+        "name": "Las Hortensias",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08110",
+        "project": "Construcción Red de Ciclorutas de Talcahuano",
+        "km": 2.53553745,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352575-0",
+        "cehu_code": "MPC9_111",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.09890635300462,
+            -36.744328538077724
+          ],
+          [
+            -73.09838281492745,
+            -36.745258346942514
+          ],
+          [
+            -73.09824331070287,
+            -36.745393506728696
+          ],
+          [
+            -73.09822309954798,
+            -36.745541996481265
+          ],
+          [
+            -73.09692434799132,
+            -36.74773781939554
+          ],
+          [
+            -73.0960689624601,
+            -36.7491945148114
+          ],
+          [
+            -73.09529764119931,
+            -36.750561788089506
+          ],
+          [
+            -73.09472907103263,
+            -36.75156526940821
+          ],
+          [
+            -73.09398532940669,
+            -36.752867231470006
+          ],
+          [
+            -73.0933324789742,
+            -36.75399909883467
+          ],
+          [
+            -73.09303145781169,
+            -36.7545207173869
+          ],
+          [
+            -73.0927105380161,
+            -36.755085923466446
+          ],
+          [
+            -73.09268216822726,
+            -36.75517332861791
+          ],
+          [
+            -73.09243205893468,
+            -36.75557208500515
+          ],
+          [
+            -73.09239180594446,
+            -36.755984613932675
+          ],
+          [
+            -73.09220178110715,
+            -36.75633795046356
+          ],
+          [
+            -73.09199111334941,
+            -36.75647033759484
+          ],
+          [
+            -73.09171585725794,
+            -36.757058994037926
+          ],
+          [
+            -73.09176177971229,
+            -36.75716478494192
+          ],
+          [
+            -73.09154264826331,
+            -36.75751971950778
+          ],
+          [
+            -73.09142046625394,
+            -36.757752078703234
+          ],
+          [
+            -73.09133259898695,
+            -36.75783084191907
+          ],
+          [
+            -73.09129875838292,
+            -36.757946413003744
+          ],
+          [
+            -73.09077155378826,
+            -36.758894109718824
+          ],
+          [
+            -73.09016031008912,
+            -36.76001630515254
+          ],
+          [
+            -73.08952781894907,
+            -36.761115276430935
+          ],
+          [
+            -73.08926965241677,
+            -36.76152458181102
+          ],
+          [
+            -73.08920502136242,
+            -36.76156255786014
+          ],
+          [
+            -73.08907582889942,
+            -36.76155628023392
+          ],
+          [
+            -73.08901468336292,
+            -36.76157626113799
+          ],
+          [
+            -73.08887292194468,
+            -36.76183497722673
+          ],
+          [
+            -73.08881258373043,
+            -36.76203726246078
+          ],
+          [
+            -73.08881524037515,
+            -36.76208722350321
+          ],
+          [
+            -73.0885718908325,
+            -36.76252461863195
+          ],
+          [
+            -73.0882470795706,
+            -36.76310138754306
+          ],
+          [
+            -73.08823595503442,
+            -36.76347716192508
+          ],
+          [
+            -73.08779772244387,
+            -36.76426090278802
+          ],
+          [
+            -73.08754359362639,
+            -36.76466291512507
+          ],
+          [
+            -73.08745087431848,
+            -36.764841288319204
+          ],
+          [
+            -73.08749288074794,
+            -36.76487917003773
+          ],
+          [
+            -73.08754686528943,
+            -36.76489161282635
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "minvu_id": 567,
+        "minvu_path_index": 0,
+        "name": "Río Maule - Lago Lanalhue",
+        "category": "minvu_existing_cycleway",
+        "source": "MINVU GeoIDE",
+        "source_detail": "Ciclovias medida presidencial FeatureServer/1",
+        "source_url": "https://geoide.minvu.cl/server/rest/services/Planes_Programas/Ciclov%C3%ADas_Minvu/FeatureServer/1",
+        "comuna": "08110",
+        "project": "Construcción Red de Ciclorutas de Talcahuano",
+        "km": 1.39705538,
+        "type": "Ciclovías MINVU",
+        "project_code": "30352575-0",
+        "cehu_code": "MPC9_112",
+        "system": "SIS-8-1",
+        "stage": "Terminado",
+        "stage_detail": "PCV"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -73.09321116000797,
+            -36.75420932550545
+          ],
+          [
+            -73.09339950211417,
+            -36.75428244214714
+          ],
+          [
+            -73.09343282466712,
+            -36.75432419557347
+          ],
+          [
+            -73.09364624821944,
+            -36.75482808774063
+          ],
+          [
+            -73.09373601956199,
+            -36.754928673367516
+          ],
+          [
+            -73.09486364614233,
+            -36.75758224989039
+          ],
+          [
+            -73.09510350957245,
+            -36.758081651954534
+          ],
+          [
+            -73.09510477496357,
+            -36.758188862953496
+          ],
+          [
+            -73.09522331442282,
+            -36.75849581397687
+          ],
+          [
+            -73.09530827590466,
+            -36.758589413304755
+          ],
+          [
+            -73.09540242238805,
+            -36.75861838798206
+          ],
+          [
+            -73.09535788376769,
+            -36.75877003570434
+          ],
+          [
+            -73.09522119220945,
+            -36.759040024389996
+          ],
+          [
+            -73.09491395739006,
+            -36.75961191432974
+          ],
+          [
+            -73.09470892177592,
+            -36.75993359482042
+          ],
+          [
+            -73.0945944934485,
+            -36.76003764419597
+          ],
+          [
+            -73.09418322252216,
+            -36.76024130327134
+          ],
+          [
+            -73.09426799493014,
+            -36.76033133446773
+          ],
+          [
+            -73.09421686285933,
+            -36.76037242413543
+          ],
+          [
+            -73.0940964777743,
+            -36.76044807636334
+          ],
+          [
+            -73.09398743211284,
+            -36.760569814686235
+          ],
+          [
+            -73.09370078131957,
+            -36.760944358972196
+          ],
+          [
+            -73.09344029251055,
+            -36.761393079199586
+          ],
+          [
+            -73.09339223373723,
+            -36.761424410309466
+          ],
+          [
+            -73.09341801964062,
+            -36.761491450015676
+          ],
+          [
+            -73.09346484226533,
+            -36.76153631344545
+          ],
+          [
+            -73.09369249451544,
+            -36.76163929685658
+          ],
+          [
+            -73.09377327841251,
+            -36.76165438857416
+          ],
+          [
+            -73.093839998022,
+            -36.76165566441451
+          ],
+          [
+            -73.09381370012748,
+            -36.76174594950655
+          ],
+          [
+            -73.09379380341153,
+            -36.761789536933286
+          ],
+          [
+            -73.09379797684522,
+            -36.762118305940625
+          ],
+          [
+            -73.0937156650118,
+            -36.762324926924556
+          ],
+          [
+            -73.09358455791637,
+            -36.762783488874895
+          ],
+          [
+            -73.09361262434341,
+            -36.76289335069245
+          ],
+          [
+            -73.09360759087866,
+            -36.7629657422121
+          ],
+          [
+            -73.09338586724937,
+            -36.76364193626112
+          ],
+          [
+            -73.09334822841117,
+            -36.76368613506543
+          ],
+          [
+            -73.09330976462454,
+            -36.76379829061848
+          ],
+          [
+            -73.0933002572259,
+            -36.76387012105686
+          ],
+          [
+            -73.09314810839594,
+            -36.76435085903479
+          ],
+          [
+            -73.09300324209676,
+            -36.76488497276674
+          ],
+          [
+            -73.09296971660038,
+            -36.76508991123885
+          ],
+          [
+            -73.09298865554999,
+            -36.76527874123788
+          ],
+          [
+            -73.09302400782799,
+            -36.765441979870594
+          ]
+        ]
+      }
+    }
+  ]
+}

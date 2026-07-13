@@ -2,15 +2,17 @@ import type { RouteResponse } from "../types";
 import { RouteMap } from "./RouteMap";
 
 const VARIANT_LABELS: Record<string, string> = {
-  reference: "Ruta base",
+  reference: "Ruta mas corta",
+  least_congestion: "Circulación más fluida",
   ubcf: "Perfil por usuarios",
+  healthiest: "Menor exposición ambiental",
   ibcf: "Perfil por vías",
 };
 
 const HIGHLIGHT_LABELS: Record<string, string> = {
-  fastest_variant: "Más rápida",
+  fastest_variant: "Llegar antes",
   safest_variant: "Más segura",
-  lowest_exposure_variant: "Menor congestion historica",
+  lowest_exposure_variant: "Menor exposición ambiental",
   best_balance_variant: "Mejor balance",
 };
 
@@ -27,7 +29,14 @@ type ComparisonPanelProps = {
   route: RouteResponse;
 };
 
-function formatPm25(route: RouteResponse[keyof Pick<RouteResponse, "reference" | "ubcf" | "ibcf">]): string {
+const DISPLAY_VARIANTS = ["reference", "least_congestion", "ubcf", "ibcf", "healthiest"] as const;
+
+function formatPm25(
+  route: RouteResponse[keyof Pick<RouteResponse, "reference" | "least_congestion" | "ubcf" | "ibcf" | "healthiest">],
+): string {
+  if (!route) {
+    return "PM2.5 no disponible";
+  }
   if (!route.pm25_exposure) {
     return "PM2.5 no disponible";
   }
@@ -47,8 +56,8 @@ export function ComparisonPanel({ route }: ComparisonPanelProps) {
     <section className="panel">
       <div className="section-header">
         <div>
-          <div className="eyebrow">Comparación explicativa</div>
-          <h2>Resultado de la simulación</h2>
+          <div className="eyebrow">ComparaciÃ³n explicativa</div>
+          <h2>Resultado de la simulaciÃ³n</h2>
         </div>
       </div>
 
@@ -64,8 +73,11 @@ export function ComparisonPanel({ route }: ComparisonPanelProps) {
       <RouteMap route={route} />
 
       <div className="comparison-grid">
-        {(["reference", "ubcf", "ibcf"] as const).map((variantKey) => {
+        {DISPLAY_VARIANTS.map((variantKey) => {
           const variant = route[variantKey];
+          if (!variant) {
+            return null;
+          }
           return (
             <article className="comparison-card" key={variantKey}>
               <div className="card-title-row">
@@ -89,7 +101,7 @@ export function ComparisonPanel({ route }: ComparisonPanelProps) {
                   <ul className="compact-list">
                     {variant.top_penalized_segments.slice(0, 2).map((segment) => (
                       <li key={`${segment.segment_id}-${segment.via}`}>
-                        {segment.via} · {segment.event_type} · impacto {segment.impact_score.toFixed(1)}
+                        {segment.via} Â· {segment.event_type} Â· impacto {segment.impact_score.toFixed(1)}
                       </li>
                     ))}
                   </ul>
@@ -97,11 +109,11 @@ export function ComparisonPanel({ route }: ComparisonPanelProps) {
               ) : null}
               {variant.top_preferred_vias.length ? (
                 <>
-                  <strong className="subhead">Vías favorecidas</strong>
+                  <strong className="subhead">VÃ­as favorecidas</strong>
                   <ul className="compact-list">
                     {variant.top_preferred_vias.slice(0, 2).map((item) => (
                       <li key={`${item.via}-${item.factor}`}>
-                        {item.via} · factor {item.factor.toFixed(2)}
+                        {item.via} Â· factor {item.factor.toFixed(2)}
                       </li>
                     ))}
                   </ul>

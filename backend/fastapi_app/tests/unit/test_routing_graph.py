@@ -47,6 +47,72 @@ def test_route_graph_respects_oneway_edges():
     assert "segA::0" not in incoming
 
 
+def test_nearby_junction_does_not_enter_oneway_from_exit_endpoint():
+    df = pd.DataFrame(
+        [
+            {
+                "segment_id": "oneway",
+                "segment_seq": 0,
+                "lat": 0.0,
+                "lon": 0.0,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.2,
+                "via": "Un Sentido",
+                "comuna": "Test",
+                "oneway": True,
+                "penalty_factor": 1.0,
+            },
+            {
+                "segment_id": "oneway",
+                "segment_seq": 1,
+                "lat": 0.0,
+                "lon": 0.0002,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.2,
+                "via": "Un Sentido",
+                "comuna": "Test",
+                "oneway": True,
+                "penalty_factor": 1.0,
+            },
+            {
+                "segment_id": "cross",
+                "segment_seq": 0,
+                "lat": 0.0,
+                "lon": 0.00021,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.2,
+                "via": "Cruce",
+                "comuna": "Test",
+                "oneway": False,
+                "penalty_factor": 1.0,
+            },
+            {
+                "segment_id": "cross",
+                "segment_seq": 1,
+                "lat": 0.0002,
+                "lon": 0.00021,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.2,
+                "via": "Cruce",
+                "comuna": "Test",
+                "oneway": False,
+                "penalty_factor": 1.0,
+            },
+        ]
+    )
+    graph = routing.RouteGraph.from_events(df)
+
+    cross_outgoing = dict(graph.adjacency["cross::0"])
+    oneway_exit_outgoing = dict(graph.adjacency["oneway::1"])
+
+    assert "oneway::1" not in cross_outgoing
+    assert "cross::0" in oneway_exit_outgoing
+
+
 def test_route_graph_two_way_connects_both_sides():
     df = _base_segment(oneway=False)
     graph = routing.RouteGraph.from_events(df)
@@ -122,6 +188,233 @@ def test_route_graph_connects_nearby_segments():
     assert path[-1].segment_id == "segB"
 
 
+def test_route_graph_penalizes_normalized_congestion_event_types():
+    df = pd.DataFrame(
+        [
+            {
+                "segment_id": "direct",
+                "segment_seq": 0,
+                "lat": 0.0,
+                "lon": 0.0,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.1,
+                "via": "Directa",
+                "comuna": "Test",
+                "oneway": False,
+                "penalty_factor": 1.0,
+                "dia_semana": "Wednesday",
+                "franja_horaria": "Punta AM (06-09h)",
+            },
+            {
+                "segment_id": "direct",
+                "segment_seq": 1,
+                "lat": 0.0,
+                "lon": 0.003,
+                "tipo_evento": "CONGESTION",
+                "velocidad_kmh": 8.0,
+                "duracion_hrs": 0.5,
+                "via": "Directa",
+                "comuna": "Test",
+                "oneway": False,
+                "penalty_factor": 1.0,
+                "dia_semana": "Wednesday",
+                "franja_horaria": "Punta AM (06-09h)",
+            },
+            {
+                "segment_id": "detour",
+                "segment_seq": 0,
+                "lat": 0.0,
+                "lon": 0.0,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.1,
+                "via": "Alternativa",
+                "comuna": "Test",
+                "oneway": False,
+                "penalty_factor": 1.0,
+                "dia_semana": "Wednesday",
+                "franja_horaria": "Punta AM (06-09h)",
+            },
+            {
+                "segment_id": "detour",
+                "segment_seq": 1,
+                "lat": 0.001,
+                "lon": 0.0015,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.1,
+                "via": "Alternativa",
+                "comuna": "Test",
+                "oneway": False,
+                "penalty_factor": 1.0,
+                "dia_semana": "Wednesday",
+                "franja_horaria": "Punta AM (06-09h)",
+            },
+            {
+                "segment_id": "detour",
+                "segment_seq": 2,
+                "lat": 0.0,
+                "lon": 0.003,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.1,
+                "via": "Alternativa",
+                "comuna": "Test",
+                "oneway": False,
+                "penalty_factor": 1.0,
+                "dia_semana": "Wednesday",
+                "franja_horaria": "Punta AM (06-09h)",
+            },
+        ]
+    )
+    graph = routing.RouteGraph.from_events(df)
+
+    reference = graph.shortest_path((0.0, 0.0), (0.0, 0.003), apply_penalties=False)
+    penalized = graph.shortest_path(
+        (0.0, 0.0),
+        (0.0, 0.003),
+        incident_ctx={
+            "day": "Wednesday",
+            "hour_bucket": "Punta AM (06-09h)",
+            "avoid_congestion": True,
+        },
+        apply_penalties=True,
+    )
+
+    assert reference[-1].segment_id == "direct"
+    assert penalized[-1].segment_id == "detour"
+
+
+def test_route_graph_connects_bridge_gaps_between_components():
+    df = pd.DataFrame(
+        [
+            {
+                "segment_id": "segBridge",
+                "segment_seq": 0,
+                "lat": 0.0,
+                "lon": 0.0,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.2,
+                "via": "Puente Llacolen",
+                "comuna": "Concepcion",
+                "oneway": False,
+                "penalty_factor": 1.0,
+            },
+            {
+                "segment_id": "segBridge",
+                "segment_seq": 1,
+                "lat": 0.0,
+                "lon": 0.001,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.2,
+                "via": "Puente Llacolen",
+                "comuna": "Concepcion",
+                "oneway": False,
+                "penalty_factor": 1.0,
+            },
+            {
+                "segment_id": "segApproach",
+                "segment_seq": 0,
+                "lat": 0.0,
+                "lon": 0.018,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.2,
+                "via": "Acceso San Pedro",
+                "comuna": "San Pedro De La Paz",
+                "oneway": False,
+                "penalty_factor": 1.0,
+            },
+            {
+                "segment_id": "segApproach",
+                "segment_seq": 1,
+                "lat": 0.0,
+                "lon": 0.019,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.2,
+                "via": "Acceso San Pedro",
+                "comuna": "San Pedro De La Paz",
+                "oneway": False,
+                "penalty_factor": 1.0,
+            },
+        ]
+    )
+    graph = routing.RouteGraph.from_events(df)
+
+    path = graph.shortest_path((0.0, 0.0), (0.0, 0.019), apply_penalties=False)
+
+    assert path
+    assert path[-1].segment_id == "segApproach"
+
+
+def test_route_graph_does_not_connect_long_non_bridge_gaps():
+    df = pd.DataFrame(
+        [
+            {
+                "segment_id": "segA",
+                "segment_seq": 0,
+                "lat": 0.0,
+                "lon": 0.0,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.2,
+                "via": "Ruta A",
+                "comuna": "Concepcion",
+                "oneway": False,
+                "penalty_factor": 1.0,
+            },
+            {
+                "segment_id": "segA",
+                "segment_seq": 1,
+                "lat": 0.0,
+                "lon": 0.001,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.2,
+                "via": "Ruta A",
+                "comuna": "Concepcion",
+                "oneway": False,
+                "penalty_factor": 1.0,
+            },
+            {
+                "segment_id": "segB",
+                "segment_seq": 0,
+                "lat": 0.0,
+                "lon": 0.018,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.2,
+                "via": "Ruta B",
+                "comuna": "San Pedro De La Paz",
+                "oneway": False,
+                "penalty_factor": 1.0,
+            },
+            {
+                "segment_id": "segB",
+                "segment_seq": 1,
+                "lat": 0.0,
+                "lon": 0.019,
+                "tipo_evento": "Referencia",
+                "velocidad_kmh": 30.0,
+                "duracion_hrs": 0.2,
+                "via": "Ruta B",
+                "comuna": "San Pedro De La Paz",
+                "oneway": False,
+                "penalty_factor": 1.0,
+            },
+        ]
+    )
+    graph = routing.RouteGraph.from_events(df)
+
+    path = graph.shortest_path((0.0, 0.0), (0.0, 0.019), apply_penalties=False)
+
+    assert path == []
+
+
 def test_edge_weight_increases_with_penalty():
     df = _base_segment(oneway=False)
     graph = routing.RouteGraph.from_events(df)
@@ -166,6 +459,58 @@ def test_shortest_path_applies_preferences():
     )
     vias = [step.via for step in pref_path]
     assert "Ruta Roja" in vias
+
+
+def test_shortest_path_applies_air_quality_factor():
+    nodes = {
+        "start": routing.GraphNode("start", "seg_start", 0, 0.0, 0.0, "Referencia", 30.0, 0.1, "Inicio", "Test"),
+        "dirty": routing.GraphNode("dirty", "seg_dirty", 1, 0.1, 0.0, "Referencia", 30.0, 0.1, "Ruta Corta", "Test"),
+        "clean": routing.GraphNode("clean", "seg_clean", 1, 0.0, 0.1, "Referencia", 30.0, 0.1, "Ruta Limpia", "Test"),
+        "end": routing.GraphNode("end", "seg_end", 2, 0.2, 0.0, "Referencia", 30.0, 0.1, "Fin", "Test"),
+    }
+    adjacency = {
+        "start": [("dirty", 1.0), ("clean", 1.3)],
+        "dirty": [("end", 1.0)],
+        "clean": [("end", 1.3)],
+    }
+    graph = routing.RouteGraph(nodes=nodes, adjacency=adjacency)
+
+    path = graph.shortest_path(
+        (0.0, 0.0),
+        (0.2, 0.0),
+        air_quality_factor=lambda node: 2.0 if node.via == "Ruta Corta" else 1.0,
+        apply_penalties=False,
+    )
+
+    vias = [step.via for step in path]
+    assert "Ruta Limpia" in vias
+    assert "Ruta Corta" not in vias
+
+
+def test_shortest_path_applies_urban_wellbeing_factor():
+    nodes = {
+        "start": routing.GraphNode("start", "seg_start", 0, 0.0, 0.0, "Referencia", 30.0, 0.1, "Inicio", "Test"),
+        "plain": routing.GraphNode("plain", "seg_plain", 1, 0.1, 0.0, "Referencia", 30.0, 0.1, "Ruta Corta", "Test"),
+        "pleasant": routing.GraphNode("pleasant", "seg_pleasant", 1, 0.0, 0.1, "Referencia", 30.0, 0.1, "Ruta Parque", "Test"),
+        "end": routing.GraphNode("end", "seg_end", 2, 0.2, 0.0, "Referencia", 30.0, 0.1, "Fin", "Test"),
+    }
+    adjacency = {
+        "start": [("plain", 1.0), ("pleasant", 1.15)],
+        "plain": [("end", 1.0)],
+        "pleasant": [("end", 1.15)],
+    }
+    graph = routing.RouteGraph(nodes=nodes, adjacency=adjacency)
+
+    path = graph.shortest_path(
+        (0.0, 0.0),
+        (0.2, 0.0),
+        urban_wellbeing_factor=lambda node: 0.7 if node.via == "Ruta Parque" else 1.0,
+        apply_penalties=False,
+    )
+
+    vias = [step.via for step in path]
+    assert "Ruta Parque" in vias
+    assert "Ruta Corta" not in vias
 
 
 def test_shortest_path_uses_reachable_destination_candidate():

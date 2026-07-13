@@ -19,12 +19,18 @@ def _safe_ratio(numerator: int, denominator: int) -> float:
 
 
 def _load_profiled_raw(path, profile: str) -> pd.DataFrame:
-    df = pd.read_csv(path)
+    df = pd.read_csv(path, usecols=["comuna", "fecha", "via"])
     return filter_dataframe_for_profile(df, profile)
 
 
-def _load_profiled_network_communes(_profile: str) -> pd.Series:
-    network = data_loader.load_reference_network()
+def _load_profiled_network_communes(profile: str) -> pd.Series:
+    if not data_loader.ROAD_NETWORK_PATH.exists():
+        return pd.Series(dtype=str)
+    try:
+        network = pd.read_csv(data_loader.ROAD_NETWORK_PATH, usecols=["comuna"])
+        network = filter_dataframe_for_profile(network, profile)
+    except (TypeError, ValueError):
+        network = data_loader.load_reference_network()
     if network.empty:
         return pd.Series(dtype=str)
     return network.get("comuna", pd.Series(dtype=str))

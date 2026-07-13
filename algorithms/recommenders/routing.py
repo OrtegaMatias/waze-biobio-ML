@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import heapq
 import math
-from collections import defaultdict
+import unicodedata
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
@@ -20,6 +21,8 @@ from . import data_loader
 EARTH_RADIUS_KM = 6_371.0
 JUNCTION_RADIUS_M = 35
 MAX_JUNCTION_NEIGHBORS = 6
+BRIDGE_GAP_RADIUS_KM = 2.25
+MAX_BRIDGE_GAP_NEIGHBORS = 20_000
 SOURCE_CANDIDATES = 8
 TARGET_CANDIDATES = 256
 MAX_DESTINATION_GAP_KM = 0.35
@@ -42,6 +45,7 @@ class GraphNode:
     penalty_factor: float = 1.0
     dia_semana: str = ""
     franja_horaria: str = ""
+    oneway: bool = False
 
 
 @dataclass
@@ -100,6 +104,180 @@ class RouteGraph:
         if current is None or weight < current:
             adjacency[source][target] = weight
 
+    @staticmethod
+    def _segment_bounds(nodes: Dict[str, GraphNode]) -> Dict[str, Tuple[int, int, bool]]:
+        bounds: Dict[str, Tuple[int, int, bool]] = {}
+        for node in nodes.values():
+            current = bounds.get(node.segment_id)
+            if current is None:
+                bounds[node.segment_id] = (node.segment_seq, node.segment_seq, bool(node.oneway))
+                continue
+            min_seq, max_seq, oneway = current
+            bounds[node.segment_id] = (
+                min(min_seq, node.segment_seq),
+                max(max_seq, node.segment_seq),
+                bool(oneway or node.oneway),
+            )
+        return bounds
+
+    @staticmethod
+    def _is_segment_endpoint(node: GraphNode, bounds: Dict[str, Tuple[int, int, bool]]) -> bool:
+        segment = bounds.get(node.segment_id)
+        if segment is None:
+            return True
+        min_seq, max_seq, _ = segment
+        return node.segment_seq in {min_seq, max_seq}
+
+    @staticmethod
+    def _can_enter_segment(node: GraphNode, bounds: Dict[str, Tuple[int, int, bool]]) -> bool:
+        segment = bounds.get(node.segment_id)
+        if segment is None:
+            return True
+        min_seq, _, oneway = segment
+        return not oneway or node.segment_seq == min_seq
+
+    @staticmethod
+    def _can_exit_segment(node: GraphNode, bounds: Dict[str, Tuple[int, int, bool]]) -> bool:
+        segment = bounds.get(node.segment_id)
+        if segment is None:
+            return True
+        _, max_seq, oneway = segment
+        return not oneway or node.segment_seq == max_seq
+
+    @classmethod
+    def _can_transfer_between_segments(
+        cls,
+        source: GraphNode,
+        target: GraphNode,
+        bounds: Dict[str, Tuple[int, int, bool]],
+    ) -> bool:
+        if source.segment_id == target.segment_id:
+            return False
+        return (
+            cls._is_segment_endpoint(source, bounds)
+            and cls._is_segment_endpoint(target, bounds)
+            and cls._can_exit_segment(source, bounds)
+            and cls._can_enter_segment(target, bounds)
+        )
+
+    @staticmethod
+    def _normalized_text(value: str) -> str:
+        normalized = unicodedata.normalize("NFKD", str(value or ""))
+        ascii_text = "".join(char for char in normalized if not unicodedata.combining(char))
+        return " ".join(ascii_text.lower().split())
+
+    @classmethod
+    def _is_congestion_event(cls, value: str) -> bool:
+        return cls._normalized_text(value).startswith("congesti")
+
+    @classmethod
+    def _is_bridge_like(cls, node: GraphNode) -> bool:
+        via = cls._normalized_text(node.via)
+        return "puente" in via
+
+    @staticmethod
+    def _component_lookup(
+        nodes: Dict[str, GraphNode],
+        adjacency: Dict[str, Dict[str, float]],
+    ) -> Dict[str, int]:
+        component: Dict[str, int] = {}
+        undirected: Dict[str, List[str]] = defaultdict(list)
+        for source, neighbors in adjacency.items():
+            for target in neighbors:
+                undirected[source].append(target)
+                undirected[target].append(source)
+        next_component_id = 0
+        for node_id in nodes:
+            if node_id in component:
+                continue
+            component_id = next_component_id
+            next_component_id += 1
+            queue = deque([node_id])
+            component[node_id] = component_id
+            while queue:
+                current = queue.popleft()
+                for neighbor in undirected.get(current, []):
+                    if neighbor not in component:
+                        component[neighbor] = component_id
+                        queue.append(neighbor)
+        return component
+
+    @classmethod
+    def _connect_bridge_gaps(
+        cls,
+        nodes: Dict[str, GraphNode],
+        adjacency: Dict[str, Dict[str, float]],
+        segment_bounds: Dict[str, Tuple[int, int, bool]],
+    ) -> None:
+        bridge_node_ids = [
+            node_id
+            for node_id, node in nodes.items()
+            if cls._is_bridge_like(node) and math.isfinite(node.lat) and math.isfinite(node.lon)
+        ]
+        if not bridge_node_ids or len(nodes) < 2:
+            return
+
+        node_ids = [
+            node_id
+            for node_id, node in nodes.items()
+            if math.isfinite(node.lat) and math.isfinite(node.lon)
+        ]
+        if not node_ids:
+            return
+
+        component = cls._component_lookup(nodes, adjacency)
+        coords = np.asarray([[nodes[node_id].lat, nodes[node_id].lon] for node_id in node_ids], dtype=float)
+        tree = BallTree(np.radians(coords), metric="haversine")
+        radius = BRIDGE_GAP_RADIUS_KM / EARTH_RADIUS_KM
+        best_pairs: Dict[Tuple[int, int], Tuple[float, str, str]] = {}
+
+        for bridge_node_id in bridge_node_ids:
+            bridge_node = nodes[bridge_node_id]
+            source_component = component.get(bridge_node_id)
+            if source_component is None:
+                continue
+            query = np.radians(np.asarray([[bridge_node.lat, bridge_node.lon]], dtype=float))
+            nearby_indices, nearby_distances = tree.query_radius(
+                query,
+                r=radius,
+                return_distance=True,
+                sort_results=True,
+            )
+            checked_for_bridge = 0
+            for raw_index, raw_distance in zip(nearby_indices[0], nearby_distances[0]):
+                checked_for_bridge += 1
+                if checked_for_bridge > MAX_BRIDGE_GAP_NEIGHBORS:
+                    break
+                target_node_id = node_ids[int(raw_index)]
+                if target_node_id == bridge_node_id:
+                    continue
+                target_component = component.get(target_node_id)
+                if target_component is None or target_component == source_component:
+                    continue
+                target_node = nodes[target_node_id]
+                if not cls._can_transfer_between_segments(bridge_node, target_node, segment_bounds):
+                    continue
+                source_commune = cls._normalized_text(bridge_node.comuna)
+                target_commune = cls._normalized_text(target_node.comuna)
+                if source_commune == target_commune and not cls._is_bridge_like(target_node):
+                    continue
+                distance_km = float(raw_distance) * EARTH_RADIUS_KM
+                if distance_km <= 0:
+                    continue
+                key = tuple(sorted((source_component, target_component)))
+                current = best_pairs.get(key)
+                if current is None or distance_km < current[0]:
+                    best_pairs[key] = (distance_km, bridge_node_id, target_node_id)
+
+        for distance_km, source, target in best_pairs.values():
+            weight = max(0.05, distance_km)
+            source_node = nodes[source]
+            target_node = nodes[target]
+            if cls._can_transfer_between_segments(source_node, target_node, segment_bounds):
+                cls._add_edge(adjacency, source, target, weight)
+            if cls._can_transfer_between_segments(target_node, source_node, segment_bounds):
+                cls._add_edge(adjacency, target, source, weight)
+
     @classmethod
     def from_events(
         cls,
@@ -142,6 +320,7 @@ class RouteGraph:
                 penalty_factor=float(getattr(row, "penalty_factor", 1.0) or 1.0),
                 dia_semana=str(getattr(row, "dia_semana", "") or ""),
                 franja_horaria=str(getattr(row, "franja_horaria", "") or ""),
+                oneway=bool(getattr(row, "oneway", False)),
             )
             key = (round(lat, 5), round(lon, 5))
             coord_groups[key].append(node_id)
@@ -166,6 +345,8 @@ class RouteGraph:
             if gi % 1000 == 0:
                 notify("segments", gi / total_groups)
 
+        segment_bounds = cls._segment_bounds(nodes)
+
         coord_items = list(coord_groups.values())
         for ci, node_list in enumerate(coord_items):
             if len(node_list) < 2:
@@ -175,9 +356,16 @@ class RouteGraph:
                 for j in range(i + 1, len(base_nodes)):
                     a = base_nodes[i]
                     b = base_nodes[j]
+                    if not (
+                        cls._can_transfer_between_segments(a, b, segment_bounds)
+                        or cls._can_transfer_between_segments(b, a, segment_bounds)
+                    ):
+                        continue
                     base_dist = cls._base_distance(a, b) * 0.25
-                    cls._add_edge(adjacency_maps, a.node_id, b.node_id, base_dist)
-                    cls._add_edge(adjacency_maps, b.node_id, a.node_id, base_dist)
+                    if cls._can_transfer_between_segments(a, b, segment_bounds):
+                        cls._add_edge(adjacency_maps, a.node_id, b.node_id, base_dist)
+                    if cls._can_transfer_between_segments(b, a, segment_bounds):
+                        cls._add_edge(adjacency_maps, b.node_id, a.node_id, base_dist)
             if ci % 5000 == 0 and coord_items:
                 notify("junctions", ci / len(coord_items))
 
@@ -207,19 +395,22 @@ class RouteGraph:
                 for neighbor_idx, raw_distance in zip(neighbors[1:], distances[1:]):
                     target_node_id = node_ids[valid_indices[int(neighbor_idx)]]
                     target_node = nodes[target_node_id]
-                    if source_node.segment_id == target_node.segment_id:
+                    if not cls._can_transfer_between_segments(source_node, target_node, segment_bounds):
                         continue
                     distance_km = float(raw_distance) * EARTH_RADIUS_KM
                     if distance_km <= 0:
                         continue
                     connection_weight = max(0.01, distance_km * 0.35)
                     cls._add_edge(adjacency_maps, source_node_id, target_node_id, connection_weight)
-                    cls._add_edge(adjacency_maps, target_node_id, source_node_id, connection_weight)
+                    if cls._can_transfer_between_segments(target_node, source_node, segment_bounds):
+                        cls._add_edge(adjacency_maps, target_node_id, source_node_id, connection_weight)
                     added += 1
                     if added >= MAX_JUNCTION_NEIGHBORS:
                         break
                 if pos % 1000 == 0:
                     notify("junctions", pos / total_valid)
+
+        cls._connect_bridge_gaps(nodes, adjacency_maps, segment_bounds)
 
         adjacency = {
             node_id: list(neighbors.items())
@@ -297,26 +488,46 @@ class RouteGraph:
         via_factors: Optional[Dict[str, float]] = None,
         default_via_factor: float = 1.0,
         incident_ctx: Optional[Dict[str, str | bool]] = None,
+        air_quality_factor: Optional[Callable[[GraphNode], float]] = None,
+        urban_wellbeing_factor: Optional[Callable[[GraphNode], float]] = None,
         apply_penalties: bool = True,
+        source_node_costs: Optional[Dict[str, float]] = None,
+        target_node_costs: Optional[Dict[str, float]] = None,
     ) -> List[RouteStep]:
-        source_candidates = self._filter_snap_candidates(
-            self.nearest_nodes(*origin, limit=SOURCE_CANDIDATES)
-        )
-        source_ids = {node.node_id for node, _ in source_candidates}
-        target_candidates = self._filter_snap_candidates(
-            self.nearest_nodes(
-                *destination,
-                exclude=source_ids,
-                limit=TARGET_CANDIDATES,
+        if source_node_costs:
+            source_candidates = [
+                (self.nodes[node_id], max(0.0, float(cost)))
+                for node_id, cost in source_node_costs.items()
+                if node_id in self.nodes and math.isfinite(float(cost))
+            ]
+        else:
+            source_candidates = self._filter_snap_candidates(
+                self.nearest_nodes(*origin, limit=SOURCE_CANDIDATES)
             )
-        )
-        if not target_candidates:
+        source_ids = {node.node_id for node, _ in source_candidates}
+        if target_node_costs:
+            target_candidates = [
+                (self.nodes[node_id], max(0.0, float(cost)))
+                for node_id, cost in target_node_costs.items()
+                if node_id in self.nodes and math.isfinite(float(cost))
+            ]
+        else:
+            target_candidates = self._filter_snap_candidates(
+                self.nearest_nodes(
+                    *destination,
+                    exclude=source_ids,
+                    limit=TARGET_CANDIDATES,
+                )
+            )
+        if not target_candidates and not target_node_costs:
             target_candidates = self._filter_snap_candidates(self.nearest_nodes(*destination, limit=1))
-        target_ids = {node.node_id for node, _ in target_candidates}
+        target_cost_lookup = {node.node_id: max(0.0, float(cost)) for node, cost in target_candidates}
+        target_ids = set(target_cost_lookup)
         distances: Dict[str, float] = {}
         previous: Dict[str, Optional[str]] = {}
         queue: List[Tuple[float, str]] = []
         best_target = None
+        best_target_total = float("inf")
 
         for source_node, snap_distance in source_candidates:
             initial_cost = max(0.0, snap_distance)
@@ -333,6 +544,22 @@ class RouteGraph:
             if via_factors:
                 return float(via_factors.get(via, default_via_factor))
             return default_via_factor
+
+        def pollution_factor(node: GraphNode) -> float:
+            if air_quality_factor is None:
+                return 1.0
+            factor = air_quality_factor(node)
+            if not math.isfinite(factor):
+                return 1.0
+            return max(0.5, min(3.0, float(factor)))
+
+        def wellbeing_factor(node: GraphNode) -> float:
+            if urban_wellbeing_factor is None:
+                return 1.0
+            factor = urban_wellbeing_factor(node)
+            if not math.isfinite(factor):
+                return 1.0
+            return max(0.65, min(1.0, float(factor)))
 
         def incident_factor(node: GraphNode) -> float:
             """
@@ -356,6 +583,15 @@ class RouteGraph:
             if not avoid_congestion:
                 return 1.0
 
+            node_penalties = incident_ctx.get("node_penalties")
+            if isinstance(node_penalties, dict):
+                node_penalty = node_penalties.get(node.node_id)
+                if node_penalty is not None:
+                    try:
+                        return max(1.0, float(node_penalty))
+                    except (TypeError, ValueError):
+                        pass
+
             matches_day = bool(
                 day
                 and node.dia_semana
@@ -366,14 +602,6 @@ class RouteGraph:
                 and node.franja_horaria
                 and node.franja_horaria == hour_bucket
             )
-            if str(node.tipo_evento).startswith("Congesti"):
-                if matches_day and matches_hour:
-                    return 1.75
-                if matches_hour:
-                    return 1.35
-                if matches_day:
-                    return 1.15
-                return 1.0
             has_penalty = bool(node.penalty_factor and node.penalty_factor > 1.0)
 
             # Factor base ligado a la severidad histórica
@@ -383,7 +611,7 @@ class RouteGraph:
                 base_incident += (float(node.penalty_factor) - 1.0)
 
             # --- Congestión ---
-            if avoid_congestion and node.tipo_evento == "Congestión":
+            if avoid_congestion and self._is_congestion_event(node.tipo_evento):
                 # Match EXACTO día + franja: caso extremo (mantiene el comportamiento previo)
                 if matches_day and matches_hour:
                     return max(1.0, base_incident * 400.0)
@@ -403,9 +631,13 @@ class RouteGraph:
             current_dist, node_id = heapq.heappop(queue)
             if current_dist > distances.get(node_id, float("inf")):
                 continue
-            if node_id in target_ids:
-                best_target = node_id
+            if current_dist >= best_target_total:
                 break
+            if node_id in target_ids:
+                total_with_terminal = current_dist + target_cost_lookup.get(node_id, 0.0)
+                if total_with_terminal < best_target_total:
+                    best_target_total = total_with_terminal
+                    best_target = node_id
             current_node = nodes[node_id]
             for neighbor, base_weight in adjacency.get(node_id, []):
                 neighbor_node = nodes[neighbor]
@@ -421,14 +653,16 @@ class RouteGraph:
                     speed_factor = 1.0
                 preference = preference_factor(neighbor_node.via)
                 incident = incident_factor(neighbor_node)
-                adjusted_weight = base_weight * penalty * speed_factor * preference * incident
+                pollution = pollution_factor(neighbor_node)
+                wellbeing = wellbeing_factor(neighbor_node)
+                adjusted_weight = base_weight * penalty * speed_factor * preference * incident * pollution * wellbeing
                 new_dist = current_dist + adjusted_weight
                 if new_dist < distances.get(neighbor, float("inf")):
                     distances[neighbor] = new_dist
                     previous[neighbor] = node_id
                     heapq.heappush(queue, (new_dist, neighbor))
 
-        if best_target is None:
+        if best_target is None and not target_node_costs:
             reachable_target = None
             reachable_gap = float("inf")
             for node_id, total_cost in distances.items():

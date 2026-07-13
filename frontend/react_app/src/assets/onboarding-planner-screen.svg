@@ -1,0 +1,85 @@
+<svg width="1440" height="980" viewBox="0 0 1440 980" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1440" height="980" fill="#edf4f2"/>
+  <rect x="0" y="0" width="1440" height="76" fill="#12313a"/>
+  <text x="42" y="47" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="800">Waze BioBio ML</text>
+  <text x="1136" y="46" fill="#d8e7e3" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700">Planificador</text>
+  <text x="1246" y="46" fill="#d8e7e3" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700">Demo</text>
+
+  <rect x="36" y="104" width="1368" height="92" rx="8" fill="#ffffff" stroke="#d7e4e1"/>
+  <rect x="58" y="124" width="455" height="52" rx="8" fill="#f8fafc" stroke="#d7e4e1"/>
+  <circle cx="83" cy="150" r="9" fill="#15803d"/>
+  <text x="104" y="145" fill="#53717a" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700">Origen</text>
+  <text x="104" y="165" fill="#12313a" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="800">Plaza Peru, Concepcion</text>
+  <rect x="530" y="124" width="455" height="52" rx="8" fill="#f8fafc" stroke="#d7e4e1"/>
+  <circle cx="555" cy="150" r="9" fill="#dc2626"/>
+  <text x="576" y="145" fill="#53717a" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700">Destino</text>
+  <text x="576" y="165" fill="#12313a" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="800">Universidad de Concepcion</text>
+  <rect x="1002" y="124" width="168" height="52" rx="8" fill="#0f766e"/>
+  <text x="1047" y="156" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="900">Planificar</text>
+  <rect x="1188" y="124" width="188" height="52" rx="8" fill="#eef4f3" stroke="#c7d9d5"/>
+  <text x="1227" y="156" fill="#24515a" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="800">Usar ubicacion</text>
+
+  <rect x="36" y="220" width="394" height="690" rx="8" fill="#ffffff" stroke="#d7e4e1"/>
+  <text x="64" y="264" fill="#12313a" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="900">Preferencias del viaje</text>
+  <text x="64" y="296" fill="#53717a" font-family="Inter, Arial, sans-serif" font-size="15">Ajusta como quieres equilibrar tiempo,</text>
+  <text x="64" y="318" fill="#53717a" font-family="Inter, Arial, sans-serif" font-size="15">congestion y exposicion ambiental.</text>
+  <rect x="64" y="354" width="338" height="68" rx="8" fill="#eef4f3" stroke="#c7d9d5"/>
+  <text x="88" y="381" fill="#24515a" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="800">DIA Y HORA</text>
+  <text x="88" y="405" fill="#12313a" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="900">Jueves, 08:00</text>
+  <rect x="64" y="448" width="338" height="76" rx="8" fill="#f8fafc" stroke="#d7e4e1"/>
+  <rect x="82" y="469" width="34" height="34" rx="17" fill="#0f766e"/>
+  <text x="132" y="480" fill="#12313a" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="900">Llegar antes</text>
+  <text x="132" y="504" fill="#53717a" font-family="Inter, Arial, sans-serif" font-size="14">Prioriza menor tiempo de viaje.</text>
+  <rect x="64" y="540" width="338" height="76" rx="8" fill="#f8fafc" stroke="#d7e4e1"/>
+  <rect x="82" y="561" width="34" height="34" rx="17" fill="#2563eb"/>
+  <text x="132" y="572" fill="#12313a" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="900">Evitar congestion</text>
+  <text x="132" y="596" fill="#53717a" font-family="Inter, Arial, sans-serif" font-size="14">Busca calles con flujo mas estable.</text>
+  <rect x="64" y="632" width="338" height="76" rx="8" fill="#f8fafc" stroke="#d7e4e1"/>
+  <rect x="82" y="653" width="34" height="34" rx="17" fill="#16a34a"/>
+  <text x="132" y="664" fill="#12313a" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="900">Menor exposicion</text>
+  <text x="132" y="688" fill="#53717a" font-family="Inter, Arial, sans-serif" font-size="14">Considera PM2.5 y entorno urbano.</text>
+  <rect x="64" y="744" width="338" height="116" rx="8" fill="#12313a"/>
+  <text x="90" y="782" fill="#d8e7e3" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="900">ESTADO DE DATOS</text>
+  <text x="90" y="813" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="900">Gran Concepcion</text>
+  <text x="90" y="842" fill="#d8e7e3" font-family="Inter, Arial, sans-serif" font-size="15">Congestion, PM2.5 y ciclovias listas.</text>
+
+  <rect x="454" y="220" width="582" height="690" rx="8" fill="#dbe8e5" stroke="#d7e4e1"/>
+  <path d="M461 764C589 687 610 582 748 548C853 522 925 561 1030 492" stroke="#f8fafc" stroke-width="54" stroke-linecap="round"/>
+  <path d="M458 502C592 475 650 411 763 393C875 375 929 316 1036 288" stroke="#f8fafc" stroke-width="38" stroke-linecap="round"/>
+  <path d="M506 238L506 900" stroke="#c5d8d3" stroke-width="2"/>
+  <path d="M590 220L590 910" stroke="#c5d8d3" stroke-width="2"/>
+  <path d="M704 220L704 910" stroke="#c5d8d3" stroke-width="2"/>
+  <path d="M818 220L818 910" stroke="#c5d8d3" stroke-width="2"/>
+  <path d="M932 220L932 910" stroke="#c5d8d3" stroke-width="2"/>
+  <path d="M454 333L1036 333" stroke="#c5d8d3" stroke-width="2"/>
+  <path d="M454 446L1036 446" stroke="#c5d8d3" stroke-width="2"/>
+  <path d="M454 559L1036 559" stroke="#c5d8d3" stroke-width="2"/>
+  <path d="M454 672L1036 672" stroke="#c5d8d3" stroke-width="2"/>
+  <path d="M532 700C612 646 631 575 746 539C851 506 929 538 987 488" stroke="#0f766e" stroke-width="14" stroke-linecap="round"/>
+  <path d="M541 735C631 664 647 611 746 579C841 548 922 571 1004 520" stroke="#2563eb" stroke-width="8" stroke-linecap="round" opacity=".55"/>
+  <circle cx="536" cy="701" r="18" fill="#15803d" stroke="#ffffff" stroke-width="6"/>
+  <circle cx="986" cy="488" r="18" fill="#dc2626" stroke="#ffffff" stroke-width="6"/>
+  <rect x="498" y="268" width="178" height="84" rx="8" fill="#16a34a" opacity=".16" stroke="#15803d"/>
+  <rect x="822" y="706" width="170" height="96" rx="8" fill="#f59e0b" opacity=".18" stroke="#b45309"/>
+  <rect x="482" y="844" width="224" height="42" rx="8" fill="#ffffff" opacity=".94"/>
+  <text x="506" y="870" fill="#24515a" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="800">PM2.5 bajo en ruta verde</text>
+
+  <rect x="1060" y="220" width="344" height="690" rx="8" fill="#ffffff" stroke="#d7e4e1"/>
+  <text x="1088" y="264" fill="#12313a" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="900">Rutas sugeridas</text>
+  <rect x="1088" y="294" width="288" height="146" rx="8" fill="#ecfdf5" stroke="#9bd7bc"/>
+  <text x="1110" y="326" fill="#0f766e" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="900">RECOMENDADA</text>
+  <text x="1110" y="358" fill="#12313a" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="900">Menor exposicion</text>
+  <text x="1110" y="388" fill="#53717a" font-family="Inter, Arial, sans-serif" font-size="15">18 min · PM2.5 bajo · entorno alto</text>
+  <rect x="1110" y="408" width="112" height="12" rx="6" fill="#0f766e"/>
+  <rect x="1230" y="408" width="82" height="12" rx="6" fill="#b7d9d1"/>
+  <rect x="1088" y="462" width="288" height="112" rx="8" fill="#f8fafc" stroke="#d7e4e1"/>
+  <text x="1110" y="497" fill="#12313a" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="900">Mas rapida</text>
+  <text x="1110" y="526" fill="#53717a" font-family="Inter, Arial, sans-serif" font-size="15">15 min · congestion media</text>
+  <rect x="1088" y="596" width="288" height="112" rx="8" fill="#f8fafc" stroke="#d7e4e1"/>
+  <text x="1110" y="631" fill="#12313a" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="900">Menos congestionada</text>
+  <text x="1110" y="660" fill="#53717a" font-family="Inter, Arial, sans-serif" font-size="15">20 min · flujo estable</text>
+  <rect x="1088" y="744" width="288" height="116" rx="8" fill="#eef4f3" stroke="#c7d9d5"/>
+  <text x="1110" y="781" fill="#24515a" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="900">POR QUE ESTA RUTA</text>
+  <text x="1110" y="812" fill="#12313a" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="800">Combina aire favorable,</text>
+  <text x="1110" y="838" fill="#12313a" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="800">ciclovias y menor ruido.</text>
+</svg>

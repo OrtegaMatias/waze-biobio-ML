@@ -13,13 +13,19 @@ function buildResponse(payload: unknown) {
 describe("App smoke flow", () => {
   afterEach(() => {
     window.history.pushState({}, "", "/");
+    window.localStorage.clear();
     vi.unstubAllGlobals();
   });
 
   it("renders the product planner at '/' and returns user-facing routes", async () => {
+    const observedRequests = {
+      environmentalImpactUrls: [] as string[],
+      planBodies: [] as Array<Record<string, unknown>>,
+    };
+
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: string | URL | Request) => {
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
 
         if (url.endsWith("/system/bootstrap")) {
@@ -45,17 +51,126 @@ describe("App smoke flow", () => {
           });
         }
 
-        if (url.endsWith("/routes/plan")) {
+        if (url.endsWith("/metadata/cycleways")) {
           return buildResponse({
-            selected_route_key: "least_congestion",
+            type: "FeatureCollection",
+            name: "gran_concepcion_cycleways",
+            features: [],
+          });
+        }
+
+        if (url.endsWith("/metadata/urban-wellbeing")) {
+          return buildResponse({
+            type: "FeatureCollection",
+            name: "gran_concepcion_urban_wellbeing",
+            features: [],
+          });
+        }
+
+        if (url.endsWith("/metadata/congestion/dates")) {
+          return buildResponse({
+            start: "2025-03-13",
+            end: "2025-08-22",
+            available_dates: ["2025-03-13", "2025-03-14"],
+            missing_dates: ["2025-03-15"],
+            rain_dates: ["2025-03-14"],
+            available_days: 2,
+            calendar_days: 3,
+            data_source: "CONGESTIONES.csv",
+          });
+        }
+
+        if (url.includes("/metadata/pm25/snapshot")) {
+          return buildResponse({
+            available: true,
+            requested_at: "2025-01-01 08:00:00",
+            average_pm25: 16.2,
+            stations: [
+              {
+                station_id: "104",
+                station_name: "Indura",
+                lat: -36.769803,
+                lon: -73.113708,
+                pm25: 16.2,
+                category: "Media",
+              },
+            ],
+            date_range: { start: "2025-01-01", end: "2025-12-31" },
+            method: "Lectura historica real por estacion, filtrada al año 2025.",
+            data_source: "gran_concepcion_pm25_core_hourly_clean.csv",
+          });
+        }
+
+        if (url.includes("/metadata/environmental-impact")) {
+          observedRequests.environmentalImpactUrls.push(url);
+          return buildResponse({
+            summary: {
+              available: true,
+              requested_at: "2025-03-13 08:00:00",
+              point_count: 1,
+              dominant_level: "medium",
+              weather: {
+                pm25: 16.2,
+                pm25_min: 8,
+                pm25_max: 55,
+                rain_mm: 0,
+                has_rain: false,
+                rain_label: "Sin lluvia",
+                wind_speed: 2,
+                wind_speed_kmh: 7.2,
+                wind_speed_min: 0,
+                wind_speed_max: 10,
+                wind_speed_min_kmh: 0,
+                wind_speed_max_kmh: 36,
+                wind_label: "Viento suave",
+                sky_label: "Sin dato",
+              },
+              messages: ["Condiciones intermedias: revisa PM2.5, viento y lluvia antes de salir."],
+              method: "Condiciones ambientales de prueba.",
+              data_source: "test",
+            },
+            points: [
+              {
+                lat: -36.819,
+                lon: -73.045,
+                score: 42,
+                level: "medium",
+                congestion_score: 0.5,
+                congestion_level: "medium",
+                pm25: 16.2,
+                rain_mm: 0,
+                wind_speed: 2,
+                segment_id: "seg-1",
+                via: "Barros Arana",
+                comuna: "Concepcion",
+                message: "Condiciones ambientales intermedias para movilizarse.",
+              },
+            ],
+          });
+        }
+
+        if (url.endsWith("/routes/plan")) {
+          observedRequests.planBodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+          return buildResponse({
+            selected_route_key: "least_congested",
+            contextual_messages: [
+              {
+                id: "least_congestion-bike",
+                title: "Buenas condiciones para bicicleta",
+                detail: "Esta zona presenta baja congestion y buena cobertura ciclista cercana.",
+                mode: "bike",
+                priority: "high",
+              },
+            ],
             routes: [
               {
-                key: "base",
-                label: "Ruta base",
-                badges: [{ key: "base", label: "Base" }],
+                key: "fastest",
+                label: "Llegar antes",
+                badges: [{ key: "fastest", label: "Llegar antes" }],
                 duration_min: 9.5,
                 distance_km: 3.0,
                 delay_min: 1.4,
+                congestion_score: 30,
                 risk_level: "medium",
                 summary: "9.5 min en total, 1 zonas historicas en ruta.",
                 geometry: [
@@ -64,7 +179,7 @@ describe("App smoke flow", () => {
                   { lat: -36.81, lon: -73.04 },
                 ],
                 top_alerts: [],
-                why_changed: ["Esta ruta usa Dijkstra puro y prioriza el trayecto base mas directo."],
+                why_changed: ["Esta ruta usa Dijkstra puro y prioriza la ruta mas corta disponible."],
                 top_penalized_segments: [],
                 top_preferred_vias: [],
                 incident_exposure: {
@@ -76,12 +191,13 @@ describe("App smoke flow", () => {
                 },
               },
               {
-                key: "least_congestion",
-                label: "Menor congestion",
-                badges: [{ key: "least_congestion", label: "Menor congestion" }],
+                key: "least_congested",
+                label: "Circulación más fluida",
+                badges: [{ key: "least_congestion", label: "Circulación más fluida" }],
                 duration_min: 7.5,
                 distance_km: 3.2,
                 delay_min: 0,
+                congestion_score: 5,
                 risk_level: "low",
                 summary: "7.5 min en total, 0 zonas historicas en ruta.",
                 geometry: [
@@ -100,14 +216,33 @@ describe("App smoke flow", () => {
                   accident_segments: 0,
                   exposure_minutes: 0,
                 },
+                active_mobility_estimate: {
+                  auto_min: 7.5,
+                  bike_min: 10.7,
+                  walk_min: 40,
+                  bike_extra_min: 3.2,
+                  walk_extra_min: 32.5,
+                  bike_speed_kmh: 18,
+                  walk_speed_kmh: 4.8,
+                },
+                contextual_messages: [
+                  {
+                    id: "least_congestion-bike",
+                    title: "Buenas condiciones para bicicleta",
+                    detail: "Esta zona presenta baja congestion y buena cobertura ciclista cercana.",
+                    mode: "bike",
+                    priority: "high",
+                  },
+                ],
               },
               {
                 key: "healthiest",
-                label: "Mas saludable",
-                badges: [{ key: "healthiest", label: "Mas saludable" }],
+                label: "Menor exposición ambiental",
+                badges: [{ key: "healthiest", label: "Menor exposición ambiental" }],
                 duration_min: 8.1,
                 distance_km: 3.5,
                 delay_min: 0.2,
+                congestion_score: 8,
                 risk_level: "low",
                 summary: "8.1 min en total, 0 zonas historicas en ruta.",
                 geometry: [
@@ -159,18 +294,42 @@ describe("App smoke flow", () => {
       }),
     );
 
+    window.localStorage.setItem("wbm_onboarding_seen", "true");
+    Object.defineProperty(window.URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:test"),
+    });
+    Object.defineProperty(window.URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
     render(<App />);
 
     await waitFor(() => expect(screen.getByText(/planifica tu viaje con congestion historica/i)).toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole("button", { name: /planificar viaje/i })).toBeEnabled());
+    expect(screen.getByText(/elige una fecha/i)).toBeInTheDocument();
+    expect(screen.getByText(/calendario y hora/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /abrir herramientas para explorar el mapa/i }));
+    expect(screen.getByText(/que quieres ver en el mapa/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /ver detalles al tocar el mapa/i })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /parques y areas verdes/i })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /lagos, lagunas y cursos de agua/i })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /puntos de reciclaje/i })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /ciclovias/i })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: /cerrar exploracion del mapa/i }));
 
     fireEvent.click(screen.getByRole("button", { name: /planificar viaje/i }));
 
-    await waitFor(() => expect(screen.getAllByText(/menor congestion/i).length).toBeGreaterThan(0));
-    expect(screen.getAllByText(/ruta base/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/mas saludable/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/la ruta evita zonas con mayor congestion historica del horario/i).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/busqueda enriquecida desactivada/i)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText(/circulación más fluida/i).length).toBeGreaterThan(0));
+    expect(observedRequests.environmentalImpactUrls.length).toBeGreaterThan(0);
+    const environmentalUrl = new URL(observedRequests.environmentalImpactUrls.at(-1) ?? "", "http://localhost");
+    expect(environmentalUrl.searchParams.get("date")).toBe("2025-03-13");
+    expect(environmentalUrl.searchParams.get("hour")).toBe("8");
+    expect(observedRequests.planBodies.at(-1)?.congestion_date).toBe("2025-03-13");
+    expect(observedRequests.planBodies.at(-1)?.departure_hour).toBe(8);
+    expect(screen.getAllByText(/llegar antes/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/menor exposición ambiental/i).length).toBeGreaterThan(0);
   });
 
   it("keeps the academic experience available at '/demo'", async () => {
@@ -259,7 +418,7 @@ describe("App smoke flow", () => {
                 { lat: -36.815, lon: -73.045 },
                 { lat: -36.81, lon: -73.04 },
               ],
-              why_changed: ["Ruta base sin sesgo colaborativo."],
+              why_changed: ["Ruta mas corta sin sesgo colaborativo."],
               top_penalized_segments: [],
               top_preferred_vias: [],
               incident_exposure: {

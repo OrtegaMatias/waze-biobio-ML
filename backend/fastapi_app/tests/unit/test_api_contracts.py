@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+import pytest
 
 from backend.fastapi_app.app import main
 from backend.fastapi_app.app.schemas.recommendations import CollaborativeRecommendation
 from backend.fastapi_app.app.schemas.routes import (
     IncidentExposure,
     PlaceResult,
+    PlanRouteRequest,
     PreferredViaImpact,
+    Pm25Exposure,
     RouteComparison,
     RouteDelta,
     RoutePoint,
@@ -55,6 +58,13 @@ def build_variant(
             congestion_segments=exposure,
             accident_segments=0,
             exposure_minutes=delay,
+        ),
+        pm25_exposure=Pm25Exposure(
+            available=True,
+            average_pm25=9.5 if via == "Paicavi" else 12.0,
+            category="Baja",
+            method="fixture",
+            data_source="test",
         ),
         why_changed=[f"Ruta ajustada por {via}."],
         top_penalized_segments=[
@@ -259,6 +269,19 @@ def test_routes_plan_returns_user_facing_contract(monkeypatch):
             }
         ],
     )
+    monkeypatch.setattr(
+        main.cycleway_service,
+        "estimate_route_coverage",
+        lambda _geometry: {
+            "available": True,
+            "coverage_ratio": 0.6,
+            "nearby_cycleway_km": 1.2,
+            "route_km": 2.0,
+            "nearby_buffer_m": 80.0,
+            "has_high_coverage": True,
+            "data_source": "OpenStreetMap/Overpass",
+        },
+    )
 
     payload = {
         "origin": {"lat": -36.82, "lon": -73.04},
@@ -276,13 +299,125 @@ def test_routes_plan_returns_user_facing_contract(monkeypatch):
     main.app.dependency_overrides.clear()
     body = response.json()
     assert response.status_code == 200
-    assert body["selected_route_key"] == "least_congestion"
+    assert body["selected_route_key"] == "least_congested"
     assert len(body["routes"]) == 3
-    assert body["routes"][0]["badges"][0]["key"] == "base"
+    assert body["routes"][0]["key"] == "fastest"
     assert body["routes"][1]["badges"][0]["key"] == "least_congestion"
     assert body["routes"][2]["badges"][0]["key"] == "healthiest"
-    assert body["summary"]["eta_total_min"] == 8.3
+    assert set(body["routes_by_type"]) == {"fastest", "least_congested", "healthiest"}
+    assert body["summary"]["eta_total_min"] == 10.5
     assert body["hotspots"][0]["segment_id"] == "seg-1"
+    assert body["routes"][0]["cycleway_coverage"]["data_source"] == "OpenStreetMap/Overpass"
+    assert body["routes"][1]["active_mobility_estimate"]["auto_min"] == 10.5
+    assert body["routes"][1]["active_mobility_estimate"]["bike_extra_min"] >= 0
+    if body["routes"][1]["bicycle_suggestion"]:
+        assert "bicicleta" in body["routes"][1]["bicycle_suggestion"]
+        assert body["routes"][1]["contextual_messages"][0]["mode"] == "bike"
+    assert body["contextual_messages"][0]["mode"] == "bike"
+
+
+def test_plan_response_uses_dedicated_least_congestion_variant(monkeypatch):
+    reference = build_variant(via="Barros Arana", duration=8.5, delay=0.0, risk=0.0, offset=0.0, exposure=0)
+    least_congestion = build_variant(via="Costanera", duration=9.5, delay=0.0, risk=0.0, offset=0.7, exposure=0)
+    ubcf = build_variant(via="O'Higgins", duration=7.5, delay=0.0, risk=5.0, offset=0.2, exposure=0)
+    ibcf = build_variant(via="Paicavi", duration=7.8, delay=0.5, risk=7.0, offset=0.4, exposure=0)
+    route = RouteResponse(
+        reference=reference,
+        least_congestion=least_congestion,
+        ubcf=ubcf,
+        ibcf=ibcf,
+        healthiest=ibcf,
+        personalized=ubcf,
+        comparison=RouteComparison(
+            fastest_variant="ubcf",
+            safest_variant="reference",
+            lowest_exposure_variant="reference",
+            best_balance_variant="ubcf",
+            deltas=[],
+        ),
+    )
+    monkeypatch.setattr(
+        main.cycleway_service,
+        "estimate_route_coverage",
+        lambda _geometry: {
+            "available": False,
+            "coverage_ratio": 0.0,
+            "nearby_cycleway_km": 0.0,
+            "route_km": 0.0,
+            "nearby_buffer_m": 80.0,
+            "has_high_coverage": False,
+            "data_source": "test",
+        },
+    )
+    monkeypatch.setattr(main, "_filter_hotspots", lambda **_kwargs: [])
+
+    response = main._build_plan_response(
+        route,
+        PlanRouteRequest(
+            origin=RoutePoint(lat=-36.82, lon=-73.04),
+            destination=RoutePoint(lat=-36.81, lon=-73.05),
+            day_of_week="Wednesday",
+            departure_hour=8.0,
+        ),
+    )
+
+    base_route = next(item for item in response.routes if item.key == "fastest")
+    least_route = next(item for item in response.routes if item.key == "least_congested")
+    assert least_route.geometry != base_route.geometry
+    assert least_route.distance_km == pytest.approx(least_congestion.distance_km)
+
+
+def test_plan_response_keeps_healthiest_visible_when_geometry_matches_shortest(monkeypatch):
+    reference = build_variant(via="Barros Arana", duration=8.5, delay=0.0, risk=0.0, offset=0.0, exposure=0)
+    least_congestion = build_variant(via="Costanera", duration=9.5, delay=0.0, risk=0.0, offset=0.7, exposure=0)
+    route = RouteResponse(
+        reference=reference,
+        least_congestion=least_congestion,
+        ubcf=least_congestion,
+        ibcf=least_congestion,
+        healthiest=reference,
+        personalized=least_congestion,
+        comparison=RouteComparison(
+            fastest_variant="reference",
+            safest_variant="reference",
+            lowest_exposure_variant="reference",
+            best_balance_variant="reference",
+            deltas=[],
+        ),
+    )
+    monkeypatch.setattr(
+        main.cycleway_service,
+        "estimate_route_coverage",
+        lambda _geometry: {
+            "available": False,
+            "coverage_ratio": 0.0,
+            "nearby_cycleway_km": 0.0,
+            "route_km": 0.0,
+            "nearby_buffer_m": 80.0,
+            "has_high_coverage": False,
+            "data_source": "test",
+        },
+    )
+    monkeypatch.setattr(main, "_filter_hotspots", lambda **_kwargs: [])
+
+    response = main._build_plan_response(
+        route,
+        PlanRouteRequest(
+            origin=RoutePoint(lat=-36.82, lon=-73.04),
+            destination=RoutePoint(lat=-36.81, lon=-73.05),
+            day_of_week="Wednesday",
+            departure_hour=8.0,
+        ),
+    )
+
+    base_route = response.routes[0]
+    healthiest_route = response.routes[2]
+    assert len(response.routes) == 3
+    assert base_route.key == "fastest"
+    assert [badge.key for badge in base_route.badges] == ["fastest"]
+    assert [badge.key for badge in healthiest_route.badges] == ["healthiest"]
+    assert healthiest_route.geometry == base_route.geometry
+    assert response.selected_route_key == "least_congested"
 
 
 def test_places_endpoints_return_normalized_results(monkeypatch):
