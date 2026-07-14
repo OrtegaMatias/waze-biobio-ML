@@ -378,9 +378,9 @@ class AirQualityService:
         )
         relative_score = _clamp((pm25 - min_pm25) / max(max_pm25 - min_pm25, 5.0))
         normalized = PM25_ABSOLUTE_SCORE_WEIGHT * absolute_score + PM25_RELATIVE_SCORE_WEIGHT * relative_score
-        # Lower-exposure areas need a real cost advantage; otherwise Dijkstra keeps
-        # choosing the shortest path and the healthy candidate collapses to fastest.
-        return round(0.75 + _clamp(normalized) * PM25_ROUTE_PENALTY_STRENGTH, 3)
+        # Clean air is the neutral routing baseline. Only higher exposure adds cost;
+        # otherwise every edge in a clean area receives an unrelated distance bonus.
+        return round(1.0 + _clamp(normalized) * PM25_ROUTE_PENALTY_STRENGTH, 3)
 
     def estimate_route_exposure(
         self,

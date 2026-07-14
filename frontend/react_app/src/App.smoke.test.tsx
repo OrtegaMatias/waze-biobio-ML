@@ -2,6 +2,40 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import App from "./App";
 
+vi.mock("./components/PlanningMap", () => ({
+  DEFAULT_WELLBEING_VISIBILITY: {
+    green_space: false,
+    blue_space: false,
+    tree_cover: false,
+    public_space: false,
+    sustainability: false,
+    cycleway: false,
+  },
+  WELLBEING_LAYER_OPTIONS: [
+    { category: "green_space", label: "Parques y áreas verdes", description: "Parques" },
+    { category: "blue_space", label: "Lagos, lagunas y cursos de agua", description: "Agua" },
+    { category: "tree_cover", label: "Sectores arbolados", description: "Árboles" },
+    { category: "public_space", label: "Plazas y espacios públicos", description: "Plazas" },
+    { category: "sustainability", label: "Puntos de reciclaje", description: "Reciclaje" },
+  ],
+  PlanningMap: (props: any) => (
+    <div data-testid="planning-map">
+      <button
+        type="button"
+        onClick={() => props.onPickPoint(props.activePin, { lat: -36.8271, lon: -73.0496 })}
+      >
+        Marcar primer punto en mapa
+      </button>
+      <button
+        type="button"
+        onClick={() => props.onPickPoint(props.activePin, { lat: -36.826, lon: -73.0504 })}
+      >
+        Marcar segundo punto en mapa
+      </button>
+    </div>
+  ),
+}));
+
 function buildResponse(payload: unknown) {
   return {
     ok: true,
@@ -14,10 +48,12 @@ describe("App smoke flow", () => {
   afterEach(() => {
     window.history.pushState({}, "", "/");
     window.localStorage.clear();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
   it("renders the product planner at '/' and returns user-facing routes", async () => {
+    vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
     const observedRequests = {
       environmentalImpactUrls: [] as string[],
       planBodies: [] as Array<Record<string, unknown>>,
@@ -77,6 +113,16 @@ describe("App smoke flow", () => {
             available_days: 2,
             calendar_days: 3,
             data_source: "CONGESTIONES.csv",
+          });
+        }
+
+        if (url.includes("/metadata/congestion/hours")) {
+          const date = new URL(url, "http://localhost").searchParams.get("date") ?? "2025-03-13";
+          return buildResponse({
+            date,
+            available_hours: [6, 8, 10, 18],
+            count: 4,
+            data_source: "congestion_aggregated_gran_concepcion_core.csv",
           });
         }
 
@@ -306,18 +352,22 @@ describe("App smoke flow", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByText(/planifica tu viaje con congestion historica/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /marcar primer punto en mapa/i }));
+    fireEvent.click(screen.getByRole("button", { name: /marcar segundo punto en mapa/i }));
     await waitFor(() => expect(screen.getByRole("button", { name: /planificar viaje/i })).toBeEnabled());
-    expect(screen.getByText(/elige una fecha/i)).toBeInTheDocument();
-    expect(screen.getByText(/calendario y hora/i)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /abrir herramientas para explorar el mapa/i }));
-    expect(screen.getByText(/que quieres ver en el mapa/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /ver detalles al tocar el mapa/i })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /parques y areas verdes/i })).not.toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /lagos, lagunas y cursos de agua/i })).not.toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /puntos de reciclaje/i })).not.toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /ciclovias/i })).not.toBeChecked();
-    fireEvent.click(screen.getByRole("button", { name: /cerrar exploracion del mapa/i }));
+    expect(screen.getByText(/elige fecha y hora para tu viaje/i)).toBeInTheDocument();
+    expect(screen.getByText(/fecha y hora/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "16" })).toHaveClass("sunday", "blocked");
+    const blockedDate = screen.getByRole("button", { name: "15" });
+    expect(blockedDate).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(blockedDate);
+    expect(screen.getByText(/no hay datos disponibles para esta fecha/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "13" })).toHaveClass("selected");
+    const hourSelect = await screen.findByRole("combobox", { name: /elige hora de salida/i });
+    await waitFor(() => expect(hourSelect).toBeEnabled());
+    expect(hourSelect).toHaveValue("8");
+    expect(screen.getByRole("option", { name: /09:00.*no disponible/i })).toBeDisabled();
+    expect(screen.queryByText(/horas tienen registros de congesti.n para esta fecha/i)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /planificar viaje/i }));
 
@@ -329,7 +379,26 @@ describe("App smoke flow", () => {
     expect(observedRequests.planBodies.at(-1)?.congestion_date).toBe("2025-03-13");
     expect(observedRequests.planBodies.at(-1)?.departure_hour).toBe(8);
     expect(screen.getAllByText(/llegar antes/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/menor exposición ambiental/i).length).toBeGreaterThan(0);
+    const routePreference = document.querySelector(".route-card.preference-card") as HTMLButtonElement | null;
+    expect(routePreference).not.toBeNull();
+    fireEvent.click(routePreference!);
+    fireEvent.click(screen.getAllByRole("button", { name: /iniciar viaje/i })[0]);
+    expect(screen.getByRole("complementary", { name: /visualizaci.n del recorrido planificado/i })).toBeInTheDocument();
+    expect(screen.getByText(/orientaci.n ambiental prioritaria/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /ver detalles/i }));
+    expect(screen.getByLabelText(/otros mensajes del recorrido/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^finalizar viaje$/i }));
+    expect(screen.getByRole("dialog", { name: /llegaste a tu destino/i })).toBeInTheDocument();
+    expect(screen.getByText(/viaje completado/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /planificar otro viaje/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /revisar recorrido/i }));
+    expect(screen.queryByRole("dialog", { name: /llegaste a tu destino/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: /resumen del recorrido realizado/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /planificar otro viaje/i }));
+    expect(screen.queryByRole("complementary", { name: /resumen del recorrido realizado/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/marca el origen y el destino en el mapa/i)).toBeInTheDocument();
   });
 
   it("keeps the academic experience available at '/demo'", async () => {

@@ -106,6 +106,13 @@ class CongestionDateCoverageResponse(BaseModel):
     data_source: str
 
 
+class CongestionHourAvailabilityResponse(BaseModel):
+    date: str
+    available_hours: List[int] = Field(default_factory=list)
+    count: int = 0
+    data_source: str
+
+
 class CyclewayResponse(BaseModel):
     type: Literal["FeatureCollection"] = "FeatureCollection"
     name: str = "gran_concepcion_cycleways"

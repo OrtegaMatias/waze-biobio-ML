@@ -100,3 +100,35 @@ def test_metadata_congestion_dates_reports_available_and_missing_days(monkeypatc
     assert payload["missing_dates"] == ["2025-03-14"]
     assert payload["available_days"] == 2
     assert payload["calendar_days"] == 3
+
+
+def test_metadata_congestion_hours_reports_only_recorded_hours_for_date(monkeypatch):
+    df = pd.DataFrame(
+        [
+            {"fecha": "2025-03-13", "hora_inicio": "06:15"},
+            {"fecha": "2025-03-13", "hora_inicio": "08:45"},
+            {"fecha": "2025-03-13", "hora_inicio": "08:55"},
+            {"fecha": "2025-03-14", "hora_inicio": "17:00"},
+        ]
+    )
+    monkeypatch.setattr(main.data_loader, "load_congestion_events", lambda: df)
+    monkeypatch.setattr(main, "CONGESTION_COVERAGE_FILES", {})
+
+    with TestClient(main.app) as client:
+        response = client.get("/metadata/congestion/hours", params={"date": "2025-03-13"})
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["date"] == "2025-03-13"
+    assert payload["available_hours"] == [6, 8]
+    assert payload["count"] == 2
+    assert payload["data_source"] == "CONGESTIONES.csv"
+
+
+def test_metadata_congestion_hours_rejects_invalid_date(monkeypatch):
+    monkeypatch.setattr(main, "CONGESTION_COVERAGE_FILES", {})
+
+    with TestClient(main.app) as client:
+        response = client.get("/metadata/congestion/hours", params={"date": "2025-02-31"})
+
+    assert response.status_code == 422

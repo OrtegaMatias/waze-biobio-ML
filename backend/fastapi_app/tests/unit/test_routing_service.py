@@ -302,7 +302,11 @@ def test_least_congestion_variant_is_dedicated_penalized_route(monkeypatch):
     class DummyGraph:
         nodes = {"node": None}
 
+        def __init__(self):
+            self.calls = []
+
         def shortest_path(self, _origin, _destination, **kwargs):
+            self.calls.append(kwargs)
             if kwargs.get("apply_penalties") is False:
                 return direct_path
             return detour_path
@@ -340,6 +344,8 @@ def test_least_congestion_variant_is_dedicated_penalized_route(monkeypatch):
     assert route.least_congestion.incident_exposure.matched_incident_segments == 0
     assert route.least_congestion.distance_km > route.reference.distance_km
     assert route.comparison.lowest_exposure_variant == "least_congestion"
+    assert "air_quality_factor" not in service.graph.calls[1]
+    assert "urban_wellbeing_factor" not in service.graph.calls[1]
 
 
 def _healthy_candidate(
@@ -670,6 +676,79 @@ def test_active_congestion_parallel_street_does_not_count_as_route_congestion():
     assert coverage.high_pct == 0.0
 
 
+def test_active_congestion_perpendicular_street_does_not_penalize_crossing_nodes():
+    service = routing_service.RoutingService()
+    service.graph = routing.RouteGraph(
+        nodes={
+            "crossing": routing.GraphNode(
+                "crossing", "route-lincoyan", 0, -36.83215, -73.05210,
+                "Referencia", 30.0, 0.1, "Lincoyan", "Concepcion",
+            ),
+            "congested": routing.GraphNode(
+                "congested", "red-colo-colo", 0, -36.83215, -73.05211,
+                "Referencia", 30.0, 0.1, "Colo Colo", "Concepcion",
+            ),
+        },
+        adjacency={},
+    )
+    perpendicular_line = {
+        "type": "Feature",
+        "properties": {
+            "segment_id": "red-colo-colo",
+            "via": "Colo Colo",
+            "score": 70.0,
+        },
+        "geometry": {
+            "type": "LineString",
+            "coordinates": [
+                [-73.05211, -36.83300],
+                [-73.05211, -36.83100],
+            ],
+        },
+    }
+
+    penalties = service._active_congestion_node_penalties([perpendicular_line])
+
+    assert "crossing" not in penalties
+    assert penalties["congested"] > 1.0
+
+
+def test_active_congestion_perpendicular_street_does_not_count_in_route_coverage():
+    service = routing_service.RoutingService()
+    route_geometry = [
+        {"lat": -36.83215, "lon": -73.05300},
+        {"lat": -36.83215, "lon": -73.05100},
+    ]
+    perpendicular_line = {
+        "type": "Feature",
+        "properties": {
+            "segment_id": "red-colo-colo",
+            "via": "Colo Colo",
+            "comuna": "Concepcion",
+            "level": "high",
+            "recency": "actual",
+            "score": 70.0,
+        },
+        "geometry": {
+            "type": "LineString",
+            "coordinates": [
+                [-73.05210, -36.83300],
+                [-73.05210, -36.83100],
+            ],
+        },
+    }
+
+    impacts, coverage = service._active_congestion_segment_impacts(
+        route_geometry,
+        {service._normalize_road_name("Lincoyan")},
+        {"route-lincoyan"},
+        [perpendicular_line],
+    )
+
+    assert impacts == []
+    assert coverage.congested_pct == 0.0
+
+
 def test_destination_snap_uses_mid_block_perpendicular_and_oneway_target(monkeypatch):
     service = routing_service.RoutingService()
     events = pd.DataFrame(
@@ -744,7 +823,8 @@ def test_destination_snap_uses_mid_block_perpendicular_and_oneway_target(monkeyp
 
     route = service.compute_route(payload)
 
-    assert route.reference.steps[-1].node_id == "segOneWay::0"
+    assert route.reference.steps[-2].node_id == "segOneWay::0"
+    assert route.reference.steps[-1].node_id == "user_destination"
     assert route.reference.road_geometry[-1].lat == pytest.approx(0.0, abs=1e-6)
     assert route.reference.road_geometry[-1].lon == pytest.approx(0.005, abs=1e-6)
     assert route.reference.access_geometry[-1][0].lat == pytest.approx(0.0, abs=1e-6)

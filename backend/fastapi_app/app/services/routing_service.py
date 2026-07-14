@@ -1268,21 +1268,51 @@ class RoutingService:
         if segment_id and segment_id in route_segment_ids:
             return True
         via = cls._normalize_road_name(str(properties.get("via") or ""))
-        return bool(via and via in route_vias)
+        return bool(via and via not in {"sin nombre", "unknown", "desconocida"} and via in route_vias)
+
+    @classmethod
+    def _node_matches_congestion_feature(cls, node: routing.GraphNode, properties: dict) -> bool:
+        segment_id = str(properties.get("segment_id") or "")
+        if segment_id and segment_id == node.segment_id:
+            return True
+        feature_via = cls._normalize_road_name(str(properties.get("via") or ""))
+        node_via = cls._normalize_road_name(node.via)
+        return bool(
+            feature_via
+            and feature_via not in {"sin nombre", "unknown", "desconocida"}
+            and feature_via == node_via
+        )
 
     def _active_congestion_node_penalties(self, active_congestion_lines: List[dict]) -> Dict[str, float]:
         if self.graph is None or not active_congestion_lines:
             return {}
         congestion_coords: list[tuple[float, float]] = []
-        congestion_scores: list[float] = []
+        congestion_feature_indices: list[int] = []
+        congestion_features: list[tuple[dict, List[Dict[str, float]], float]] = []
         for feature in active_congestion_lines:
             line = self._congestion_line_points(feature)
             if len(line) < 2:
                 continue
-            score = float(feature.get("properties", {}).get("score") or 0.0)
-            for point in line:
-                congestion_coords.append((point["lat"], point["lon"]))
-                congestion_scores.append(score)
+            properties = feature.get("properties", {})
+            score = float(properties.get("score") or 0.0)
+            feature_index = len(congestion_features)
+            congestion_features.append((properties, line, score))
+            for start, end in zip(line, line[1:]):
+                segment_length_m = routing.haversine_km(
+                    start["lat"], start["lon"], end["lat"], end["lon"]
+                ) * 1000
+                sample_count = max(1, math.ceil(segment_length_m / ACTIVE_CONGESTION_NODE_TOLERANCE_M))
+                for sample_index in range(sample_count):
+                    ratio = sample_index / sample_count
+                    congestion_coords.append(
+                        (
+                            start["lat"] + (end["lat"] - start["lat"]) * ratio,
+                            start["lon"] + (end["lon"] - start["lon"]) * ratio,
+                        )
+                    )
+                    congestion_feature_indices.append(feature_index)
+            congestion_coords.append((line[-1]["lat"], line[-1]["lon"]))
+            congestion_feature_indices.append(feature_index)
         if not congestion_coords:
             return {}
 
@@ -1298,11 +1328,19 @@ class RoutingService:
         tree = BallTree(np.radians(np.asarray(congestion_coords, dtype=float)), metric="haversine")
         radius = (ACTIVE_CONGESTION_NODE_TOLERANCE_M * 1.35) / (routing.EARTH_RADIUS_KM * 1000)
         neighbor_indices = tree.query_radius(np.radians(np.asarray(node_coords, dtype=float)), r=radius)
-        scores = np.asarray(congestion_scores, dtype=float)
         penalties: Dict[str, float] = {}
         for node_id, neighbors in zip(node_ids, neighbor_indices):
-            if len(neighbors):
-                score = float(scores[neighbors].max())
+            node = self.graph.nodes[node_id]
+            matching_scores = []
+            for feature_index in {congestion_feature_indices[int(index)] for index in neighbors}:
+                properties, line, score = congestion_features[feature_index]
+                if not self._node_matches_congestion_feature(node, properties):
+                    continue
+                point = {"lat": node.lat, "lon": node.lon}
+                if self._point_to_polyline_distance_m(point, line) <= ACTIVE_CONGESTION_NODE_TOLERANCE_M:
+                    matching_scores.append(score)
+            if matching_scores:
+                score = max(matching_scores)
                 penalties[node_id] = 1.0 + (score / 100.0) * 80.0
         return penalties
 

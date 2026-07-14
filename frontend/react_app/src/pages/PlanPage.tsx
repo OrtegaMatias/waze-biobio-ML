@@ -1,20 +1,22 @@
 import { type CSSProperties, startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 
-import onboardingBeforeRouteScreen from "../assets/onboarding/03-before-route.png";
-import onboardingRouteTypesScreen from "../assets/onboarding/04-route-types.png";
+import onboardingDateTimeScreen from "../assets/onboarding/01-date-time.png";
+import onboardingOriginDestinationScreen from "../assets/onboarding/02-origin-destination.png";
+import onboardingPlanTripScreen from "../assets/onboarding/03-plan-trip.png";
+import onboardingRoutePrioritiesScreen from "../assets/onboarding/04-route-priorities.png";
 import onboardingRecommendationScreen from "../assets/onboarding/05-recommendation.png";
-import onboardingLayersScreen from "../assets/onboarding/06-layers.png";
+import onboardingFinishActionScreen from "../assets/onboarding/06-finish-action.png";
+import onboardingFinishResultScreen from "../assets/onboarding/06-finish-result.png";
+import onboardingLayersScreen from "../assets/onboarding/07-sustainable-layers.png";
 import {
   getCongestionDates,
+  getCongestionHours,
   getCycleways,
   getUrbanWellbeing,
   getEnvironmentalImpact,
   getPm25Snapshot,
   planRoute,
-  reversePlace,
   getReadiness,
-  searchPlaces,
   startBootstrap,
 } from "../api";
 import {
@@ -28,7 +30,6 @@ import type {
   CyclewayFeature,
   EnvironmentalImpactResponse,
   MobilityGuidanceMessage,
-  PlaceResult,
   PlanRouteResponse,
   Pm25SnapshotResponse,
   ReadinessStatus,
@@ -41,16 +42,9 @@ import type {
 
 type PinKey = "origin" | "destination";
 
-type PlaceSelection = {
-  id: string;
-  label: string;
-  point: RoutePoint;
-  bbox: number[] | null;
-};
-
 type PlannerState = {
-  origin: PlaceSelection;
-  destination: PlaceSelection;
+  origin: RoutePoint | null;
+  destination: RoutePoint | null;
   day_of_week: string;
   departure_hour: number;
   travel_style: TravelStyle;
@@ -64,11 +58,12 @@ type RouteGuidancePanelRect = {
   height: number;
 };
 
-const RECENT_PLACES_KEY = "wbm_recent_places";
 const ONBOARDING_SEEN_KEY = "wbm_onboarding_seen";
+const PLANNER_HELP_SEEN_KEY = "wbm_planner_help_seen";
 const DEFAULT_MAP_STYLE_URL = "local-basic";
 const DEFAULT_HISTORY_DATE = "2025-03-13";
 const WEEKDAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
+const DAY_HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 const MONTH_LABELS = [
   "Enero",
   "Febrero",
@@ -91,14 +86,38 @@ type CalendarDay = {
   hasData: boolean;
   isMissing: boolean;
   hasRain: boolean;
+  isSunday: boolean;
+  isHoliday: boolean;
 };
+
+const CHILE_HOLIDAYS_2025 = new Set([
+  "2025-01-01",
+  "2025-04-18",
+  "2025-04-19",
+  "2025-05-01",
+  "2025-05-21",
+  "2025-06-20",
+  "2025-06-29",
+  "2025-07-16",
+  "2025-08-15",
+  "2025-09-18",
+  "2025-09-19",
+  "2025-10-12",
+  "2025-10-31",
+  "2025-11-01",
+  "2025-11-16",
+  "2025-12-08",
+  "2025-12-14",
+  "2025-12-25",
+]);
 
 type OnboardingSlide = {
   eyebrow: string;
   title: string;
   body: string;
   image?: string;
-  focus: "purpose" | "difference" | "search" | "calendar" | "plan" | "preferences" | "recommendation" | "layers";
+  secondaryImage?: string;
+  focus: "purpose" | "search" | "calendar" | "plan" | "preferences" | "recommendation" | "finish" | "layers";
   contentPreview?: {
     welcome: string;
     description: string;
@@ -114,7 +133,22 @@ type OnboardingSlide = {
     height: number;
     arrowX: number;
     arrowY: number;
+    targetX?: number;
+    targetY?: number;
   };
+  extraCallouts?: Array<{
+    shape: "circle" | "rect";
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }>;
+  softenAreas?: Array<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }>;
   mapPins?: Array<{
     tone: "origin" | "destination";
     x: number;
@@ -137,115 +171,149 @@ const ONBOARDING_SLIDES: OnboardingSlide[] = [
     },
   },
   {
-    eyebrow: "Primer paso",
+    eyebrow: "Paso 1",
     title: "Selecciona fecha y hora",
-    body: "",
-    image: onboardingBeforeRouteScreen,
+    body: "Elige una fecha disponible y la hora de salida; la app usará estos datos para preparar la planificación.",
+    image: onboardingDateTimeScreen,
     focus: "calendar",
     callout: {
-      label:
-        "Selecciona en el calendario el día y la hora del viaje para consultar congestión, PM2.5 y condiciones ambientales.",
+      label: "Selecciona fecha y hora",
+      description: "Así se consultarán las condiciones correspondientes al viaje.",
       shape: "rect",
-      x: 79.2,
-      y: 1.2,
-      width: 20.4,
-      height: 63.8,
-      arrowX: 77.2,
-      arrowY: 36,
+      x: 82.2,
+      y: 1.5,
+      width: 16.3,
+      height: 53,
+      arrowX: 80.6,
+      arrowY: 30,
+      targetX: 82.4,
+      targetY: 30,
     },
+    softenAreas: [{ x: 24.5, y: 81.5, width: 39.5, height: 17 }],
   },
   {
-    eyebrow: "Segundo paso",
+    eyebrow: "Paso 2",
     title: "Marca origen y destino",
-    body:
-      "Después de definir fecha y hora, marca en el mapa el punto de partida y el destino. Verás el origen en verde y el destino en rojo.",
-    image: onboardingBeforeRouteScreen,
+    body: "Marca primero el origen verde y luego el destino rojo; al completar ambos puntos podrás generar las rutas.",
+    image: onboardingOriginDestinationScreen,
     focus: "search",
     callout: {
-      label: "Haz un primer clic en el mapa para seleccionar el origen y un segundo clic para marcar el destino.",
+      label: "Marca primero el origen y luego el destino",
+      description: "Selecciona ambos puntos directamente en el mapa.",
       shape: "rect",
-      x: 2.1,
-      y: 15.2,
-      width: 77.4,
-      height: 64.5,
-      arrowX: 35,
-      arrowY: 83,
+      x: 39.5,
+      y: 27.5,
+      width: 6.5,
+      height: 43,
+      arrowX: 59,
+      arrowY: 48,
+      targetX: 46,
+      targetY: 48,
     },
-    mapPins: [
-      { tone: "origin", x: 49.7, y: 62.8 },
-      { tone: "destination", x: 53.2, y: 51.7 },
-    ],
   },
   {
-    eyebrow: "Tercer paso",
-    title: "Presiona Planifica tu viaje",
-    body:
-      "Con fecha, hora, origen y destino definidos, presiona Planifica tu viaje para generar las opciones de ruta disponibles.",
-    image: onboardingBeforeRouteScreen,
+    eyebrow: "Paso 3",
+    title: "Planifica tu viaje",
+    body: "Comprueba que fecha, hora, origen y destino estén listos; después genera las tres alternativas de ruta.",
+    image: onboardingPlanTripScreen,
     focus: "plan",
     callout: {
-      label: "Presiona Planifica tu viaje para ver las rutas",
+      label: "Pulsa Planificar viaje",
       shape: "rect",
-      x: 20.8,
-      y: 82.7,
-      width: 28.7,
-      height: 8.8,
-      arrowX: 52,
-      arrowY: 85,
+      x: 69.9,
+      y: 2.2,
+      width: 9.4,
+      height: 9.4,
+      arrowX: 68,
+      arrowY: 22,
+      targetX: 74.6,
+      targetY: 11.6,
     },
+    softenAreas: [{ x: 24.5, y: 81.5, width: 39.5, height: 17 }],
   },
   {
-    eyebrow: "Cuarto paso",
-    title: "Elige qué quieres priorizar",
-    body:
-      "Con el viaje y el horario definidos, compara las rutas: Llegar antes, Circulación más fluida o Menor exposición ambiental.",
-    image: onboardingRouteTypesScreen,
+    eyebrow: "Paso 4",
+    title: "Elige qué priorizar",
+    body: "Observa las tres rutas y compara tiempo, congestión y exposición ambiental antes de elegir una alternativa.",
+    image: onboardingRoutePrioritiesScreen,
     focus: "preferences",
     callout: {
-      label: "Llegar antes, fluidez o menor exposición",
+      label: "Compara y elige una ruta",
+      description: "Llegar antes · Circulación más fluida · Menor exposición ambiental.",
       shape: "rect",
-      x: 16.7,
-      y: 72.5,
-      width: 56.8,
-      height: 25.8,
-      arrowX: 61,
-      arrowY: 72,
+      x: 24.5,
+      y: 74,
+      width: 51,
+      height: 24.5,
+      arrowX: 62,
+      arrowY: 70,
+      targetX: 62,
+      targetY: 74,
     },
   },
   {
-    eyebrow: "Recomendación explicada",
-    title: "Entiende por qué se sugiere una ruta",
-    body:
-      "Luego revisa la explicación: la recomendación combina PM2.5, congestión, ciclovías, áreas verdes y condiciones del entorno.",
+    eyebrow: "Paso 5",
+    title: "Comprende la recomendación",
+    body: "Revisa en el panel izquierdo por qué se recomienda Menor exposición ambiental; después podrás iniciar el viaje.",
     image: onboardingRecommendationScreen,
     focus: "recommendation",
     callout: {
-      label: "Lee los factores de la recomendación",
+      label: "Lee por qué se recomienda esta ruta",
+      description: "El panel reúne calidad del aire, congestión, tiempo y entorno.",
       shape: "rect",
-      x: 1.2,
-      y: 11.5,
-      width: 26.4,
-      height: 76.4,
-      arrowX: 29,
+      x: 0.8,
+      y: 13.5,
+      width: 17.7,
+      height: 82,
+      arrowX: 47,
       arrowY: 28,
+      targetX: 18.5,
+      targetY: 28,
     },
   },
   {
-    eyebrow: "Sello sustentable",
-    title: "Explora capas para decidir con más contexto",
-    body:
-      "Finalmente, presiona el botón de capas en el costado derecho del mapa para abrir este panel y revisar congestión, impacto ambiental, ciclovías y entorno.",
+    eyebrow: "Paso 6",
+    title: "Finaliza tu viaje",
+    body: "Pulsa Finalizar viaje; se abrirá el cierre con el mapa, las métricas finales, el sello y la recompensa obtenida.",
+    image: onboardingFinishActionScreen,
+    secondaryImage: onboardingFinishResultScreen,
+    focus: "finish",
+    callout: {
+      label: "Pulsa Finalizar viaje",
+      description: "Se abrirá el resumen final del recorrido.",
+      shape: "rect",
+      x: 35.6,
+      y: 66.7,
+      width: 4,
+      height: 4.2,
+      arrowX: 32,
+      arrowY: 62.5,
+      targetX: 35.1,
+      targetY: 68.7,
+    },
+    extraCallouts: [
+      { shape: "rect", x: 52.7, y: 8.5, width: 45.9, height: 83 },
+    ],
+  },
+  {
+    eyebrow: "Paso 7",
+    title: "Explora las capas sustentables",
+    body: "Si quieres profundizar, activa capas para comprender mejor las condiciones y el entorno de la ruta.",
     image: onboardingLayersScreen,
     focus: "layers",
     callout: {
-      label: "Capas de entorno y movilidad sustentable",
+      label: "Activa las capas que quieras explorar",
+      description:
+        "Las líneas muestran tráfico lento y la nube ambiental estima posibles concentraciones de emisiones. También puedes ubicar áreas verdes, agua y ciclovías cercanas.",
       shape: "rect",
-      x: 63,
-      y: 2,
-      width: 35.5,
-      height: 96,
-      arrowX: 60,
-      arrowY: 18,
+      x: 82.4,
+      y: 1.4,
+      width: 16,
+      height: 97,
+      arrowX: 80.5,
+      arrowY: 52,
+      targetX: 82.5,
+      targetY: 52,
     },
   },
 ];
@@ -292,31 +360,14 @@ const ROUTE_PREFERENCES: Record<
   },
 };
 
-function journeyStartMessage(routeType: RouteType): {
+type JourneyGuidance = {
   title: string;
   detail: string;
-  reward?: string;
-  localFact?: string;
-} {
-  if (routeType === "fastest") {
-    return {
-      title: "Ruta directa",
-      detail: "Prioriza avanzar sin desvio. Si la calidad del aire esta desfavorable, evita ventilacion exterior.",
-      localFact: "Dato local: la exposicion a contaminantes puede aumentar cerca de tramos con alto trafico.",
-    };
-  }
-  if (routeType === "least_congested") {
-    return {
-      title: "Flujo mas estable",
-      detail: "Elegiste reducir detenciones. Revisa igualmente PM2.5: menos congestion no siempre implica menor exposicion.",
-    };
-  }
-  return {
-    title: "Movilidad consciente",
-    detail: "Elegiste una ruta que equilibra tiempo, entorno y menor exposicion ambiental.",
-    reward: "+3 estrellas de movilidad consciente",
-  };
-}
+  recommendation: string;
+  environmentalCondition: string;
+  closingTitle: string;
+  closingDetail: string;
+};
 
 function routeDisplayName(routeType: RouteType): string {
   return ROUTE_DISPLAY_NAMES[routeType];
@@ -493,23 +544,6 @@ function formatConditionValue(value?: number | null, unit = ""): string {
   return `${value.toFixed(1)}${unit ? ` ${unit}` : ""}`;
 }
 
-function makeSelection(id: string, label: string, point: RoutePoint, bbox: number[] | null = null): PlaceSelection {
-  return { id, label, point, bbox };
-}
-
-function readRecentPlaces(): PlaceResult[] {
-  try {
-    const stored = window.localStorage.getItem(RECENT_PLACES_KEY);
-    if (!stored) {
-      return [];
-    }
-    const parsed = JSON.parse(stored) as PlaceResult[];
-    return Array.isArray(parsed) ? parsed.slice(0, 6) : [];
-  } catch {
-    return [];
-  }
-}
-
 function hasSeenOnboarding(): boolean {
   try {
     return window.localStorage.getItem(ONBOARDING_SEEN_KEY) === "true";
@@ -526,21 +560,20 @@ function rememberOnboardingSeen() {
   }
 }
 
-function writeRecentPlaces(items: PlaceResult[]) {
-  window.localStorage.setItem(RECENT_PLACES_KEY, JSON.stringify(items.slice(0, 6)));
+function hasSeenPlannerHelp(): boolean {
+  try {
+    return window.localStorage.getItem(PLANNER_HELP_SEEN_KEY) === "true";
+  } catch {
+    return false;
+  }
 }
 
-function upsertRecentPlace(current: PlaceResult[], next: PlaceResult): PlaceResult[] {
-  const deduped = current.filter((item) => item.id !== next.id);
-  return [next, ...deduped].slice(0, 6);
-}
-
-function selectionFromPlace(place: PlaceResult): PlaceSelection {
-  return makeSelection(place.id, place.label, { lat: place.lat, lon: place.lon }, place.bbox);
-}
-
-function buildManualLabel(point: RoutePoint): string {
-  return `Punto manual (${point.lat.toFixed(4)}, ${point.lon.toFixed(4)})`;
+function rememberPlannerHelpSeen() {
+  try {
+    window.localStorage.setItem(PLANNER_HELP_SEEN_KEY, "true");
+  } catch {
+    // Storage can be unavailable in private browsing or restricted test environments.
+  }
 }
 
 function isoDateFromLocalDate(date: Date): string {
@@ -574,6 +607,38 @@ function monthLabel(monthKey: string): string {
   return `${MONTH_LABELS[month - 1]} ${year}`;
 }
 
+function fullDateLabel(isoDate: string): string {
+  const formatted = new Intl.DateTimeFormat("es-CL", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${isoDate}T12:00:00Z`));
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+}
+
+function formatHour(hour: number): string {
+  return `${String(hour).padStart(2, "0")}:00`;
+}
+
+function closestAvailableHour(hours: number[], currentHour: number): number | null {
+  if (hours.length === 0) {
+    return null;
+  }
+  return hours.reduce((closest, candidate) => {
+    const candidateDistance = Math.abs(candidate - currentHour);
+    const closestDistance = Math.abs(closest - currentHour);
+    if (candidateDistance < closestDistance) {
+      return candidate;
+    }
+    if (candidateDistance === closestDistance && candidate > closest) {
+      return candidate;
+    }
+    return closest;
+  });
+}
+
 function buildCalendarDays(
   monthKey: string,
   availableDates: Set<string>,
@@ -595,6 +660,8 @@ function buildCalendarDays(
       hasData: availableDates.has(iso),
       isMissing: missingDates.has(iso),
       hasRain: rainDates.has(iso),
+      isSunday: date.getDay() === 0,
+      isHoliday: CHILE_HOLIDAYS_2025.has(iso),
     };
   });
 }
@@ -647,12 +714,52 @@ function OnboardingPreview({
     "--callout-label-x": `${callout.arrowX}%`,
     "--callout-label-y": `${callout.arrowY}%`,
   } as CSSProperties;
+  const targetX = callout.targetX ?? callout.x + callout.width / 2;
+  const targetY = callout.targetY ?? callout.y + callout.height / 2;
 
   return (
     <div className={`onboarding-preview onboarding-preview-frame onboarding-focus-${focus}`} style={calloutStyle}>
-      <div className="onboarding-image-stage" aria-hidden="true">
-        <img className="onboarding-base-image" src={slide.image} alt="" />
+      <div className={`onboarding-image-stage ${slide.secondaryImage ? "onboarding-image-sequence" : ""}`} aria-hidden="true">
+        {slide.secondaryImage ? (
+          <div className="onboarding-sequence-grid">
+            <div className="onboarding-sequence-pane onboarding-sequence-pane-action">
+              <span>1 · Acción</span>
+              <img className="onboarding-base-image" src={slide.image} alt="" />
+            </div>
+            <div className="onboarding-sequence-arrow">→</div>
+            <div className="onboarding-sequence-pane onboarding-sequence-pane-result">
+              <span>2 · Resultado</span>
+              <img className="onboarding-base-image" src={slide.secondaryImage} alt="" />
+            </div>
+          </div>
+        ) : (
+          <img className="onboarding-base-image" src={slide.image} alt="" />
+        )}
         <span className={`preview-callout-ring ${callout.shape}`} />
+        {slide.extraCallouts?.map((extraCallout, index) => (
+          <span
+            className={`preview-callout-ring preview-callout-ring-extra ${extraCallout.shape}`}
+            key={`${extraCallout.x}-${extraCallout.y}-${index}`}
+            style={{
+              "--callout-x": `${extraCallout.x}%`,
+              "--callout-y": `${extraCallout.y}%`,
+              "--callout-width": `${extraCallout.width}%`,
+              "--callout-height": `${extraCallout.height}%`,
+            } as CSSProperties}
+          />
+        ))}
+        {slide.softenAreas?.map((area, index) => (
+          <span
+            className="preview-soften-area"
+            key={`${area.x}-${area.y}-${index}`}
+            style={{
+              left: `${area.x}%`,
+              top: `${area.y}%`,
+              width: `${area.width}%`,
+              height: `${area.height}%`,
+            }}
+          />
+        ))}
         {slide.mapPins?.map((pin) => (
           <span
             className={`preview-map-pin ${pin.tone}`}
@@ -660,6 +767,22 @@ function OnboardingPreview({
             style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
           />
         ))}
+        <svg className="preview-callout-connector" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <defs>
+            <marker id="onboarding-arrowhead" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L7,3 z" />
+            </marker>
+          </defs>
+          <path
+            className="connector-shadow"
+            d={`M ${callout.arrowX} ${callout.arrowY} L ${targetX} ${targetY}`}
+          />
+          <path
+            className="connector-line"
+            d={`M ${callout.arrowX} ${callout.arrowY} L ${targetX} ${targetY}`}
+            markerEnd="url(#onboarding-arrowhead)"
+          />
+        </svg>
         <span className="preview-callout-note">
           <strong>{callout.label}</strong>
           {callout.description ? <span>{callout.description}</span> : null}
@@ -942,6 +1065,87 @@ function congestionLevel(score: number): string {
   return "Alto";
 }
 
+function routeEnvironmentalCondition(
+  route: PlanRouteResponse["routes"][number],
+  weather: EnvironmentalImpactResponse["summary"]["weather"] | null | undefined,
+): string {
+  if (isHighPm25(route, weather)) {
+    return "Calidad del aire poco favorable";
+  }
+  if (isElevatedPm25(route, weather)) {
+    return "Calidad del aire intermedia";
+  }
+  if (routePm25(route, weather) !== null) {
+    return "Calidad del aire favorable";
+  }
+  if (route.urban_wellbeing?.available) {
+    return "Condición del entorno evaluada";
+  }
+  return "Sin datos ambientales suficientes";
+}
+
+function buildJourneyGuidance(
+  routeType: RouteType,
+  route: PlanRouteResponse["routes"][number],
+  allRoutes: PlanRouteResponse["routes"],
+  weather: EnvironmentalImpactResponse["summary"]["weather"] | null | undefined,
+): JourneyGuidance {
+  const congestion = congestionLevel(route.congestion_score ?? 0);
+  const environmentalCondition = routeEnvironmentalCondition(route, weather);
+  const highExposure = isHighPm25(route, weather);
+  const elevatedExposure = isElevatedPm25(route, weather);
+  const healthiest = allRoutes.find((candidate) => candidate.key === "healthiest");
+  const healthyDelta = durationDelta(healthiest, route);
+  const healthyHasSimilarTime = healthyDelta !== null && healthyDelta <= RECOMMENDED_ROUTE_MAX_EXTRA_MIN;
+  const historicalContext = "Según las condiciones históricas del día y horario seleccionados";
+
+  if (routeType === "healthiest") {
+    return {
+      title: "Menor exposición durante el recorrido",
+      detail: `${historicalContext}, esta alternativa consideró la calidad del aire, la congestión y las condiciones del entorno para reducir la exposición ambiental.`,
+      recommendation: "Mantén esta preferencia cuando quieras priorizar un trayecto con mejores condiciones ambientales.",
+      environmentalCondition,
+      closingTitle: "Movilidad consciente",
+      closingDetail: "Elegiste una ruta que consideró la calidad del aire, la congestión y las condiciones del entorno.",
+    };
+  }
+
+  if (routeType === "least_congested") {
+    const recommendation = healthiest && healthyHasSimilarTime
+      ? `Para un próximo viaje, considera ${routeDisplayName("healthiest")}: su diferencia estimada es de ${Math.max(0, healthyDelta ?? 0).toFixed(1)} min.`
+      : "Revisa también la condición ambiental antes de elegir: una circulación fluida no siempre implica menor exposición.";
+    return {
+      title: "Circulación más fluida, exposición por revisar",
+      detail: `${historicalContext}, esta ruta evitó los sectores con mayor congestión. Aun así, presenta ${environmentalCondition.toLowerCase()}.`,
+      recommendation,
+      environmentalCondition,
+      closingTitle: "Priorizaste evitar la congestión",
+      closingDetail: healthyHasSimilarTime
+        ? `La ruta redujo la exposición a sectores congestionados. Para un próximo viaje, ${routeDisplayName("healthiest")} ofrece una alternativa de tiempo similar.`
+        : "La ruta evitó los sectores con mayor tráfico. Recuerda que una circulación fluida no siempre significa menor exposición ambiental.",
+    };
+  }
+
+  const respiratoryImpact = highExposure || elevatedExposure
+    ? " Estas condiciones pueden afectar especialmente a personas con asma o sensibilidad respiratoria."
+    : "";
+  const recommendation = healthiest
+    ? `Considera ${routeDisplayName("healthiest")} para reducir la exposición ambiental. Si este viaje es necesario y atraviesa sectores congestionados, mantén las ventanas cerradas y utiliza la recirculación del aire.`
+    : "Si atraviesas sectores congestionados y eres sensible a la contaminación, mantén las ventanas cerradas y utiliza la recirculación del aire.";
+  return {
+    title: congestion === "Alto" || highExposure
+      ? "Llegas antes, pero con mayor exposición"
+      : "Priorizaste llegar antes",
+    detail: `${historicalContext}, esta ruta prioriza reducir el tiempo y presenta congestión ${congestion.toLowerCase()} junto con ${environmentalCondition.toLowerCase()}.${respiratoryImpact}`,
+    recommendation,
+    environmentalCondition,
+    closingTitle: "Priorizaste llegar antes",
+    closingDetail: highExposure || congestion === "Alto"
+      ? `La ruta redujo el tiempo estimado, pero atravesó sectores con congestión ${congestion.toLowerCase()} y ${environmentalCondition.toLowerCase()}. Revisa la alternativa de menor exposición ambiental para un próximo viaje.`
+      : "La ruta priorizó reducir el tiempo estimado del recorrido. Para un próximo viaje, compara también sus condiciones ambientales.",
+  };
+}
+
 function routeCongestionCoverageLabel(route: PlanRouteResponse["routes"][number]): string {
   const coverage = route.congestion_coverage;
   if (!coverage) {
@@ -982,29 +1186,21 @@ export function PlanPage() {
   const mapStyleUrl = (import.meta.env.VITE_MAP_STYLE_URL ?? DEFAULT_MAP_STYLE_URL).trim();
   const mapboxToken = (import.meta.env.VITE_MAPBOX_TOKEN ?? "").trim();
   const mapEnabled = Boolean(mapStyleUrl);
-  const geocodingEnabled = Boolean(mapboxToken);
 
   const [readiness, setReadiness] = useState<ReadinessStatus | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding());
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [planner, setPlanner] = useState<PlannerState>({
-    origin: makeSelection("origin-default", "Plaza Peru, Concepcion", { lat: -36.8271, lon: -73.0496 }),
-    destination: makeSelection("destination-default", "Mall del Centro, Concepcion", { lat: -36.826, lon: -73.0504 }),
+    origin: null,
+    destination: null,
     day_of_week: "Wednesday",
     departure_hour: 8,
     travel_style: "balanced",
     avoid_congestion: true,
   });
-  const [queries, setQueries] = useState<Record<PinKey, string>>({
-    origin: "Plaza Peru, Concepcion",
-    destination: "Mall del Centro, Concepcion",
-  });
-  const [suggestions, setSuggestions] = useState<Record<PinKey, PlaceResult[]>>({
-    origin: [],
-    destination: [],
-  });
-  const [recentPlaces, setRecentPlaces] = useState<PlaceResult[]>(() => readRecentPlaces());
   const [activePin, setActivePin] = useState<PinKey>("origin");
+  const [plannerHelpOpen, setPlannerHelpOpen] = useState(() => !hasSeenPlannerHelp());
+  const plannerHelpRef = useRef<HTMLDivElement | null>(null);
   const [plan, setPlan] = useState<PlanRouteResponse | null>(null);
   const [cycleways, setCycleways] = useState<CyclewayFeature[]>([]);
   const [wellbeingFeatures, setWellbeingFeatures] = useState<UrbanWellbeingFeature[]>([]);
@@ -1015,13 +1211,17 @@ export function PlanPage() {
   const [congestionCoverage, setCongestionCoverage] = useState<CongestionDateCoverage | null>(null);
   const [congestionCoverageReady, setCongestionCoverageReady] = useState(false);
   const [congestionCoverageError, setCongestionCoverageError] = useState<string | null>(null);
+  const [calendarNotice, setCalendarNotice] = useState<string | null>(null);
   const [selectedCongestionDate, setSelectedCongestionDate] = useState(DEFAULT_HISTORY_DATE);
   const [congestionMonth, setCongestionMonth] = useState("2025-03");
   const [pm25Date, setPm25Date] = useState(DEFAULT_HISTORY_DATE);
   const [pm25Hour, setPm25Hour] = useState(8);
+  const [availableCongestionHours, setAvailableCongestionHours] = useState<number[]>([]);
+  const [congestionHoursLoading, setCongestionHoursLoading] = useState(true);
+  const [congestionHoursError, setCongestionHoursError] = useState<string | null>(null);
   const [historicalQueryHour, setHistoricalQueryHour] = useState(8);
-  const [pm25Snapshot, setPm25Snapshot] = useState<Pm25SnapshotResponse | null>(null);
-  const [pm25Error, setPm25Error] = useState<string | null>(null);
+  const [, setPm25Snapshot] = useState<Pm25SnapshotResponse | null>(null);
+  const [, setPm25Error] = useState<string | null>(null);
   const [environmentalImpact, setEnvironmentalImpact] = useState<EnvironmentalImpactResponse | null>(null);
   const [environmentalImpactError, setEnvironmentalImpactError] = useState<string | null>(null);
   const [environmentalImpactLoading, setEnvironmentalImpactLoading] = useState(false);
@@ -1029,7 +1229,7 @@ export function PlanPage() {
   const pm25SnapshotRequestIdRef = useRef(0);
   const environmentalImpactCacheRef = useRef(new Map<string, EnvironmentalImpactResponse>());
   const environmentalImpactRequestIdRef = useRef(0);
-  const selectionRequestIdRef = useRef<Record<PinKey, number>>({ origin: 0, destination: 0 });
+  const selectedHistoricalHourRef = useRef(8);
   const routeChoicePanelRef = useRef<HTMLElement | null>(null);
   const routeGuidancePanelRef = useRef<HTMLElement | null>(null);
   const deferredPlan = useDeferredValue(plan);
@@ -1037,7 +1237,9 @@ export function PlanPage() {
   const [hoveredRouteType, setHoveredRouteType] = useState<RouteType | null>(null);
   const [mapPinnedRouteType, setMapPinnedRouteType] = useState<RouteType | null>(null);
   const [journeyStarted, setJourneyStarted] = useState(false);
-  const [journeyNoticeVisible, setJourneyNoticeVisible] = useState(false);
+  const [journeyFinished, setJourneyFinished] = useState(false);
+  const [journeyReviewing, setJourneyReviewing] = useState(false);
+  const [journeyDetailsVisible, setJourneyDetailsVisible] = useState(false);
   const [routeGuidanceClosed, setRouteGuidanceClosed] = useState(false);
   const [routeGuidanceCollapsed, setRouteGuidanceCollapsed] = useState(false);
   const [routeChoicePanelHeight, setRouteChoicePanelHeight] = useState(128);
@@ -1051,12 +1253,8 @@ export function PlanPage() {
   const [calendarInfoOpen, setCalendarInfoOpen] = useState(false);
   const [openEnvironmentInfo, setOpenEnvironmentInfo] = useState<EnvironmentConditionKey | null>(null);
   const [expandedMetricInfo, setExpandedMetricInfo] = useState<RouteMetricKey | null>(null);
-  const [visiblePins, setVisiblePins] = useState<Record<PinKey, boolean>>({
-    origin: false,
-    destination: false,
-  });
   const bootstrapRequestedRef = useRef(false);
-  const [busy, setBusy] = useState({ refresh: false, planning: false, geolocate: false });
+  const [busy, setBusy] = useState({ refresh: false, planning: false });
   const [error, setError] = useState<string | null>(null);
   const selectedRoute = selectedRouteType
     ? deferredPlan?.routes_by_type?.[selectedRouteType] ??
@@ -1069,9 +1267,13 @@ export function PlanPage() {
         deferredPlan.routes.find((route) => route.key === mapPinnedRouteType) ??
         null
       : null;
-  const mapRoutes = journeyStarted && selectedRoute ? [selectedRoute] : pinnedMapRoute ? [pinnedMapRoute] : (deferredPlan?.routes ?? []);
-  const mapHighlightedRouteKey = journeyStarted ? selectedRouteType : mapPinnedRouteType ?? hoveredRouteType;
-  const journeyMessage = selectedRouteType ? journeyStartMessage(selectedRouteType) : null;
+  const journeyFocused = journeyStarted || journeyFinished || journeyReviewing;
+  const mapRoutes = journeyFocused && selectedRoute
+    ? [selectedRoute]
+    : pinnedMapRoute
+      ? [pinnedMapRoute]
+      : (deferredPlan?.routes ?? []);
+  const mapHighlightedRouteKey = journeyFocused ? selectedRouteType : mapPinnedRouteType ?? hoveredRouteType;
   const onboardingSlide = ONBOARDING_SLIDES[onboardingStep];
   const wellbeingCounts = wellbeingFeatures.reduce<Record<UrbanWellbeingCategory, number>>(
     (counts, feature) => {
@@ -1095,6 +1297,11 @@ export function PlanPage() {
   }
 
   function openOnboarding() {
+    setPlannerHelpOpen(false);
+    setCalendarInfoOpen(false);
+    setOpenEnvironmentInfo(null);
+    setOpenMetricInfo(null);
+    setExpandedMetricInfo(null);
     setOnboardingStep(0);
     setShowOnboarding(true);
   }
@@ -1212,6 +1419,46 @@ export function PlanPage() {
   }, [pm25Hour]);
 
   useEffect(() => {
+    let cancelled = false;
+    setCongestionHoursLoading(true);
+    setCongestionHoursError(null);
+    getCongestionHours(selectedCongestionDate)
+      .then((availability) => {
+        if (cancelled) {
+          return;
+        }
+        const hours = Array.from(
+          new Set(
+            availability.available_hours.filter(
+              (hour) => Number.isInteger(hour) && hour >= 0 && hour <= 23,
+            ),
+          ),
+        ).sort((left, right) => left - right);
+        setAvailableCongestionHours(hours);
+        const nextHour = closestAvailableHour(hours, selectedHistoricalHourRef.current);
+        if (nextHour !== null && nextHour !== selectedHistoricalHourRef.current) {
+          handleHistoricalHourChange(nextHour);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setAvailableCongestionHours([]);
+          setCongestionHoursError(
+            err instanceof Error ? err.message : "No se pudo cargar la disponibilidad horaria.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCongestionHoursLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCongestionDate]);
+
+  useEffect(() => {
     if (!congestionCoverageReady) {
       return;
     }
@@ -1306,72 +1553,47 @@ export function PlanPage() {
   }, [busy.refresh, readiness]);
 
   useEffect(() => {
-    if (!geocodingEnabled) {
-      setSuggestions({ origin: [], destination: [] });
+    if (!plannerHelpOpen || showOnboarding) {
       return;
     }
-    const entries = (Object.entries(queries) as Array<[PinKey, string]>).map(([pin, query]) => ({ pin, query }));
-    const timer = window.setTimeout(async () => {
-      await Promise.all(
-        entries.map(async ({ pin, query }) => {
-          const normalized = query.trim();
-          if (normalized.length < 3 || normalized === planner[pin].label) {
-            setSuggestions((current) => ({
-              ...current,
-              [pin]: normalized.length === 0 ? recentPlaces : [],
-            }));
-            return;
-          }
-          try {
-            const results = await searchPlaces(normalized, 5);
-            setSuggestions((current) => ({ ...current, [pin]: results }));
-          } catch {
-            setSuggestions((current) => ({ ...current, [pin]: [] }));
-          }
-        }),
-      );
-    }, 280);
-    return () => window.clearTimeout(timer);
-  }, [geocodingEnabled, planner, queries, recentPlaces]);
+    function handlePointerDown(event: PointerEvent) {
+      if (plannerHelpRef.current && !plannerHelpRef.current.contains(event.target as Node)) {
+        closePlannerHelp();
+      }
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closePlannerHelp();
+      }
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [plannerHelpOpen, showOnboarding]);
 
-  function commitSelection(pin: PinKey, selection: PlaceSelection) {
-    setPlanner((current) => ({ ...current, [pin]: selection }));
-    setQueries((current) => ({ ...current, [pin]: selection.label }));
-    setSuggestions((current) => ({ ...current, [pin]: [] }));
-    setVisiblePins((current) => ({ ...current, [pin]: true }));
+  function closePlannerHelp() {
+    setPlannerHelpOpen(false);
+    rememberPlannerHelpSeen();
+  }
+
+  function commitPoint(pin: PinKey, point: RoutePoint) {
+    setPlanner((current) => ({ ...current, [pin]: point }));
+    setError(null);
     setPlan(null);
     setSelectedRouteType(null);
     setHoveredRouteType(null);
     setMapPinnedRouteType(null);
     setJourneyStarted(false);
-    setJourneyNoticeVisible(false);
-  }
-
-  function applySelection(pin: PinKey, selection: PlaceSelection) {
-    selectionRequestIdRef.current[pin] += 1;
-    commitSelection(pin, selection);
-  }
-
-  async function resolveLabel(pin: PinKey, point: RoutePoint) {
-    const requestId = selectionRequestIdRef.current[pin] + 1;
-    selectionRequestIdRef.current[pin] = requestId;
-    commitSelection(pin, makeSelection(`${pin}-manual`, buildManualLabel(point), point));
-    if (!geocodingEnabled) {
-      return;
-    }
-    try {
-      const result = await reversePlace(point.lat, point.lon);
-      if (result && selectionRequestIdRef.current[pin] === requestId) {
-        commitSelection(pin, makeSelection(result.id, result.label, point, result.bbox));
-        return;
-      }
-    } catch {
-      // noop: fallback below
-    }
+    setJourneyFinished(false);
+    setJourneyReviewing(false);
+    setJourneyDetailsVisible(false);
   }
 
   function handleMapPick(pin: PinKey, point: RoutePoint) {
-    void resolveLabel(pin, point);
+    commitPoint(pin, point);
     if (pin === "origin") {
       setActivePin("destination");
     }
@@ -1387,78 +1609,60 @@ export function PlanPage() {
     setHoveredRouteType(null);
     setMapPinnedRouteType(null);
     setJourneyStarted(false);
-    setJourneyNoticeVisible(false);
+    setJourneyFinished(false);
+    setJourneyReviewing(false);
+    setJourneyDetailsVisible(false);
   }
 
-  function handleCongestionDateSelect(date: string, hasData: boolean) {
+  function handleCongestionDateSelect(date: string, hasData: boolean, coverageReady = true) {
+    if (!coverageReady) {
+      setCalendarNotice("Cargando fechas disponibles");
+      return;
+    }
+    if (!hasData) {
+      setCalendarNotice("No hay datos disponibles para esta fecha");
+      return;
+    }
+    setCalendarNotice(null);
     setSelectedCongestionDate(date);
     setCongestionMonth(monthKeyFromIso(date));
     setPm25Date(date);
-    if (hasData) {
-      handleRouteContextChange({ day_of_week: dayOfWeekFromIso(date) });
-    }
+    handleRouteContextChange({ day_of_week: dayOfWeekFromIso(date) });
   }
 
   function handleHistoricalHourChange(hour: number) {
+    selectedHistoricalHourRef.current = hour;
     setPm25Hour(hour);
     handleRouteContextChange({ departure_hour: hour });
   }
 
-  function handleSuggestionSelect(pin: PinKey, place: PlaceResult) {
-    const nextRecentPlaces = upsertRecentPlace(recentPlaces, place);
-    setRecentPlaces(nextRecentPlaces);
-    writeRecentPlaces(nextRecentPlaces);
-    applySelection(pin, selectionFromPlace(place));
-  }
-
   function handleSwap() {
-    selectionRequestIdRef.current.origin += 1;
-    selectionRequestIdRef.current.destination += 1;
+    if (!planner.origin && !planner.destination) {
+      return;
+    }
     setPlanner((current) => ({
       ...current,
       origin: current.destination,
       destination: current.origin,
     }));
-    setQueries((current) => ({
-      origin: current.destination,
-      destination: current.origin,
-    }));
-    setVisiblePins((current) => ({
-      origin: current.destination,
-      destination: current.origin,
-    }));
+    setActivePin((current) => (current === "origin" ? "destination" : "origin"));
     setPlan(null);
     setSelectedRouteType(null);
     setHoveredRouteType(null);
     setMapPinnedRouteType(null);
     setJourneyStarted(false);
-    setJourneyNoticeVisible(false);
-  }
-
-  function handleGeolocate() {
-    if (!navigator.geolocation) {
-      setError("Tu navegador no expone geolocalizacion.");
-      return;
-    }
-    setBusy((current) => ({ ...current, geolocate: true }));
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const point = {
-          lat: position.coords.latitude,
-          lon: position.coords.longitude,
-        };
-        void resolveLabel("origin", point);
-        setBusy((current) => ({ ...current, geolocate: false }));
-      },
-      () => {
-        setBusy((current) => ({ ...current, geolocate: false }));
-        setError("No fue posible tomar tu ubicacion actual.");
-      },
-      { enableHighAccuracy: true, timeout: 7000, maximumAge: 0 },
-    );
+    setJourneyFinished(false);
+    setJourneyReviewing(false);
+    setJourneyDetailsVisible(false);
   }
 
   async function handlePlan() {
+    const origin = planner.origin;
+    const destination = planner.destination;
+    if (!origin || !destination) {
+      setError("Selecciona el origen y el destino directamente en el mapa.");
+      return;
+    }
     setBusy((current) => ({ ...current, planning: true }));
     setError(null);
     try {
@@ -1467,8 +1671,8 @@ export function PlanPage() {
         setReadiness(await getReadiness());
       }
       const response = await planRoute({
-        origin: planner.origin.point,
-        destination: planner.destination.point,
+        origin,
+        destination,
         congestion_date: selectedCongestionDate,
         day_of_week: planner.day_of_week,
         departure_hour: planner.departure_hour,
@@ -1482,7 +1686,9 @@ export function PlanPage() {
         setHoveredRouteType(null);
         setMapPinnedRouteType(null);
         setJourneyStarted(false);
-        setJourneyNoticeVisible(false);
+        setJourneyFinished(false);
+        setJourneyReviewing(false);
+        setJourneyDetailsVisible(false);
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo planificar el viaje.");
@@ -1500,6 +1706,14 @@ export function PlanPage() {
         environmentalImpact?.summary.weather,
       )
     : [];
+  const journeyGuidance = selectedRoute && selectedRouteType
+    ? buildJourneyGuidance(
+        selectedRouteType,
+        selectedRoute,
+        routeCards,
+        environmentalImpact?.summary.weather,
+      )
+    : null;
   const routeMetricCards = selectedRoute
     ? ([
         ["duration", `${selectedRoute.duration_min.toFixed(1)} min`],
@@ -1541,7 +1755,9 @@ export function PlanPage() {
       setHoveredRouteType(null);
       setMapPinnedRouteType(targetRouteId);
       setJourneyStarted(false);
-      setJourneyNoticeVisible(false);
+      setJourneyFinished(false);
+      setJourneyReviewing(false);
+      setJourneyDetailsVisible(false);
       setRouteGuidanceClosed(false);
       setRouteGuidanceCollapsed(false);
     }
@@ -1553,7 +1769,9 @@ export function PlanPage() {
     setHoveredRouteType(null);
     setMapPinnedRouteType(routeType);
     setJourneyStarted(false);
-    setJourneyNoticeVisible(false);
+    setJourneyFinished(false);
+    setJourneyReviewing(false);
+    setJourneyDetailsVisible(false);
   }
 
   function handleStartJourney() {
@@ -1563,29 +1781,61 @@ export function PlanPage() {
     setMapPinnedRouteType(selectedRouteType);
     setHoveredRouteType(null);
     setJourneyStarted(true);
-    setJourneyNoticeVisible(true);
+    setJourneyFinished(false);
+    setJourneyReviewing(false);
+    setJourneyDetailsVisible(false);
     setRouteGuidanceClosed(true);
     setRouteGuidanceCollapsed(false);
   }
 
   function handleBackFromJourney() {
     setJourneyStarted(false);
-    setJourneyNoticeVisible(false);
+    setJourneyFinished(false);
+    setJourneyReviewing(false);
+    setJourneyDetailsVisible(false);
     setMapPinnedRouteType(null);
     setRouteGuidanceClosed(false);
   }
 
   function handleFinishJourney() {
     setJourneyStarted(false);
-    setJourneyNoticeVisible(false);
+    setJourneyFinished(true);
+    setJourneyReviewing(false);
+    setJourneyDetailsVisible(false);
     setHoveredRouteType(null);
     setMapPinnedRouteType(selectedRouteType);
+    setRouteGuidanceClosed(true);
+  }
+
+  function handleReviewFinishedJourney() {
+    setJourneyFinished(false);
+    setJourneyReviewing(true);
+    setJourneyDetailsVisible(false);
+    setRouteGuidanceClosed(true);
+  }
+
+  function handlePlanAnotherJourney() {
+    setJourneyStarted(false);
+    setJourneyFinished(false);
+    setJourneyReviewing(false);
+    setJourneyDetailsVisible(false);
+    setPlanner((current) => ({ ...current, origin: null, destination: null }));
+    setActivePin("origin");
+    setPlan(null);
+    setSelectedRouteType(null);
+    setHoveredRouteType(null);
+    setMapPinnedRouteType(null);
     setRouteGuidanceClosed(false);
+    setRouteGuidanceCollapsed(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   const availableCongestionDates = new Set(congestionCoverage?.available_dates ?? []);
   const missingCongestionDates = new Set(congestionCoverage?.missing_dates ?? []);
   const rainDates = new Set(congestionCoverage?.rain_dates ?? []);
+  const availableCongestionHourSet = new Set(availableCongestionHours);
+  const availableHourExample = availableCongestionHours[0] ?? null;
+  const unavailableHourExample = DAY_HOURS.find((hour) => !availableCongestionHourSet.has(hour)) ?? null;
   const congestionCalendarDays = buildCalendarDays(
     congestionMonth,
     availableCongestionDates,
@@ -1599,7 +1849,7 @@ export function PlanPage() {
   const canGoNextCongestionMonth =
     !congestionCoverage?.end || nextCongestionMonth <= monthKeyFromIso(congestionCoverage.end);
   const routeGuidanceActive = Boolean(
-    selectedRoute && selectedRouteMessages.length > 0 && !routeGuidanceClosed && !journeyStarted,
+    selectedRoute && selectedRouteMessages.length > 0 && !routeGuidanceClosed && !journeyFocused,
   );
   const planShellStyle = {
     "--route-choice-panel-height": `${routeChoicePanelHeight}px`,
@@ -1666,11 +1916,16 @@ export function PlanPage() {
     };
   }, [routeGuidanceActive, routeGuidanceCollapsed, selectedRouteMessages.length]);
 
+  const plannerComplete = Boolean(planner.origin && planner.destination);
+  const activePoint = planner[activePin];
+  const activePointLabel = activePin === "origin" ? "origen" : "destino";
+  const mapEditInstruction = `Haz clic en el mapa para ${activePoint ? "cambiar" : "marcar"} el ${activePointLabel}`;
+
   return (
     <main
       className={`plan-shell ${routeGuidanceActive ? "route-guidance-active" : ""} ${
-        journeyStarted ? "journey-active" : ""
-      }`}
+        journeyFocused ? "journey-active" : ""
+      } ${showOnboarding ? "onboarding-open" : ""}`}
       style={planShellStyle}
     >
       <section className="topbar topbar-product">
@@ -1681,9 +1936,6 @@ export function PlanPage() {
             Define origen y destino, elige una preferencia y revisa el contexto urbano antes de salir.
           </p>
         </div>
-        <Link className="secondary-link" to="/demo">
-          Ir al modo demo
-        </Link>
         <button className="secondary-link" type="button" onClick={openOnboarding}>
           Ver paso a paso
         </button>
@@ -1746,64 +1998,100 @@ export function PlanPage() {
         </section>
       ) : null}
 
-      <section className="search-shell sticky-shell">
-        <div className="search-grid">
-          {(["origin", "destination"] as const).map((pin) => (
-            <label className="search-field" key={pin}>
-              <span>{pin === "origin" ? "Origen" : "Destino"}</span>
-              <input
-                type="text"
-                value={queries[pin]}
-                placeholder={pin === "origin" ? "Buscar punto de partida" : "Buscar destino"}
-                onFocus={() => {
-                  setActivePin(pin);
-                  if (geocodingEnabled && queries[pin].trim().length === 0) {
-                    setSuggestions((current) => ({ ...current, [pin]: recentPlaces }));
-                  }
-                }}
-                onChange={(event) => {
-                  setActivePin(pin);
-                  setQueries((current) => ({ ...current, [pin]: event.target.value }));
-                }}
-                disabled={!geocodingEnabled}
-              />
-              {geocodingEnabled && suggestions[pin].length ? (
-                <div className="suggestion-list">
-                  {suggestions[pin].map((place) => (
-                    <button
-                      className="suggestion-item"
-                      key={`${pin}-${place.id}`}
-                      type="button"
-                      onClick={() => handleSuggestionSelect(pin, place)}
-                    >
-                      <strong>{place.label}</strong>
-                      <span>
-                        {place.lat.toFixed(4)}, {place.lon.toFixed(4)}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </label>
-          ))}
-        </div>
-
-        <div className="search-actions">
-          <button className="ghost-button" type="button" onClick={handleSwap}>
-            Intercambiar
-          </button>
-          <button className="ghost-button" type="button" onClick={handleGeolocate} disabled={busy.geolocate}>
-            {busy.geolocate ? "Ubicando..." : "Usar mi ubicacion"}
+      <section className="search-shell sticky-shell" aria-label="Planificador de viaje">
+        <div className="planner-search-row">
+          <button
+            className={`planner-point-button planner-origin-button ${activePin === "origin" ? "active" : ""} ${planner.origin ? "selected" : "empty"}`}
+            type="button"
+            aria-pressed={activePin === "origin"}
+            onClick={() => setActivePin("origin")}
+          >
+            <span className="planner-point-pin" aria-hidden="true"><i /></span>
+            <span className="planner-point-label">Origen</span>
+            <strong>{planner.origin ? "Origen seleccionado" : "Marca el origen en el mapa"}</strong>
+            <small>
+              {planner.origin
+                ? `${planner.origin.lat.toFixed(5)}, ${planner.origin.lon.toFixed(5)}`
+                : "Selecciona este bloque y luego el mapa"}
+            </small>
           </button>
           <button
-            className="primary-button"
+            className="planner-swap-button"
+            type="button"
+            aria-label="Intercambiar origen y destino"
+            title="Intercambiar origen y destino"
+            disabled={!planner.origin && !planner.destination}
+            onClick={handleSwap}
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M7 7h11m0 0-3-3m3 3-3 3M17 17H6m0 0 3 3m-3-3 3-3" />
+            </svg>
+          </button>
+          <button
+            className={`planner-point-button planner-destination-button ${activePin === "destination" ? "active" : ""} ${planner.destination ? "selected" : "empty"}`}
+            type="button"
+            aria-pressed={activePin === "destination"}
+            onClick={() => setActivePin("destination")}
+          >
+            <span className="planner-point-pin" aria-hidden="true"><i /></span>
+            <span className="planner-point-label">Destino</span>
+            <strong>{planner.destination ? "Destino seleccionado" : "Marca el destino en el mapa"}</strong>
+            <small>
+              {planner.destination
+                ? `${planner.destination.lat.toFixed(5)}, ${planner.destination.lon.toFixed(5)}`
+                : "Selecciona este bloque y luego el mapa"}
+            </small>
+          </button>
+          <button
+            className="primary-button planner-submit-button"
             type="button"
             onClick={handlePlan}
-            disabled={busy.planning || !readiness?.ready}
+            disabled={busy.planning || !readiness?.ready || !plannerComplete}
           >
-            {busy.planning ? "Planificando..." : "Planificar viaje"}
+            {busy.planning ? "Planificando…" : plannerComplete ? "Planificar viaje" : "Selecciona origen y destino"}
           </button>
         </div>
+
+        <div className="planner-help" ref={plannerHelpRef}>
+          <button
+            className="planner-help-trigger"
+            type="button"
+            aria-label="Cómo usar el planificador"
+            aria-expanded={plannerHelpOpen && !showOnboarding}
+            aria-controls="planner-help-popover"
+            title="Cómo usar"
+            onClick={() => {
+              if (plannerHelpOpen) {
+                closePlannerHelp();
+              } else {
+                setPlannerHelpOpen(true);
+              }
+            }}
+          >
+            <span aria-hidden="true">i</span>
+          </button>
+          {plannerHelpOpen && !showOnboarding ? (
+            <aside
+              className="planner-help-popover"
+              id="planner-help-popover"
+              role="dialog"
+              aria-label="Cómo usar el planificador"
+            >
+              <div>
+                <strong>Cómo planificar tu viaje</strong>
+                <button type="button" aria-label="Cerrar ayuda" onClick={closePlannerHelp}>×</button>
+              </div>
+              <ol>
+                <li>Selecciona <strong>Origen</strong> y marca un punto en el mapa.</li>
+                <li>Selecciona <strong>Destino</strong> y marca el segundo punto.</li>
+                <li>Arrastra los marcadores si necesitas ajustar su posición.</li>
+                <li>Presiona <strong>Planificar viaje</strong> para comparar las rutas.</li>
+              </ol>
+              <p>El botón de intercambio invierte el origen y el destino.</p>
+            </aside>
+          ) : null}
+        </div>
+        <p className="map-edit-instruction" role="status" aria-live="polite">{mapEditInstruction}</p>
       </section>
 
       {readiness && !readiness.ready ? (
@@ -1837,15 +2125,15 @@ export function PlanPage() {
             inspectMode={inspectMode}
             showCycleways={showCycleways}
             wellbeingVisibility={wellbeingVisibility}
-            origin={visiblePins.origin ? planner.origin.point : null}
-            destination={visiblePins.destination ? planner.destination.point : null}
+            origin={planner.origin}
+            destination={planner.destination}
             activePin={activePin}
             onPickPoint={(pin, point) => {
               handleMapPick(pin, point);
             }}
             onMarkerDrag={(pin, point) => {
               setActivePin(pin);
-              void resolveLabel(pin, point);
+              commitPoint(pin, point);
             }}
           />
           {selectedRoute && selectedRouteMessages.length > 0 && routeGuidanceClosed && !journeyStarted ? (
@@ -1908,25 +2196,35 @@ export function PlanPage() {
               ) : null}
             </aside>
           ) : null}
-          {journeyStarted && selectedRoute && selectedRouteType ? (
-            <aside className="journey-bar" aria-label="Viaje en curso" aria-live="polite">
-              {journeyNoticeVisible && journeyMessage ? (
-                <div className={`journey-start-message journey-${selectedRouteType}`}>
-                  <div>
-                    <span>{journeyMessage.title}</span>
-                    <p>{journeyMessage.detail}</p>
-                    {journeyMessage.reward ? (
-                      <strong className="journey-reward">
-                        {journeyMessage.reward} <span aria-hidden="true">★★★</span>
-                      </strong>
-                    ) : null}
-                    {journeyMessage.localFact ? <small>{journeyMessage.localFact}</small> : null}
+          {journeyStarted && selectedRoute && selectedRouteType && journeyGuidance ? (
+            <aside className="journey-bar" aria-label="Visualización del recorrido planificado" aria-live="polite">
+              <section className={`journey-priority-card journey-${selectedRouteType}`}>
+                <div className="eyebrow">Orientación ambiental prioritaria</div>
+                <h2>{journeyGuidance.title}</h2>
+                <p>{journeyGuidance.detail}</p>
+                <p className="journey-recommendation">
+                  <strong>Recomendación:</strong> {journeyGuidance.recommendation}
+                </p>
+                <button
+                  className="text-button journey-details-toggle"
+                  type="button"
+                  aria-expanded={journeyDetailsVisible}
+                  onClick={() => setJourneyDetailsVisible((current) => !current)}
+                >
+                  {journeyDetailsVisible ? "Ocultar detalles" : "Ver detalles"}
+                </button>
+                {journeyDetailsVisible ? (
+                  <div className="journey-detail-messages" aria-label="Otros mensajes del recorrido">
+                    {selectedRouteMessages.map((message) => (
+                      <article key={message.id}>
+                        <span>{MESSAGE_TYPE_LABELS[message.type]}</span>
+                        <strong>{message.title}</strong>
+                        <p>{message.detail}</p>
+                      </article>
+                    ))}
                   </div>
-                  <button type="button" aria-label="Cerrar mensaje" onClick={() => setJourneyNoticeVisible(false)}>
-                    x
-                  </button>
-                </div>
-              ) : null}
+                ) : null}
+              </section>
               <div className="journey-bar-main">
                 <div className="journey-metrics">
                   <span>
@@ -1942,22 +2240,40 @@ export function PlanPage() {
                     <b>{selectedRoute.distance_km.toFixed(2)} km</b>
                   </span>
                   <span>
-                    <small>Congestion</small>
-                    <b>
-                      {congestionLevel(selectedRoute.congestion_score ?? 0)} ·{" "}
-                      {routeCongestionCoverageLabel(selectedRoute)}
-                    </b>
+                    <small>Congestión en ruta</small>
+                    <b>{routeCongestedPercent(selectedRoute)}</b>
                   </span>
                 </div>
                 <div className="journey-actions">
                   <button className="ghost-button" type="button" onClick={handleBackFromJourney}>
-                    Volver atras
+                    Volver atrás
                   </button>
                   <button className="primary-button" type="button" onClick={handleFinishJourney}>
-                    Finalizar
+                    Finalizar viaje
                   </button>
                 </div>
               </div>
+            </aside>
+          ) : null}
+          {journeyReviewing && selectedRoute && selectedRouteType && journeyGuidance ? (
+            <aside className="journey-review-panel" aria-label="Resumen del recorrido realizado" aria-live="polite">
+              <div className="journey-review-copy">
+                <div className="eyebrow">Recorrido realizado</div>
+                <h2>{journeyGuidance.closingTitle}</h2>
+                <p>{journeyGuidance.closingDetail}</p>
+                <p className="journey-review-condition">
+                  <strong>Condición ambiental principal:</strong> {journeyGuidance.environmentalCondition}
+                </p>
+              </div>
+              <div className="journey-review-metrics" aria-label="Métricas del recorrido">
+                <span><small>Ruta</small><strong>{routeDisplayName(selectedRoute.key)}</strong></span>
+                <span><small>Tiempo estimado</small><strong>{selectedRoute.duration_min.toFixed(1)} min</strong></span>
+                <span><small>Distancia</small><strong>{selectedRoute.distance_km.toFixed(2)} km</strong></span>
+                <span><small>Congestión en ruta</small><strong>{routeCongestedPercent(selectedRoute)}</strong></span>
+              </div>
+              <button className="primary-button" type="button" onClick={handlePlanAnotherJourney}>
+                Planificar otro viaje
+              </button>
             </aside>
           ) : null}
         </div>
@@ -2272,8 +2588,7 @@ export function PlanPage() {
               <div className="history-calendar-block">
                 <div className="card-title-row">
                   <div>
-                    <div className="eyebrow">Elige una fecha</div>
-                    <h3>Calendario y hora</h3>
+                    <h3>Elige fecha y hora para tu viaje</h3>
                   </div>
                   <button
                     className="metric-info-button calendar-info-button"
@@ -2285,33 +2600,52 @@ export function PlanPage() {
                     i
                   </button>
                 </div>
-                <div className="calendar-title-row">
-                  <div>
-                    <strong>{monthLabel(congestionMonth)}</strong>
-                  </div>
-                </div>
-                <div className="calendar-nav" aria-label="Navegacion del calendario historico">
+                <div className="calendar-nav" aria-label="Navegación por mes">
                   <button
                     className="icon-button"
                     type="button"
                     onClick={() => setCongestionMonth(previousCongestionMonth)}
                     disabled={!canGoPreviousCongestionMonth}
                     title="Mes anterior"
+                    aria-label="Mes anterior"
                   >
-                    {"<"}
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                      <path d="m15 5-7 7 7 7" />
+                    </svg>
                   </button>
-                  <strong>{selectedCongestionDate}</strong>
+                  <strong>{monthLabel(congestionMonth)}</strong>
                   <button
                     className="icon-button"
                     type="button"
                     onClick={() => setCongestionMonth(nextCongestionMonth)}
                     disabled={!canGoNextCongestionMonth}
                     title="Mes siguiente"
+                    aria-label="Mes siguiente"
                   >
-                    {">"}
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                      <path d="m9 5 7 7-7 7" />
+                    </svg>
                   </button>
                 </div>
-                <div className="congestion-calendar" aria-label="Calendario historico PM2.5 y congestion">
+                <div
+                  className={`calendar-selected-summary ${
+                    monthKeyFromIso(selectedCongestionDate) === congestionMonth ? "" : "out-of-view"
+                  }`}
+                  aria-live="polite"
+                >
+                  <span>Fecha seleccionada</span>
+                  <strong>{fullDateLabel(selectedCongestionDate)}</strong>
+                  {monthKeyFromIso(selectedCongestionDate) !== congestionMonth ? (
+                    <button
+                      className="text-button"
+                      type="button"
+                      onClick={() => setCongestionMonth(monthKeyFromIso(selectedCongestionDate))}
+                    >
+                      Volver a la fecha seleccionada
+                    </button>
+                  ) : null}
+                </div>
+                <div className="congestion-calendar" aria-label="Fechas disponibles">
                   {WEEKDAY_LABELS.map((label, index) => (
                     <span className="calendar-weekday" key={`${label}-${index}`}>
                       {label}
@@ -2324,60 +2658,137 @@ export function PlanPage() {
                         item.inMonth ? "" : "outside-month",
                         item.hasRain ? "has-rain" : "",
                         item.hasData ? "has-data" : "",
-                        item.isMissing ? "missing-data" : "",
+                        item.isSunday ? "sunday" : "",
+                        item.isHoliday ? "holiday" : "",
+                        congestionCoverageReady && !item.hasData ? "blocked" : "",
+                        !congestionCoverageReady ? "loading" : "",
                         item.date === selectedCongestionDate ? "selected" : "",
                       ]
                         .filter(Boolean)
                         .join(" ")}
                       key={item.date}
                       type="button"
-                      onClick={() => handleCongestionDateSelect(item.date, item.hasData)}
+                      onClick={() => handleCongestionDateSelect(item.date, item.hasData, congestionCoverageReady)}
                       disabled={!item.inMonth}
+                      aria-disabled={item.inMonth && congestionCoverageReady && !item.hasData}
+                      aria-current={item.date === selectedCongestionDate ? "date" : undefined}
                       title={
-                        item.hasData
-                          ? `${item.date}: hay datos historicos de congestion${item.hasRain ? " y lluvia" : ""}`
-                          : `${item.date}: sin datos historicos de congestion`
+                        !congestionCoverageReady
+                          ? "Cargando disponibilidad"
+                          : item.hasData
+                          ? `${item.date}: disponible${item.isHoliday ? ", feriado" : item.isSunday ? ", domingo" : ""}${item.hasRain ? ", con lluvia" : ""}`
+                          : `${item.date}: no hay datos disponibles${item.isHoliday ? ", feriado" : item.isSunday ? ", domingo" : ""}`
                       }
                     >
                       {item.day}
+                      {item.date === selectedCongestionDate ? (
+                        <span className="calendar-selected-check" aria-hidden="true">✓</span>
+                      ) : null}
                     </button>
                   ))}
                 </div>
-                <div className="field-grid air-history-grid">
-                  <label>
-                    <span>Hora historica</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={23}
-                      step={1}
+                {calendarNotice ? (
+                  <p className="calendar-notice" role="status">{calendarNotice}</p>
+                ) : null}
+                <div className="congestion-hour-panel">
+                  <label className="congestion-hour-select-field" htmlFor="congestion-hour-select">
+                    <span>Elige hora de salida</span>
+                    <select
+                      id="congestion-hour-select"
                       value={pm25Hour}
+                      disabled={
+                        congestionHoursLoading ||
+                        Boolean(congestionHoursError) ||
+                        availableCongestionHours.length === 0
+                      }
+                      aria-describedby={
+                        congestionHoursLoading || congestionHoursError || availableCongestionHours.length === 0
+                          ? "hour-availability-status"
+                          : undefined
+                      }
                       onChange={(event) => handleHistoricalHourChange(Number(event.target.value))}
-                    />
-                    <small>{pm25Hour}:00</small>
+                    >
+                      {DAY_HOURS.map((hour) => {
+                        const isAvailable = availableCongestionHourSet.has(hour);
+                        return (
+                          <option
+                            key={hour}
+                            value={hour}
+                            disabled={!isAvailable}
+                            className={isAvailable ? "available" : "unavailable"}
+                          >
+                            {formatHour(hour)}{isAvailable ? "" : " — No disponible"}
+                          </option>
+                        );
+                      })}
+                    </select>
                   </label>
+                  {congestionHoursLoading || congestionHoursError || availableCongestionHours.length === 0 ? (
+                    <p
+                      id="hour-availability-status"
+                      className={`hour-availability-status ${congestionHoursError ? "error" : ""}`}
+                      role="status"
+                    >
+                      {congestionHoursLoading
+                        ? "Cargando horas con registros de congestión…"
+                        : congestionHoursError
+                          ? "No se pudo comprobar la disponibilidad horaria."
+                          : "No hay horas con registros de congestión para esta fecha."}
+                    </p>
+                  ) : null}
+                  {congestionHoursError ? <small className="hour-availability-error">{congestionHoursError}</small> : null}
                 </div>
                 {calendarInfoOpen ? (
                   <div className="calendar-info-panel">
+                    <div className="calendar-info-summary">
+                      <strong>Cómo usarlo</strong>
+                      <ol>
+                        <li>Selecciona un día disponible.</li>
+                        <li>Abre el selector «Elige hora de salida».</li>
+                        <li>Elige una hora verde para consultar las condiciones históricas.</li>
+                      </ol>
+                    </div>
                     <div className="calendar-legend">
-                      <span className="calendar-dot has-data" /> Con datos
-                      <span className="calendar-dot has-rain" /> Lluvia
-                      <span className="calendar-dot missing-data" /> Sin datos
+                      <span className="calendar-legend-item">
+                        <i className="calendar-key-day available" aria-hidden="true">15</i>
+                        <span><strong>Disponible</strong><small>Se puede elegir</small></span>
+                      </span>
+                      <span className="calendar-legend-item">
+                        <i className="calendar-key-day available special-day" aria-hidden="true">16</i>
+                        <span><strong>Domingo o feriado</strong><small>Número rojo; se puede elegir si está disponible</small></span>
+                      </span>
+                      <span className="calendar-legend-item">
+                        <i className="calendar-key-day available rainy-day" aria-hidden="true">18</i>
+                        <span><strong>Lluvia</strong><small>Punto azul en una fecha disponible</small></span>
+                      </span>
+                      <span className="calendar-legend-item">
+                        <i className="calendar-key-day unavailable" aria-hidden="true">17</i>
+                        <span><strong>No disponible</strong><small>No se puede elegir</small></span>
+                      </span>
+                      <span className="calendar-legend-item hour-example">
+                        <i className="calendar-key-hour available" aria-hidden="true">
+                          {availableHourExample !== null ? formatHour(availableHourExample) : "--:--"}
+                        </i>
+                        <span>
+                          <strong>Disponible</strong>
+                          <small>Ejemplo en verde; se puede elegir</small>
+                        </span>
+                      </span>
+                      <span className="calendar-legend-item hour-example">
+                        <i className="calendar-key-hour unavailable" aria-hidden="true">
+                          {unavailableHourExample !== null ? formatHour(unavailableHourExample) : "--:--"}
+                        </i>
+                        <span>
+                          <strong>No disponible</strong>
+                          <small>Ejemplo en gris; opción bloqueada</small>
+                        </span>
+                      </span>
                     </div>
                     {congestionCoverageError ? <p className="muted">{congestionCoverageError}</p> : null}
-                    <div className="congestion-line-legend">
-                      <strong>Lineas: congestion historica</strong>
-                      <span className="congestion-line-swatch congestion-low" /> Fluida
-                      <span className="congestion-line-swatch congestion-medium" /> Moderada
-                      <span className="congestion-line-swatch congestion-high" /> Alta
-                    </div>
-                    {selectedRoute?.pm25_exposure?.available ? (
-                      <p className="muted">
-                        {pm25Snapshot?.requested_at ?? "Horario seleccionado"}: PM2.5 estimado sobre la ruta seleccionada{" "}
-                        {selectedRoute.pm25_exposure.average_pm25.toFixed(1)} ug/m3.
-                      </p>
-                    ) : null}
-                    {pm25Error ? <p className="muted">{pm25Error}</p> : null}
+                    <p className="calendar-info-note">
+                      <strong>Importante:</strong> las fechas y horas disponibles corresponden a registros históricos
+                      de congestión. No representan condiciones en tiempo real.
+                    </p>
                   </div>
                 ) : null}
               </div>
@@ -2479,32 +2890,102 @@ export function PlanPage() {
           ) : inspectMode ? (
             <section ref={routeChoicePanelRef} className="panel product-panel environmental-exploration-panel" aria-live="polite">
               <div className="environmental-exploration-content">
-                <div className="environmental-exploration-copy">
-                  <div className="eyebrow">Modo ambiental activo</div>
-                  <h2>Explora la capa ambiental</h2>
-                  <p>Selecciona un elemento del mapa para consultar su información.</p>
+                <div className="planner-state-logo-frame">
+                  <img className="planner-state-logo" src="/wise-route-logo.png" alt="WiseRouteApp" />
                 </div>
-                <div className="environmental-exploration-options" aria-label="Elementos disponibles en el mapa">
-                  <span><i className="congestion-symbol" aria-hidden="true" />Línea de congestión</span>
-                  <span><i className="cloud-symbol" aria-hidden="true" />Nube ambiental</span>
+                <div className="environmental-exploration-copy">
+                  <div className="eyebrow environmental-active-status">
+                    <span className="environmental-active-dot" aria-hidden="true" />
+                    Modo ambiental activo
+                  </div>
+                  <h2>Explora la capa ambiental</h2>
+                  <p>Toca una nube ambiental o una línea de congestión para consultar su información.</p>
                 </div>
                 <button className="ghost-button" type="button" onClick={() => setInspectMode(false)}>
-                  Salir del modo de exploración
+                  Volver atrás
                 </button>
               </div>
             </section>
           ) : (
             <section ref={routeChoicePanelRef} className="panel product-panel empty-panel">
-              <div className="eyebrow">Define tu recorrido</div>
-              <h2>Marca el origen y el destino en el mapa</h2>
-              <p>
-                Haz un primer clic en el mapa para fijar el origen y un segundo clic para marcar el destino. Cuando
-                ambos puntos estén listos, presiona el botón Planificar viaje para ver las rutas disponibles.
-              </p>
+              <div className="planner-state-content">
+                <div className="planner-state-logo-frame">
+                  <img className="planner-state-logo" src="/wise-route-logo.png" alt="WiseRouteApp" />
+                </div>
+                <div className="planner-state-copy">
+                  <div className="eyebrow">Define tu recorrido</div>
+                  <h2>Marca el origen y el destino en el mapa</h2>
+                  <p>
+                    Haz un primer clic en el mapa para fijar el origen y un segundo clic para marcar el destino. Cuando
+                    ambos puntos estén listos, presiona el botón Planificar viaje para ver las rutas disponibles.
+                  </p>
+                </div>
+              </div>
             </section>
           )}
         </aside>
       </section>
+      {journeyFinished && selectedRoute && selectedRouteType && journeyGuidance ? (
+        <section className="journey-finish-overlay" role="presentation">
+          <div
+            className={`journey-finish-dialog journey-${selectedRouteType}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="journey-finish-title"
+          >
+            <div className="journey-finish-icon" aria-hidden="true">
+              ✓
+            </div>
+            <div className="eyebrow">Viaje completado</div>
+            <h2 id="journey-finish-title">Llegaste a tu destino</h2>
+            <p>
+              Recorrido visualizado con la opción <strong>{routeDisplayName(selectedRoute.key)}</strong>.
+            </p>
+
+            <div className="journey-finish-summary" aria-label="Resumen del viaje">
+              <span>
+                <small>Tiempo estimado</small>
+                <strong>{selectedRoute.duration_min.toFixed(1)} min</strong>
+              </span>
+              <span>
+                <small>Distancia</small>
+                <strong>{selectedRoute.distance_km.toFixed(2)} km</strong>
+              </span>
+              <span>
+                <small>Congestión en ruta</small>
+                <strong>{routeCongestedPercent(selectedRoute)}</strong>
+              </span>
+              <span>
+                <small>Condición ambiental</small>
+                <strong>{journeyGuidance.environmentalCondition}</strong>
+              </span>
+            </div>
+
+            {selectedRouteType === "healthiest" ? (
+              <div className="journey-finish-reward">
+                <strong>Movilidad consciente</strong>
+                <span aria-label="Tres estrellas obtenidas">★ ★ ★</span>
+                <b>3 estrellas obtenidas</b>
+                <p>Recompensa simbólica por elegir la alternativa de menor exposición ambiental.</p>
+              </div>
+            ) : null}
+
+            <div className="journey-finish-message">
+              <strong>{journeyGuidance.closingTitle}</strong>
+              <p>{journeyGuidance.closingDetail}</p>
+            </div>
+
+            <div className="journey-finish-actions">
+              <button className="ghost-button" type="button" onClick={handleReviewFinishedJourney}>
+                Revisar recorrido
+              </button>
+              <button className="primary-button" type="button" onClick={handlePlanAnotherJourney}>
+                Planificar otro viaje
+              </button>
+            </div>
+          </div>
+        </section>
+      ) : null}
       {expandedMetric ? (
         <div className="metric-detail-overlay" role="presentation" onClick={() => setExpandedMetricInfo(null)}>
           <section

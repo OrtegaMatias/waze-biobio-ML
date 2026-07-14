@@ -40,18 +40,24 @@ async function main() {
   await send("Runtime.evaluate", {
     expression: `
       localStorage.setItem("wbm_onboarding_seen", "true");
-      document.querySelectorAll("button").forEach((button) => {
-        if (button.textContent.trim() === "Ver paso a paso") button.click();
-      });
+    `,
+  });
+  await send("Page.reload", { ignoreCache: true });
+  await sleep(1800);
+  await send("Runtime.evaluate", {
+    expression: `
+      [...document.querySelectorAll(".topbar-product button")]
+        .find((button) => button.textContent.trim() === "Ver paso a paso")
+        ?.click();
     `,
   });
   await sleep(600);
   for (let index = 0; index < step; index += 1) {
     await send("Runtime.evaluate", {
       expression: `
-        document.querySelectorAll("button").forEach((button) => {
-          if (button.textContent.trim() === "Ver paso a paso" || button.textContent.trim() === "Siguiente") button.click();
-        });
+        [...document.querySelectorAll(".onboarding-dialog button")]
+          .find((button) => button.textContent.trim() === "Ver paso a paso" || button.textContent.trim() === "Siguiente")
+          ?.click();
       `,
     });
     await sleep(450);
@@ -63,6 +69,7 @@ async function main() {
     fromSurface: true,
   });
   fs.writeFileSync(outPath, Buffer.from(screenshot.result.data, "base64"));
+  await send("Page.close");
   ws.close();
   console.log(outPath);
 }

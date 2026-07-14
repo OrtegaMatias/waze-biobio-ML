@@ -74,6 +74,8 @@ const LEAST_CONGESTED_ROUTE_COLOR = "#0f766e";
 const HEALTHIEST_ROUTE_COLOR = "#16a34a";
 const FALLBACK_ROUTE_COLORS = ["#ea580c", "#7c3aed", "#0891b2"];
 const OVERLAP_ROUTE_OFFSET_PX = 9;
+const CONCEPCION_CITY_CENTER: [number, number] = [-73.0498, -36.827];
+const CONCEPCION_CITY_ZOOM = 14.5;
 const ENVIRONMENTAL_ZONE_SOURCE = "environmental-impact-zones";
 const ENVIRONMENTAL_ZONE_FILL_LAYER = "environmental-impact-zone-fill";
 const ENVIRONMENTAL_ZONE_OUTLINE_LAYER = "environmental-impact-zone-outline";
@@ -1356,8 +1358,8 @@ export function PlanningMap({
         const map = new maplibre.Map({
           container: containerRef.current,
           style: normalizeStyleUrl(styleUrl, mapboxToken),
-          center: [-73.05, -36.82],
-          zoom: 13.2,
+          center: CONCEPCION_CITY_CENTER,
+          zoom: CONCEPCION_CITY_ZOOM,
           maxZoom: 18,
           attributionControl: false,
           fadeDuration: 80,
@@ -1464,6 +1466,8 @@ export function PlanningMap({
       marker.setLngLat([point.lon, point.lat]);
       if (!markersRef.current[pin]) {
         marker.addTo(mapRef.current);
+        const markerElement = marker.getElement();
+        markerElement.classList.add("planner-route-pin", `planner-route-pin-${pin}`);
         marker.on("dragend", () => {
           const lngLat = marker.getLngLat();
           handleMarkerDrag(pin, { lat: lngLat.lat, lon: lngLat.lng });

@@ -1,5 +1,6 @@
 import type {
   CongestionDateCoverage,
+  CongestionHourAvailability,
   CyclewayCollection,
   DatasetStatus,
   DemoScenario,
@@ -166,6 +167,11 @@ export function getUrbanWellbeing(): Promise<UrbanWellbeingCollection> {
 
 export function getCongestionDates(): Promise<CongestionDateCoverage> {
   return requestJson<CongestionDateCoverage>("/metadata/congestion/dates");
+}
+
+export function getCongestionHours(date: string): Promise<CongestionHourAvailability> {
+  const params = new URLSearchParams({ date });
+  return requestJson<CongestionHourAvailability>(`/metadata/congestion/hours?${params.toString()}`);
 }
 
 export function getPm25Snapshot(date: string, hour: number): Promise<Pm25SnapshotResponse> {

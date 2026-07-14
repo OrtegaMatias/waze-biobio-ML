@@ -38,7 +38,11 @@ async function main() {
   await send("Runtime.enable");
   await sleep(1500);
   await send("Runtime.evaluate", {
-    expression: 'localStorage.setItem("wbm_onboarding_seen", "true"); location.reload();',
+    expression: `
+      localStorage.setItem("wbm_onboarding_seen", "true");
+      localStorage.setItem("wbm_planner_help_seen", "true");
+      location.reload();
+    `,
   });
   await sleep(6500);
 

@@ -57,6 +57,13 @@ export type CongestionDateCoverage = {
   data_source: string;
 };
 
+export type CongestionHourAvailability = {
+  date: string;
+  available_hours: number[];
+  count: number;
+  data_source: string;
+};
+
 export type DemoScenario = {
   id: string;
   title: string;

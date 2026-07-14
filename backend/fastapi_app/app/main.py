@@ -35,6 +35,7 @@ from .schemas.routes import (
     CyclewayCoverage,
     ActiveMobilityEstimate,
     CongestionDateCoverageResponse,
+    CongestionHourAvailabilityResponse,
     ContextualMobilityMessage,
     CyclewayResponse,
     EnvironmentalImpactResponse,
@@ -806,6 +807,50 @@ def _load_congestion_date_rows() -> tuple[pd.Series, str]:
 
 
 @lru_cache(maxsize=4)
+def _load_coverage_hour_rows(path: str, modified_ns: int, size: int) -> tuple[pd.DataFrame, str]:
+    del modified_ns, size
+    coverage_path = data_loader.ROOT_DIR / path
+    columns = pd.read_csv(coverage_path, nrows=0).columns
+    date_column = "fecha_dia_dt" if "fecha_dia_dt" in columns else "fecha"
+    hour_column = "hora" if "hora" in columns else "periodo_hora"
+    if date_column not in columns or hour_column not in columns:
+        return pd.DataFrame(columns=["date", "hour"]), coverage_path.name
+    rows = pd.read_csv(coverage_path, usecols=[date_column, hour_column])
+    parsed_hours = (
+        pd.to_datetime(rows[hour_column], format="%H:%M", errors="coerce")
+        if hour_column == "hora"
+        else pd.to_datetime(rows[hour_column], errors="coerce")
+    )
+    result = pd.DataFrame(
+        {
+            "date": pd.to_datetime(rows[date_column], errors="coerce").dt.strftime("%Y-%m-%d"),
+            "hour": parsed_hours.dt.hour,
+        }
+    ).dropna()
+    return result, coverage_path.name
+
+
+def _load_congestion_hour_rows() -> tuple[pd.DataFrame, str]:
+    profile = data_loader.get_data_profile()
+    coverage_path = CONGESTION_COVERAGE_FILES.get(profile)
+    if coverage_path is not None and coverage_path.exists():
+        stat = coverage_path.stat()
+        relative_path = str(coverage_path.relative_to(data_loader.ROOT_DIR))
+        return _load_coverage_hour_rows(relative_path, stat.st_mtime_ns, stat.st_size)
+
+    events = data_loader.load_congestion_events()
+    if events.empty or "fecha" not in events.columns or "hora_inicio" not in events.columns:
+        return pd.DataFrame(columns=["date", "hour"]), data_loader.CONGESTION_PATH.name
+    result = pd.DataFrame(
+        {
+            "date": pd.to_datetime(events["fecha"], errors="coerce").dt.strftime("%Y-%m-%d"),
+            "hour": pd.to_datetime(events["hora_inicio"], format="%H:%M", errors="coerce").dt.hour,
+        }
+    ).dropna()
+    return result, data_loader.CONGESTION_PATH.name
+
+
+@lru_cache(maxsize=4)
 def _load_rain_dates(path: str, modified_ns: int, size: int) -> list[str]:
     del modified_ns, size
     rain_path = data_loader.ROOT_DIR / path
@@ -896,6 +941,31 @@ def metadata_congestion_dates() -> CongestionDateCoverageResponse:
         rain_dates=_rain_dates(),
         available_days=len(available_dates),
         calendar_days=len(calendar_range),
+        data_source=data_source,
+    )
+
+
+@app.get("/metadata/congestion/hours", response_model=CongestionHourAvailabilityResponse, tags=["meta"])
+def metadata_congestion_hours(
+    date: str = Query(..., description="Fecha historica local en formato YYYY-MM-DD"),
+) -> CongestionHourAvailabilityResponse:
+    parsed_date = pd.to_datetime(date, format="%Y-%m-%d", errors="coerce")
+    if pd.isna(parsed_date) or parsed_date.strftime("%Y-%m-%d") != date:
+        raise HTTPException(status_code=422, detail="date debe usar el formato YYYY-MM-DD.")
+
+    rows, data_source = _load_congestion_hour_rows()
+    matching = rows.loc[rows["date"] == date, "hour"] if not rows.empty else pd.Series(dtype=float)
+    available_hours = sorted(
+        {
+            int(hour)
+            for hour in pd.to_numeric(matching, errors="coerce").dropna()
+            if 0 <= int(hour) <= 23
+        }
+    )
+    return CongestionHourAvailabilityResponse(
+        date=date,
+        available_hours=available_hours,
+        count=len(available_hours),
         data_source=data_source,
     )
 
