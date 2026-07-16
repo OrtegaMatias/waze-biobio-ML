@@ -188,6 +188,49 @@ def test_route_graph_connects_nearby_segments():
     assert path[-1].segment_id == "segB"
 
 
+def test_shortest_path_respects_edge_filter():
+    def node(node_id: str, lat: float, lon: float, via: str) -> routing.GraphNode:
+        return routing.GraphNode(
+            node_id=node_id,
+            segment_id=node_id,
+            segment_seq=0,
+            lat=lat,
+            lon=lon,
+            tipo_evento="Referencia",
+            velocidad_kmh=30.0,
+            duracion_hrs=0.1,
+            via=via,
+            comuna="Test",
+        )
+
+    nodes = {
+        "source": node("source", 0.0, 0.0, "Inicio"),
+        "blocked": node("blocked", 0.0, 0.001, "Interior protegido"),
+        "detour": node("detour", 0.001, 0.001, "Corredor permitido"),
+        "target": node("target", 0.0, 0.002, "Destino"),
+    }
+    graph = routing.RouteGraph(
+        nodes,
+        {
+            "source": [("blocked", 1.0), ("detour", 2.0)],
+            "blocked": [("target", 1.0)],
+            "detour": [("target", 2.0)],
+            "target": [],
+        },
+    )
+
+    path = graph.shortest_path(
+        (0.0, 0.0),
+        (0.0, 0.002),
+        apply_penalties=False,
+        source_node_costs={"source": 0.0},
+        target_node_costs={"target": 0.0},
+        edge_filter=lambda _source, target: target.node_id != "blocked",
+    )
+
+    assert [step.node_id for step in path] == ["source", "detour", "target"]
+
+
 def test_route_graph_penalizes_normalized_congestion_event_types():
     df = pd.DataFrame(
         [

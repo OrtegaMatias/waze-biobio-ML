@@ -493,6 +493,8 @@ class RouteGraph:
         apply_penalties: bool = True,
         source_node_costs: Optional[Dict[str, float]] = None,
         target_node_costs: Optional[Dict[str, float]] = None,
+        edge_filter: Optional[Callable[[GraphNode, GraphNode], bool]] = None,
+        edge_cost_factor: Optional[Callable[[GraphNode, GraphNode], float]] = None,
     ) -> List[RouteStep]:
         if source_node_costs:
             source_candidates = [
@@ -641,6 +643,8 @@ class RouteGraph:
             current_node = nodes[node_id]
             for neighbor, base_weight in adjacency.get(node_id, []):
                 neighbor_node = nodes[neighbor]
+                if edge_filter is not None and not edge_filter(current_node, neighbor_node):
+                    continue
                 if apply_penalties:
                     penalty = max((current_node.penalty_factor + neighbor_node.penalty_factor) / 2, 1.0)
                     speed_a = current_node.velocidad_kmh if math.isfinite(current_node.velocidad_kmh) else 0.0
@@ -655,7 +659,21 @@ class RouteGraph:
                 incident = incident_factor(neighbor_node)
                 pollution = pollution_factor(neighbor_node)
                 wellbeing = wellbeing_factor(neighbor_node)
-                adjusted_weight = base_weight * penalty * speed_factor * preference * incident * pollution * wellbeing
+                edge_factor = 1.0
+                if edge_cost_factor is not None:
+                    candidate_factor = edge_cost_factor(current_node, neighbor_node)
+                    if math.isfinite(candidate_factor):
+                        edge_factor = max(1.0, float(candidate_factor))
+                adjusted_weight = (
+                    base_weight
+                    * penalty
+                    * speed_factor
+                    * preference
+                    * incident
+                    * pollution
+                    * wellbeing
+                    * edge_factor
+                )
                 new_dist = current_dist + adjusted_weight
                 if new_dist < distances.get(neighbor, float("inf")):
                     distances[neighbor] = new_dist

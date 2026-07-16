@@ -74,6 +74,132 @@ DAY_ALIASES = {
     "domingo": "Sunday",
 }
 
+# Límite simplificado del Parque Metropolitano Cerro Caracol (OSM way 1061161704).
+# El corredor de Víctor Lamas se permite explícitamente porque bordea el parque
+# y constituye la alternativa vial indicada para atravesar este sector.
+CERRO_CARACOL_PROTECTED_POLYGON: Tuple[Tuple[float, float], ...] = (
+    (-36.8355807, -73.0555244),
+    (-36.8380489, -73.0549166),
+    (-36.8360418, -73.0496085),
+    (-36.8383344, -73.0490452),
+    (-36.8382292, -73.0443004),
+    (-36.8406227, -73.0414385),
+    (-36.8436837, -73.0391049),
+    (-36.8436923, -73.0379999),
+    (-36.8420180, -73.0322117),
+    (-36.8386478, -73.0331934),
+    (-36.8374899, -73.0336365),
+    (-36.8365613, -73.0335260),
+    (-36.8359473, -73.0356985),
+    (-36.8330443, -73.0398319),
+    (-36.8327551, -73.0395425),
+    (-36.8320432, -73.0406373),
+    (-36.8305391, -73.0415440),
+    (-36.8308884, -73.0420446),
+    (-36.8312384, -73.0433494),
+    (-36.8320678, -73.0445917),
+    (-36.8327758, -73.0452263),
+    (-36.8339353, -73.0472987),
+    (-36.8352312, -73.0493902),
+    (-36.8343773, -73.0500710),
+    (-36.8344362, -73.0524658),
+    (-36.8351270, -73.0534724),
+)
+CERRO_CARACOL_APPROACH_BUFFER_KM = 0.60
+CERRO_CARACOL_APPROACH_PENALTY = 80.0
+
+
+def _point_in_polygon(lat: float, lon: float, polygon: Tuple[Tuple[float, float], ...]) -> bool:
+    inside = False
+    previous_lat, previous_lon = polygon[-1]
+    for current_lat, current_lon in polygon:
+        crosses_latitude = (current_lat > lat) != (previous_lat > lat)
+        if crosses_latitude:
+            crossing_lon = (
+                (previous_lon - current_lon) * (lat - current_lat) / (previous_lat - current_lat)
+                + current_lon
+            )
+            if lon < crossing_lon:
+                inside = not inside
+        previous_lat, previous_lon = current_lat, current_lon
+    return inside
+
+
+def _is_victor_lamas(via: str) -> bool:
+    normalized = unicodedata.normalize("NFKD", str(via or ""))
+    ascii_name = "".join(char for char in normalized if not unicodedata.combining(char)).lower()
+    return "victor lamas" in ascii_name
+
+
+def _point_to_segment_distance_km(
+    lat: float,
+    lon: float,
+    start: Tuple[float, float],
+    end: Tuple[float, float],
+) -> float:
+    reference_lat = math.radians((lat + start[0] + end[0]) / 3)
+
+    def project(point_lat: float, point_lon: float) -> Tuple[float, float]:
+        return (
+            math.radians(point_lon - lon) * routing.EARTH_RADIUS_KM * math.cos(reference_lat),
+            math.radians(point_lat - lat) * routing.EARTH_RADIUS_KM,
+        )
+
+    start_x, start_y = project(*start)
+    end_x, end_y = project(*end)
+    delta_x = end_x - start_x
+    delta_y = end_y - start_y
+    denominator = delta_x * delta_x + delta_y * delta_y
+    if denominator <= 0:
+        return math.hypot(start_x, start_y)
+    position = max(0.0, min(1.0, -(start_x * delta_x + start_y * delta_y) / denominator))
+    return math.hypot(start_x + position * delta_x, start_y + position * delta_y)
+
+
+def _distance_to_cerro_caracol_km(lat: float, lon: float) -> float:
+    if _point_in_polygon(lat, lon, CERRO_CARACOL_PROTECTED_POLYGON):
+        return 0.0
+    distances = []
+    previous = CERRO_CARACOL_PROTECTED_POLYGON[-1]
+    for current in CERRO_CARACOL_PROTECTED_POLYGON:
+        distances.append(_point_to_segment_distance_km(lat, lon, previous, current))
+        previous = current
+    return min(distances)
+
+
+def _cerro_caracol_edge_allowed(source: routing.GraphNode, target: routing.GraphNode) -> bool:
+    midpoint_lat = (source.lat + target.lat) / 2
+    midpoint_lon = (source.lon + target.lon) / 2
+    touches_protected_area = any(
+        _point_in_polygon(lat, lon, CERRO_CARACOL_PROTECTED_POLYGON)
+        for lat, lon in (
+            (source.lat, source.lon),
+            (target.lat, target.lon),
+            (midpoint_lat, midpoint_lon),
+        )
+    )
+    if not touches_protected_area:
+        return True
+    return _is_victor_lamas(source.via) or _is_victor_lamas(target.via)
+
+
+def _cerro_caracol_edge_cost_factor(source: routing.GraphNode, target: routing.GraphNode) -> float:
+    if _is_victor_lamas(source.via) or _is_victor_lamas(target.via):
+        return 1.0
+    midpoint_lat = (source.lat + target.lat) / 2
+    midpoint_lon = (source.lon + target.lon) / 2
+    closest_distance = min(
+        _distance_to_cerro_caracol_km(lat, lon)
+        for lat, lon in (
+            (source.lat, source.lon),
+            (target.lat, target.lon),
+            (midpoint_lat, midpoint_lon),
+        )
+    )
+    if closest_distance <= CERRO_CARACOL_APPROACH_BUFFER_KM:
+        return CERRO_CARACOL_APPROACH_PENALTY
+    return 1.0
+
 
 @dataclass(frozen=True)
 class RoadSnap:
@@ -419,6 +545,8 @@ class RoutingService:
         route_endpoint_kwargs = {
             "source_node_costs": origin_snap.source_node_costs,
             "target_node_costs": destination_snap.target_node_costs,
+            "edge_filter": _cerro_caracol_edge_allowed,
+            "edge_cost_factor": _cerro_caracol_edge_cost_factor,
         }
         day_value = _normalize_day(payload.day_of_week)
         hour_bucket = data_loader.hour_bucket(payload.departure_hour)
@@ -980,6 +1108,8 @@ class RoutingService:
             source_node_costs=origin_snap.source_node_costs if origin_snap else None,
             incident_ctx=incident_ctx,
             apply_penalties=apply_penalties,
+            edge_filter=_cerro_caracol_edge_allowed,
+            edge_cost_factor=_cerro_caracol_edge_cost_factor,
         )
         second = self.graph.shortest_path(
             (float(waypoint["lat"]), float(waypoint["lon"])),
@@ -987,6 +1117,8 @@ class RoutingService:
             target_node_costs=destination_snap.target_node_costs if destination_snap else None,
             incident_ctx=incident_ctx,
             apply_penalties=apply_penalties,
+            edge_filter=_cerro_caracol_edge_allowed,
+            edge_cost_factor=_cerro_caracol_edge_cost_factor,
         )
         if not first or not second:
             return []
