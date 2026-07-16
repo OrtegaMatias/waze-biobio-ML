@@ -1,11 +1,21 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from datetime import date
 from typing import List, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 RouteType = Literal["fastest", "least_congested", "healthiest"]
+
+
+def _validate_congestion_date(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(value).isoformat()
+    except (TypeError, ValueError) as exc:
+        raise ValueError("congestion_date debe ser una fecha valida en formato YYYY-MM-DD.") from exc
 
 
 class RegionBounds(BaseModel):
@@ -146,6 +156,8 @@ class RouteRequest(BaseModel):
     departure_hour: float = Field(8.0, ge=0.0, le=24.0)
     avoid_congestion: bool = True
     avoid_accidents: bool = False
+
+    _validate_date = field_validator("congestion_date")(_validate_congestion_date)
 
 
 class RouteStepResponse(BaseModel):
@@ -335,6 +347,8 @@ class PlanRouteRequest(BaseModel):
     travel_style: Literal["safe", "balanced", "fast"] = "balanced"
     avoid_congestion: bool = True
     avoid_accidents: bool = False
+
+    _validate_date = field_validator("congestion_date")(_validate_congestion_date)
 
 
 class RouteBadge(BaseModel):

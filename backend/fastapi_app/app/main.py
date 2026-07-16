@@ -281,7 +281,7 @@ def _build_route_request_from_plan(
         day_of_week=payload.day_of_week,
         departure_hour=payload.departure_hour,
         avoid_congestion=payload.avoid_congestion,
-        avoid_accidents=False,
+        avoid_accidents=payload.avoid_accidents,
     )
 
 
@@ -513,7 +513,20 @@ def _build_plan_response(route: RouteResponse, payload: PlanRouteRequest) -> Pla
         card.active_mobility_estimate = _active_mobility_estimate_for_card(card)
         card.contextual_messages = _contextual_messages_for_card(card)
         routes.append(card)
-    selected = next((item for item in routes if item.key == "least_congested"), routes[0])
+    selected_key = {
+        "fast": "fastest",
+        "safe": "least_congested",
+    }.get(payload.travel_style)
+    if selected_key is None:
+        selected_key = next(
+            (
+                route_key
+                for route_key, _badge_key, variant_key in semantic_targets
+                if variant_key == route.comparison.best_balance_variant
+            ),
+            "least_congested",
+        )
+    selected = next((item for item in routes if item.key == selected_key), routes[0])
     all_points = [point for item in routes for point in item.geometry]
     bounds = _bounds_from_points(all_points)
     hotspot_bbox = _expand_bounds(bounds)
