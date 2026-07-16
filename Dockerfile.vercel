@@ -1,0 +1,46 @@
+FROM node:20-bookworm-slim AS frontend-build
+
+WORKDIR /app/frontend/react_app
+
+COPY frontend/react_app/package*.json ./
+RUN npm ci
+
+COPY frontend/react_app ./
+RUN npm run build
+
+
+FROM python:3.12-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/app \
+    FRONTEND_DIST=/app/frontend_dist \
+    AUTO_BOOTSTRAP_ENABLED=1
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gdal-bin \
+    libgdal-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.backend.txt ./
+RUN python -m pip install --upgrade pip && python -m pip install -r requirements.backend.txt
+
+COPY algorithms ./algorithms
+COPY backend ./backend
+COPY data/raw ./data/raw
+COPY data/processed ./data/processed
+COPY data_analysis ./data_analysis
+COPY data_processed ./data_processed
+COPY deploy/road_network.csv.gz /tmp/road_network.csv.gz
+COPY --from=frontend-build /app/frontend/react_app/dist ./frontend_dist
+
+RUN gunzip -c /tmp/road_network.csv.gz > /app/data/processed/road_network.csv \
+    && rm /tmp/road_network.csv.gz \
+    && mkdir -p /app/data/cache \
+    && python -c "from backend.fastapi_app.app.services.routing_service import get_routing_service; get_routing_service().build()"
+
+CMD ["sh", "-c", "uvicorn backend.fastapi_app.app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

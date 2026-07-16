@@ -1,0 +1,17 @@
+.venv/
+frontend/react_app/node_modules/
+frontend/react_app/dist/
+frontend/react_app/coverage/
+data/cache/
+data/processed/road_network.csv
+data/processed/road_network_parts/
+data/air_quality/
+docs/
+scripts/
+notebooks/
+**/__pycache__/
+**/*.pyc
+backend/fastapi_app/tests/
+*.xlsx
+*.docx
+.DS_Store

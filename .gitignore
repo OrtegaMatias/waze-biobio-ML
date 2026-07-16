@@ -23,3 +23,5 @@ frontend/react_app/coverage/
 frontend/react_app/*.tsbuildinfo
 frontend/react_app/vite.config.js
 frontend/react_app/vite.config.d.ts
+.venv/
+.vercel
