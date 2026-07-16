@@ -178,7 +178,7 @@ const ONBOARDING_SLIDES: OnboardingSlide[] = [
     focus: "calendar",
     callout: {
       label: "Selecciona fecha y hora",
-      description: "Así se consultarán las condiciones correspondientes al viaje.",
+      description: "En el siguiente recuadro, elige la fecha y la hora en que deseas realizar tu viaje.",
       shape: "rect",
       x: 82.2,
       y: 1.5,
@@ -265,7 +265,7 @@ const ONBOARDING_SLIDES: OnboardingSlide[] = [
       y: 13.5,
       width: 17.7,
       height: 82,
-      arrowX: 47,
+      arrowX: 24.5,
       arrowY: 28,
       targetX: 18.5,
       targetY: 28,
@@ -514,7 +514,8 @@ const ENVIRONMENT_CONDITION_INFO: Record<EnvironmentConditionKey, EnvironmentCon
   },
   wind: {
     label: "Viento",
-    short: "Indica cuanta ventilacion hay para dispersar contaminantes.",
+    short:
+      "Indica la velocidad del viento y, mientras más alta sea, mayor será la dispersión de contaminantes.",
     technical:
       "Viento suave: menos de 20 km/h, menor dispersion. Viento moderado: 20 a menos de 39 km/h, ayuda a dispersar. Viento fuerte: desde 39 km/h, mayor dispersion.",
     recommendation:
