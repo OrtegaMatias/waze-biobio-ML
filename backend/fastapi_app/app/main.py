@@ -77,6 +77,7 @@ from .services.geocoding_service import (
     GeocodingService,
     get_geocoding_service,
 )
+from .services.plan_execution_service import PlanExecutionCoordinator
 from .services.recommendation_service import RecommendationService, get_recommendation_service
 from .services.routing_service import RoutingService, get_routing_service
 
@@ -107,6 +108,22 @@ BICYCLE_SUGGESTION_TEXT = (
     "Esta ruta tiene buena cobertura de ciclovia y buena calidad del aire. "
     "Podrias considerar hacerla en bicicleta."
 )
+plan_execution_coordinator = PlanExecutionCoordinator[RouteResponse]()
+
+
+def _plan_request_key(payload: PlanRouteRequest) -> tuple:
+    return (
+        payload.origin.lat,
+        payload.origin.lon,
+        payload.destination.lat,
+        payload.destination.lon,
+        payload.congestion_date,
+        payload.day_of_week,
+        payload.departure_hour,
+        payload.travel_style,
+        payload.avoid_congestion,
+        payload.avoid_accidents,
+    )
 
 
 def configure_logging() -> logging.Logger:
@@ -688,33 +705,32 @@ async def plan_route(
 ) -> PlanRouteResponse:
     _ensure_routing_ready(routing_service)
     start = time.perf_counter()
-    cancellation = threading.Event()
+    lease = None
+    client_cancelled = False
     try:
         internal_payload = _build_route_request_from_plan(payload, recommendation_service)
-        route_task = asyncio.create_task(
-            asyncio.to_thread(
-                routing_service.compute_route,
-                internal_payload,
-                cancellation.is_set,
-            )
+        lease = await plan_execution_coordinator.acquire(
+            _plan_request_key(payload),
+            lambda should_cancel: routing_service.compute_route(internal_payload, should_cancel),
         )
+        route_task = lease.task
         while not route_task.done():
             await asyncio.wait({route_task}, timeout=0.1)
             if not route_task.done() and await request.is_disconnected():
-                cancellation.set()
-                route_task.add_done_callback(
-                    lambda task: task.exception() if not task.cancelled() else None
-                )
+                client_cancelled = True
                 logger.info("POST /routes/plan cancelado por desconexión del cliente")
                 raise HTTPException(status_code=499, detail="Planificación cancelada.")
         route = route_task.result()
     except asyncio.CancelledError:
-        cancellation.set()
+        client_cancelled = True
         raise
     except routing.RouteSearchCancelled as exc:
         raise HTTPException(status_code=499, detail="Planificación cancelada.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        if lease is not None:
+            await lease.release(cancelled=client_cancelled)
     response = _build_plan_response(route, payload)
     duration = (time.perf_counter() - start) * 1000
     logger.info(
