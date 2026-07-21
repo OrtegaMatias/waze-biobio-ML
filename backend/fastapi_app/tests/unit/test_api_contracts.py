@@ -90,7 +90,11 @@ def build_variant(
 class DummyRoutingService:
     graph = object()
 
+    def __init__(self):
+        self.calls = 0
+
     def compute_route(self, _payload: RouteRequest, _should_cancel=None) -> RouteResponse:
+        self.calls += 1
         reference = build_variant(via="Barros Arana", duration=8.5, delay=2.0, risk=12.5, offset=0.0, exposure=1)
         ubcf = build_variant(via="O'Higgins", duration=7.5, delay=0.0, risk=5.0, offset=0.2, exposure=0)
         ibcf = build_variant(via="Paicavi", duration=7.8, delay=0.5, risk=7.0, offset=0.4, exposure=0)
@@ -251,7 +255,9 @@ def test_routes_plan_returns_user_facing_contract(monkeypatch):
             "quality": None,
         }
     )
-    main.app.dependency_overrides[main.get_routing_service] = lambda: DummyRoutingService()
+    dummy_routing = DummyRoutingService()
+    main.plan_result_cache.clear()
+    main.app.dependency_overrides[main.get_routing_service] = lambda: dummy_routing
     main.app.dependency_overrides[main.get_recommendation_service] = lambda: DummyRecommendationService()
     monkeypatch.setattr(
         main,
@@ -295,10 +301,13 @@ def test_routes_plan_returns_user_facing_contract(monkeypatch):
 
     with TestClient(main.app) as client:
         response = client.post("/routes/plan", json=payload)
+        cached_response = client.post("/routes/plan", json=payload)
 
     main.app.dependency_overrides.clear()
     body = response.json()
     assert response.status_code == 200
+    assert cached_response.json() == body
+    assert dummy_routing.calls == 1
     assert body["selected_route_key"] == "least_congested"
     assert len(body["routes"]) == 3
     assert body["routes"][0]["key"] == "fastest"

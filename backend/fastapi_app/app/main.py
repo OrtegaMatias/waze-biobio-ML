@@ -78,6 +78,7 @@ from .services.geocoding_service import (
     get_geocoding_service,
 )
 from .services.plan_execution_service import PlanExecutionCoordinator
+from .services.plan_cache_service import PlanResultCache
 from .services.recommendation_service import RecommendationService, get_recommendation_service
 from .services.routing_service import RoutingService, get_routing_service
 
@@ -109,10 +110,12 @@ BICYCLE_SUGGESTION_TEXT = (
     "Podrias considerar hacerla en bicicleta."
 )
 plan_execution_coordinator = PlanExecutionCoordinator[RouteResponse]()
+plan_result_cache = PlanResultCache[PlanRouteResponse](max_entries=32, ttl_seconds=900)
 
 
 def _plan_request_key(payload: PlanRouteRequest) -> tuple:
     return (
+        data_loader.data_version(),
         payload.origin.lat,
         payload.origin.lon,
         payload.destination.lat,
@@ -707,10 +710,15 @@ async def plan_route(
     start = time.perf_counter()
     lease = None
     client_cancelled = False
+    request_key = _plan_request_key(payload)
+    cached_response = plan_result_cache.get(request_key)
+    if cached_response is not None:
+        logger.info("POST /routes/plan -> resultado servido desde cache")
+        return cached_response
     try:
         internal_payload = _build_route_request_from_plan(payload, recommendation_service)
         lease = await plan_execution_coordinator.acquire(
-            _plan_request_key(payload),
+            request_key,
             lambda should_cancel: routing_service.compute_route(internal_payload, should_cancel),
         )
         route_task = lease.task
@@ -732,6 +740,7 @@ async def plan_route(
         if lease is not None:
             await lease.release(cancelled=client_cancelled)
     response = _build_plan_response(route, payload)
+    plan_result_cache.set(request_key, response)
     duration = (time.perf_counter() - start) * 1000
     logger.info(
         "POST /routes/plan -> rutas=%d estilo=%s en %.1f ms",
@@ -744,6 +753,7 @@ async def plan_route(
 
 @app.post("/system/bootstrap", response_model=BootstrapStatus, tags=["meta"])
 def bootstrap() -> BootstrapStatus:
+    plan_result_cache.clear()
     return BootstrapStatus(**_start_bootstrap_thread(force=True))
 
 
