@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from algorithms.recommenders import routing
 
@@ -734,3 +735,42 @@ def test_astar_explores_fewer_edges_than_dijkstra():
 
     assert [step.node_id for step in astar] == [step.node_id for step in dijkstra]
     assert astar_edges < dijkstra_edges
+
+
+def test_astar_stops_when_the_caller_cancels():
+    nodes = {
+        f"node-{index}": routing.GraphNode(
+            f"node-{index}",
+            "segment",
+            index,
+            0.0,
+            index * 0.0001,
+            "Referencia",
+            30.0,
+            0.1,
+            "Ruta",
+            "Test",
+        )
+        for index in range(400)
+    }
+    adjacency = {node_id: [] for node_id in nodes}
+    for index in range(399):
+        source = f"node-{index}"
+        target = f"node-{index + 1}"
+        adjacency[source].append((target, 0.02))
+    graph = routing.RouteGraph(nodes=nodes, adjacency=adjacency)
+    cancellation_checks = 0
+
+    def should_cancel():
+        nonlocal cancellation_checks
+        cancellation_checks += 1
+        return cancellation_checks > 1
+
+    with pytest.raises(routing.RouteSearchCancelled):
+        graph.shortest_path(
+            (0.0, 0.0),
+            (0.0, 0.0399),
+            source_node_costs={"node-0": 0.0},
+            target_node_costs={"node-399": 0.0},
+            should_cancel=should_cancel,
+        )

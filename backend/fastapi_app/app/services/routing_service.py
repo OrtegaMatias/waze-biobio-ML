@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from threading import Lock
-from typing import Dict, List, Tuple
+from typing import Callable, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -526,7 +526,16 @@ class RoutingService:
             target_node_costs=target_costs,
         )
 
-    def compute_route(self, payload: RouteRequest) -> RouteResponse:
+    def compute_route(
+        self,
+        payload: RouteRequest,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> RouteResponse:
+        def ensure_active() -> None:
+            if should_cancel is not None and should_cancel():
+                raise routing.RouteSearchCancelled()
+
+        ensure_active()
         self._ensure_fresh_data()
         if self.graph is None:
             raise ValueError("El grafo de rutas aún no está listo. Intenta nuevamente en unos segundos.")
@@ -547,6 +556,7 @@ class RoutingService:
             "target_node_costs": destination_snap.target_node_costs,
             "edge_filter": _cerro_caracol_edge_allowed,
             "edge_cost_factor": _cerro_caracol_edge_cost_factor,
+            "should_cancel": should_cancel,
         }
         day_value = _normalize_day(payload.day_of_week)
         hour_bucket = data_loader.hour_bucket(payload.departure_hour)
@@ -863,11 +873,13 @@ class RoutingService:
                 destination_snap=destination_snap,
                 incident_ctx=routing_context,
                 apply_penalties=bool(needs_context),
+                should_cancel=should_cancel,
             )
             if waypoint_path:
                 healthy_waypoint_paths.append((str(waypoint["name"]), waypoint_path))
 
         # Construir variantes de respuesta
+        ensure_active()
         reference_variant = self._build_response_variant(
             payload,
             reference_path,
@@ -961,6 +973,7 @@ class RoutingService:
             )
             for index, (_, path) in enumerate(healthy_waypoint_paths)
         ]
+        ensure_active()
         healthiest_variant = self._select_healthiest_variant(
             reference=reference_variant,
             candidates=[
@@ -1101,6 +1114,7 @@ class RoutingService:
         destination_snap: RoadSnap | None = None,
         incident_ctx: Dict[str, object] | None = None,
         apply_penalties: bool = False,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> List[routing.RouteStep]:
         first = self.graph.shortest_path(
             (payload.origin.lat, payload.origin.lon),
@@ -1110,6 +1124,7 @@ class RoutingService:
             apply_penalties=apply_penalties,
             edge_filter=_cerro_caracol_edge_allowed,
             edge_cost_factor=_cerro_caracol_edge_cost_factor,
+            should_cancel=should_cancel,
         )
         second = self.graph.shortest_path(
             (float(waypoint["lat"]), float(waypoint["lon"])),
@@ -1119,6 +1134,7 @@ class RoutingService:
             apply_penalties=apply_penalties,
             edge_filter=_cerro_caracol_edge_allowed,
             edge_cost_factor=_cerro_caracol_edge_cost_factor,
+            should_cancel=should_cancel,
         )
         if not first or not second:
             return []

@@ -31,6 +31,10 @@ CANDIDATE_DISTANCE_MULTIPLIER = 3.0
 GRAPH_MIN_GEOGRAPHIC_WEIGHT_RATIO = 0.25
 
 
+class RouteSearchCancelled(Exception):
+    """Raised when a caller cancels an active graph search."""
+
+
 @dataclass
 class GraphNode:
     node_id: str
@@ -508,7 +512,10 @@ class RouteGraph:
         edge_filter: Optional[Callable[[GraphNode, GraphNode], bool]] = None,
         edge_cost_factor: Optional[Callable[[GraphNode, GraphNode], float]] = None,
         use_heuristic: bool = True,
+        should_cancel: Optional[Callable[[], bool]] = None,
     ) -> List[RouteStep]:
+        if should_cancel is not None and should_cancel():
+            raise RouteSearchCancelled()
         if source_node_costs:
             source_candidates = [
                 (self.nodes[node_id], max(0.0, float(cost)))
@@ -699,7 +706,11 @@ class RouteGraph:
             # Otros tipos de evento: solo factor histórico (si lo hay)
             return max(1.0, base_incident)
 
+        expanded_nodes = 0
         while queue:
+            expanded_nodes += 1
+            if expanded_nodes % 256 == 0 and should_cancel is not None and should_cancel():
+                raise RouteSearchCancelled()
             estimated_total, current_dist, node_id = heapq.heappop(queue)
             if current_dist > distances.get(node_id, float("inf")):
                 continue

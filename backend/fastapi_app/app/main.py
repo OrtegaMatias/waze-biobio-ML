@@ -5,6 +5,7 @@ FastAPI principal para exponer la demo academica y la superficie producto.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import threading
@@ -16,12 +17,12 @@ from pathlib import Path
 from typing import List
 
 import pandas as pd
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from algorithms.recommenders import data_loader
+from algorithms.recommenders import data_loader, routing
 
 from .core import dataset
 from .core.demo_scenarios import DEMO_SCENARIOS
@@ -679,16 +680,39 @@ def optimal_route(
 
 
 @app.post("/routes/plan", response_model=PlanRouteResponse, tags=["routes"])
-def plan_route(
+async def plan_route(
     payload: PlanRouteRequest,
+    request: Request,
     routing_service: RoutingService = Depends(get_routing_service),
     recommendation_service: RecommendationService = Depends(get_recommendation_service),
 ) -> PlanRouteResponse:
     _ensure_routing_ready(routing_service)
     start = time.perf_counter()
+    cancellation = threading.Event()
     try:
         internal_payload = _build_route_request_from_plan(payload, recommendation_service)
-        route = routing_service.compute_route(internal_payload)
+        route_task = asyncio.create_task(
+            asyncio.to_thread(
+                routing_service.compute_route,
+                internal_payload,
+                cancellation.is_set,
+            )
+        )
+        while not route_task.done():
+            await asyncio.wait({route_task}, timeout=0.1)
+            if not route_task.done() and await request.is_disconnected():
+                cancellation.set()
+                route_task.add_done_callback(
+                    lambda task: task.exception() if not task.cancelled() else None
+                )
+                logger.info("POST /routes/plan cancelado por desconexión del cliente")
+                raise HTTPException(status_code=499, detail="Planificación cancelada.")
+        route = route_task.result()
+    except asyncio.CancelledError:
+        cancellation.set()
+        raise
+    except routing.RouteSearchCancelled as exc:
+        raise HTTPException(status_code=499, detail="Planificación cancelada.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     response = _build_plan_response(route, payload)

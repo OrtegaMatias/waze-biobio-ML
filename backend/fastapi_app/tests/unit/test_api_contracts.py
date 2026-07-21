@@ -90,7 +90,7 @@ def build_variant(
 class DummyRoutingService:
     graph = object()
 
-    def compute_route(self, _payload: RouteRequest) -> RouteResponse:
+    def compute_route(self, _payload: RouteRequest, _should_cancel=None) -> RouteResponse:
         reference = build_variant(via="Barros Arana", duration=8.5, delay=2.0, risk=12.5, offset=0.0, exposure=1)
         ubcf = build_variant(via="O'Higgins", duration=7.5, delay=0.0, risk=5.0, offset=0.2, exposure=0)
         ibcf = build_variant(via="Paicavi", duration=7.8, delay=0.5, risk=7.0, offset=0.4, exposure=0)
