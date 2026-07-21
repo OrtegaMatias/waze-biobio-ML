@@ -5728,6 +5728,42 @@ input[type="range"] {
   cursor: not-allowed;
 }
 
+.planner-submit-progress {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 7px;
+  color: #ffffff;
+  text-align: center;
+}
+
+.planner-submit-progress strong {
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.planner-submit-progress button {
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.78);
+  background: transparent;
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1.15;
+  cursor: pointer;
+}
+
+.planner-submit-progress button:hover {
+  border-bottom-color: #ffffff;
+}
+
+.planner-submit-progress button:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 3px;
+}
+
 .planner-help {
   position: absolute;
   top: -10px;

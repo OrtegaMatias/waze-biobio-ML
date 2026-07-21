@@ -115,10 +115,11 @@ export function planRoute(args: {
   travel_style: TravelStyle;
   avoid_congestion: boolean;
   avoid_accidents: boolean;
-}): Promise<PlanRouteResponse> {
+}, signal?: AbortSignal): Promise<PlanRouteResponse> {
   return requestJson<PlanRouteResponse>("/routes/plan", {
     method: "POST",
     body: JSON.stringify(args),
+    signal,
   });
 }
 

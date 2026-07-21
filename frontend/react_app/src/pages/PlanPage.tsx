@@ -1255,6 +1255,7 @@ export function PlanPage() {
   const [openEnvironmentInfo, setOpenEnvironmentInfo] = useState<EnvironmentConditionKey | null>(null);
   const [expandedMetricInfo, setExpandedMetricInfo] = useState<RouteMetricKey | null>(null);
   const bootstrapRequestedRef = useRef(false);
+  const planAbortControllerRef = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState({ refresh: false, planning: false });
   const [error, setError] = useState<string | null>(null);
   const selectedRoute = selectedRouteType
@@ -1657,6 +1658,16 @@ export function PlanPage() {
     setJourneyDetailsVisible(false);
   }
 
+  function handleCancelPlan() {
+    planAbortControllerRef.current?.abort();
+    planAbortControllerRef.current = null;
+    setBusy((current) => ({ ...current, planning: false }));
+  }
+
+  useEffect(() => {
+    return () => planAbortControllerRef.current?.abort();
+  }, []);
+
   async function handlePlan() {
     const origin = planner.origin;
     const destination = planner.destination;
@@ -1664,12 +1675,21 @@ export function PlanPage() {
       setError("Selecciona el origen y el destino directamente en el mapa.");
       return;
     }
+    planAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    planAbortControllerRef.current = controller;
     setBusy((current) => ({ ...current, planning: true }));
     setError(null);
     try {
       if (!readiness?.ready) {
         await startBootstrap();
+        if (controller.signal.aborted) {
+          return;
+        }
         setReadiness(await getReadiness());
+        if (controller.signal.aborted) {
+          return;
+        }
       }
       const response = await planRoute({
         origin,
@@ -1680,7 +1700,10 @@ export function PlanPage() {
         travel_style: planner.travel_style,
         avoid_congestion: planner.avoid_congestion,
         avoid_accidents: false,
-      });
+      }, controller.signal);
+      if (controller.signal.aborted) {
+        return;
+      }
       startTransition(() => {
         setPlan(response);
         setSelectedRouteType(null);
@@ -1692,9 +1715,14 @@ export function PlanPage() {
         setJourneyDetailsVisible(false);
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo planificar el viaje.");
+      if (!controller.signal.aborted) {
+        setError(err instanceof Error ? err.message : "No se pudo planificar el viaje.");
+      }
     } finally {
-      setBusy((current) => ({ ...current, planning: false }));
+      if (planAbortControllerRef.current === controller) {
+        planAbortControllerRef.current = null;
+        setBusy((current) => ({ ...current, planning: false }));
+      }
     }
   }
 
@@ -2043,14 +2071,21 @@ export function PlanPage() {
                 : "Selecciona este bloque y luego el mapa"}
             </small>
           </button>
-          <button
-            className="primary-button planner-submit-button"
-            type="button"
-            onClick={handlePlan}
-            disabled={busy.planning || !readiness?.ready || !plannerComplete}
-          >
-            {busy.planning ? "Planificando…" : plannerComplete ? "Planificar viaje" : "Selecciona origen y destino"}
-          </button>
+          {busy.planning ? (
+            <div className="planner-submit-button planner-submit-progress" role="status" aria-live="polite">
+              <strong>Planificando…</strong>
+              <button type="button" onClick={handleCancelPlan}>Cancelar</button>
+            </div>
+          ) : (
+            <button
+              className="primary-button planner-submit-button"
+              type="button"
+              onClick={handlePlan}
+              disabled={!readiness?.ready || !plannerComplete}
+            >
+              {plannerComplete ? "Planificar viaje" : "Selecciona origen y destino"}
+            </button>
+          )}
         </div>
 
         <div className="planner-help" ref={plannerHelpRef}>
