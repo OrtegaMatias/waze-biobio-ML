@@ -636,3 +636,101 @@ def test_nearest_node_uses_spatial_index_and_exclude():
 
     assert source.node_id == "segA::0"
     assert target.node_id == "segA::1"
+
+
+def test_astar_matches_dijkstra_with_all_cost_factors():
+    def node(node_id: str, lat: float, lon: float, via: str) -> routing.GraphNode:
+        return routing.GraphNode(
+            node_id, node_id, 0, lat, lon, "Referencia", 30.0, 0.1, via, "Test"
+        )
+
+    nodes = {
+        "start": node("start", 0.0, 0.0, "Inicio"),
+        "direct": node("direct", 0.0, 0.001, "Ruta directa"),
+        "preferred": node("preferred", 0.001, 0.001, "Ruta preferida"),
+        "target": node("target", 0.0, 0.002, "Destino"),
+    }
+    graph = routing.RouteGraph(
+        nodes=nodes,
+        adjacency={
+            "start": [("direct", 0.12), ("preferred", 0.16)],
+            "direct": [("target", 0.12)],
+            "preferred": [("target", 0.16)],
+            "target": [],
+        },
+        minimum_geographic_weight_ratio=0.7,
+    )
+    kwargs = {
+        "source_node_costs": {"start": 0.0},
+        "target_node_costs": {"target": 0.0},
+        "via_factors": {"Ruta preferida": 0.5},
+        "air_quality_factor": lambda item: 0.8 if item.node_id == "preferred" else 1.0,
+        "urban_wellbeing_factor": lambda item: 0.7 if item.node_id == "preferred" else 1.0,
+        "apply_penalties": False,
+    }
+
+    astar = graph.shortest_path((0.0, 0.0), (0.0, 0.002), **kwargs)
+    dijkstra = graph.shortest_path((0.0, 0.0), (0.0, 0.002), **kwargs, use_heuristic=False)
+
+    assert [step.node_id for step in astar] == [step.node_id for step in dijkstra]
+    assert abs(astar[-1].peso - dijkstra[-1].peso) < 1e-12
+
+
+def test_astar_explores_fewer_edges_than_dijkstra():
+    def node(node_id: str, lat: float, lon: float) -> routing.GraphNode:
+        return routing.GraphNode(
+            node_id, node_id, 0, lat, lon, "Referencia", 30.0, 0.1, node_id, "Test"
+        )
+
+    nodes = {
+        f"main-{index}": node(f"main-{index}", 0.0, index * 0.001)
+        for index in range(11)
+    }
+    adjacency = {node_id: [] for node_id in nodes}
+    for index in range(10):
+        source = f"main-{index}"
+        target = f"main-{index + 1}"
+        adjacency[source].append(
+            (target, routing.haversine_km(nodes[source].lat, nodes[source].lon, nodes[target].lat, nodes[target].lon))
+        )
+    for index in range(20):
+        branch_id = f"branch-{index}"
+        nodes[branch_id] = node(branch_id, 0.003, 0.0)
+        branch_cost = routing.haversine_km(0.0, 0.0, nodes[branch_id].lat, nodes[branch_id].lon)
+        adjacency["main-0"].append((branch_id, branch_cost))
+        adjacency[branch_id] = [(branch_id, 0.01)]
+
+    graph = routing.RouteGraph(
+        nodes=nodes,
+        adjacency=adjacency,
+        minimum_geographic_weight_ratio=1.0,
+    )
+    astar_edges = 0
+    dijkstra_edges = 0
+
+    def count_astar(_source, _target):
+        nonlocal astar_edges
+        astar_edges += 1
+        return True
+
+    def count_dijkstra(_source, _target):
+        nonlocal dijkstra_edges
+        dijkstra_edges += 1
+        return True
+
+    common = {
+        "source_node_costs": {"main-0": 0.0},
+        "target_node_costs": {"main-10": 0.0},
+        "apply_penalties": False,
+    }
+    astar = graph.shortest_path((0.0, 0.0), (0.0, 0.01), **common, edge_filter=count_astar)
+    dijkstra = graph.shortest_path(
+        (0.0, 0.0),
+        (0.0, 0.01),
+        **common,
+        edge_filter=count_dijkstra,
+        use_heuristic=False,
+    )
+
+    assert [step.node_id for step in astar] == [step.node_id for step in dijkstra]
+    assert astar_edges < dijkstra_edges

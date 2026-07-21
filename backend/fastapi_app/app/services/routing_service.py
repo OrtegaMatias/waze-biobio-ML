@@ -683,8 +683,8 @@ class RoutingService:
         # GENERAR 3 RUTAS DISTINTAS (CON OPTIMIZACIÓN)
         # -------------------------------
 
-        # 1. RUTA REFERENCE: Dijkstra puro (sin penalizaciones, sin preferencias)
-        logger.info("Generando ruta reference (Dijkstra puro)...")
+        # 1. RUTA REFERENCE: A* geográfico (sin penalizaciones, sin preferencias)
+        logger.info("Generando ruta reference (A* geográfico)...")
         reference_path = self.graph.shortest_path(
             (payload.origin.lat, payload.origin.lon),
             (payload.destination.lat, payload.destination.lon),
@@ -993,7 +993,7 @@ class RoutingService:
 
         logger.info(
             "Rutas generadas exitosamente:\n"
-            "  - Dijkstra (reference): %.2f km, %.1f min base, +%.1f min retrasos = %.1f min total\n"
+            "  - A* (reference): %.2f km, %.1f min base, +%.1f min retrasos = %.1f min total\n"
             "  - Least congestion: %.2f km, %.1f min base, +%.1f min retrasos = %.1f min total\n"
             "  - UBCF: %.2f km, %.1f min base, +%.1f min retrasos = %.1f min total\n"
             "  - IBCF: %.2f km, %.1f min base, +%.1f min retrasos = %.1f min total\n"

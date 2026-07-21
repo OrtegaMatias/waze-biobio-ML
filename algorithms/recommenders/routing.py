@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Enrutador basado en Dijkstra sobre los segmentos del Biobío.
+Enrutador basado en A* sobre los segmentos del Biobío.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ TARGET_CANDIDATES = 256
 MAX_DESTINATION_GAP_KM = 0.35
 MIN_CANDIDATE_WINDOW_KM = 0.05
 CANDIDATE_DISTANCE_MULTIPLIER = 3.0
+GRAPH_MIN_GEOGRAPHIC_WEIGHT_RATIO = 0.25
 
 
 @dataclass
@@ -70,15 +71,21 @@ class RouteGraph:
         nodes: Dict[str, GraphNode],
         adjacency: Dict[str, List[Tuple[str, float]]],
         spatial_node_ids: Optional[List[str]] = None,
+        minimum_geographic_weight_ratio: float = 0.0,
     ):
         self.nodes = nodes
         self.adjacency = adjacency
         self._spatial_node_ids: List[str] = list(spatial_node_ids or [])
+        self._minimum_geographic_weight_ratio = max(0.0, float(minimum_geographic_weight_ratio))
         self._ball_tree: BallTree | None = None
         self._rebuild_spatial_index()
 
     def __setstate__(self, state):
         self.__dict__.update(state)
+        if not hasattr(self, "_minimum_geographic_weight_ratio"):
+            # Cached graphs were created by ``from_events`` and obey this same
+            # geographic lower bound.
+            self._minimum_geographic_weight_ratio = GRAPH_MIN_GEOGRAPHIC_WEIGHT_RATIO
         self._rebuild_spatial_index()
 
     def _rebuild_spatial_index(self) -> None:
@@ -416,7 +423,12 @@ class RouteGraph:
             node_id: list(neighbors.items())
             for node_id, neighbors in adjacency_maps.items()
         }
-        return cls(nodes=nodes, adjacency=adjacency, spatial_node_ids=spatial_node_ids or node_ids)
+        return cls(
+            nodes=nodes,
+            adjacency=adjacency,
+            spatial_node_ids=spatial_node_ids or node_ids,
+            minimum_geographic_weight_ratio=GRAPH_MIN_GEOGRAPHIC_WEIGHT_RATIO,
+        )
 
     @staticmethod
     def _base_distance(a: GraphNode, b: GraphNode) -> float:
@@ -495,6 +507,7 @@ class RouteGraph:
         target_node_costs: Optional[Dict[str, float]] = None,
         edge_filter: Optional[Callable[[GraphNode, GraphNode], bool]] = None,
         edge_cost_factor: Optional[Callable[[GraphNode, GraphNode], float]] = None,
+        use_heuristic: bool = True,
     ) -> List[RouteStep]:
         if source_node_costs:
             source_candidates = [
@@ -527,16 +540,73 @@ class RouteGraph:
         target_ids = set(target_cost_lookup)
         distances: Dict[str, float] = {}
         previous: Dict[str, Optional[str]] = {}
-        queue: List[Tuple[float, str]] = []
+        queue: List[Tuple[float, float, str]] = []
         best_target = None
         best_target_total = float("inf")
+
+        # A* must never overestimate the remaining adjusted route cost. Base
+        # graph edges cost at least 25% of their geodesic distance; the other
+        # multipliers below are the exact lower clamps used during expansion.
+        preference_floor = float(default_via_factor)
+        if via_factors:
+            preference_floor = min(
+                preference_floor,
+                *(float(value) for value in via_factors.values()),
+            )
+        heuristic_factor = self._minimum_geographic_weight_ratio
+        if apply_penalties:
+            heuristic_factor *= 0.3
+        heuristic_factor *= preference_floor
+        if air_quality_factor is not None:
+            heuristic_factor *= 0.5
+        if urban_wellbeing_factor is not None:
+            heuristic_factor *= 0.65
+        if not use_heuristic or not math.isfinite(heuristic_factor) or heuristic_factor <= 0:
+            heuristic_factor = 0.0
+        heuristic_factor = min(1.0, heuristic_factor)
+        target_heuristic_correction = max(
+            (
+                heuristic_factor
+                * haversine_km(
+                    self.nodes[node_id].lat,
+                    self.nodes[node_id].lon,
+                    destination[0],
+                    destination[1],
+                )
+                - terminal_cost
+                for node_id, terminal_cost in target_cost_lookup.items()
+            ),
+            default=0.0,
+        )
+        target_heuristic_correction = max(0.0, target_heuristic_correction)
+
+        def remaining_cost_estimate(node: GraphNode) -> float:
+            if heuristic_factor == 0.0:
+                return 0.0
+            return max(
+                0.0,
+                heuristic_factor
+                * haversine_km(
+                    node.lat,
+                    node.lon,
+                    destination[0],
+                    destination[1],
+                )
+                - target_heuristic_correction,
+            )
 
         for source_node, snap_distance in source_candidates:
             initial_cost = max(0.0, snap_distance)
             if initial_cost < distances.get(source_node.node_id, float("inf")):
                 distances[source_node.node_id] = initial_cost
                 previous[source_node.node_id] = None
-                queue.append((initial_cost, source_node.node_id))
+                queue.append(
+                    (
+                        initial_cost + remaining_cost_estimate(source_node),
+                        initial_cost,
+                        source_node.node_id,
+                    )
+                )
 
         heapq.heapify(queue)
         nodes = self.nodes
@@ -630,10 +700,10 @@ class RouteGraph:
             return max(1.0, base_incident)
 
         while queue:
-            current_dist, node_id = heapq.heappop(queue)
+            estimated_total, current_dist, node_id = heapq.heappop(queue)
             if current_dist > distances.get(node_id, float("inf")):
                 continue
-            if current_dist >= best_target_total:
+            if estimated_total >= best_target_total:
                 break
             if node_id in target_ids:
                 total_with_terminal = current_dist + target_cost_lookup.get(node_id, 0.0)
@@ -678,7 +748,14 @@ class RouteGraph:
                 if new_dist < distances.get(neighbor, float("inf")):
                     distances[neighbor] = new_dist
                     previous[neighbor] = node_id
-                    heapq.heappush(queue, (new_dist, neighbor))
+                    heapq.heappush(
+                        queue,
+                        (
+                            new_dist + remaining_cost_estimate(neighbor_node),
+                            new_dist,
+                            neighbor,
+                        ),
+                    )
 
         if best_target is None and not target_node_costs:
             reachable_target = None
