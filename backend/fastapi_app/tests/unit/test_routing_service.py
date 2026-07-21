@@ -152,12 +152,10 @@ def test_default_factor_remains_neutral_when_preferences_present(monkeypatch):
 
     service.compute_route(payload)
 
-    assert len(dummy_graph.calls) == 5
+    assert len(dummy_graph.calls) == 3
     assert dummy_graph.calls[1]["default_via_factor"] == 1.0
     assert "air_quality_factor" in dummy_graph.calls[2]
-    assert "urban_wellbeing_factor" in dummy_graph.calls[3]
-    assert "air_quality_factor" in dummy_graph.calls[4]
-    assert "urban_wellbeing_factor" in dummy_graph.calls[4]
+    assert "urban_wellbeing_factor" in dummy_graph.calls[2]
 
 
 def test_reference_variant_includes_congestion_delay(monkeypatch):

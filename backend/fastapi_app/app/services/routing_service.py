@@ -53,7 +53,6 @@ HEALTHY_MAX_DISTANCE_RATIO = 1.15
 HEALTHY_MAX_EXTRA_MIN = 6.0
 HEALTHY_MIN_EXTRA_MIN = 2.0
 HEALTHY_EXTRA_TIME_RATIO = 0.12
-HEALTHY_WAYPOINT_CANDIDATES = 1
 HEALTHY_PM25_MEANINGFUL_DELTA = 2.0
 HEALTHY_CONGESTION_RISK_TOLERANCE = 12.0
 HEALTHY_CONGESTION_SEGMENT_TOLERANCE = 1
@@ -826,25 +825,11 @@ class RoutingService:
 
         air_quality_factor = self._air_quality_cost_factor(payload.departure_hour)
         wellbeing_factor = self._urban_wellbeing_cost_factor()
-        logger.info("Generando candidatos saludables por PM2.5, bienestar urbano y combinacion...")
+        logger.info("Generando ruta saludable combinada por PM2.5 y bienestar urbano...")
         healthy_penalty_kwargs = {
             "incident_ctx": routing_context,
             "apply_penalties": bool(needs_context),
         }
-        healthy_pm25_path = self.graph.shortest_path(
-            (payload.origin.lat, payload.origin.lon),
-            (payload.destination.lat, payload.destination.lon),
-            **route_endpoint_kwargs,
-            **healthy_penalty_kwargs,
-            air_quality_factor=air_quality_factor,
-        )
-        healthy_wellbeing_path = self.graph.shortest_path(
-            (payload.origin.lat, payload.origin.lon),
-            (payload.destination.lat, payload.destination.lon),
-            **route_endpoint_kwargs,
-            **healthy_penalty_kwargs,
-            urban_wellbeing_factor=wellbeing_factor,
-        )
         healthy_combined_path = self.graph.shortest_path(
             (payload.origin.lat, payload.origin.lon),
             (payload.destination.lat, payload.destination.lon),
@@ -853,30 +838,8 @@ class RoutingService:
             air_quality_factor=air_quality_factor,
             urban_wellbeing_factor=wellbeing_factor,
         )
-        if not healthy_pm25_path:
-            healthy_pm25_path = list(reference_path)
-        if not healthy_wellbeing_path:
-            healthy_wellbeing_path = list(reference_path)
         if not healthy_combined_path:
             healthy_combined_path = list(reference_path)
-        healthy_waypoint_paths: list[tuple[str, List[routing.RouteStep]]] = []
-        wellbeing_service = get_urban_wellbeing_service()
-        for waypoint in wellbeing_service.candidate_waypoints(
-            payload.origin,
-            payload.destination,
-            limit=HEALTHY_WAYPOINT_CANDIDATES,
-        ):
-            waypoint_path = self._path_via_waypoint(
-                payload,
-                waypoint,
-                origin_snap=origin_snap,
-                destination_snap=destination_snap,
-                incident_ctx=routing_context,
-                apply_penalties=bool(needs_context),
-                should_cancel=should_cancel,
-            )
-            if waypoint_path:
-                healthy_waypoint_paths.append((str(waypoint["name"]), waypoint_path))
 
         # Construir variantes de respuesta
         ensure_active()
@@ -930,26 +893,6 @@ class RoutingService:
             destination_snap=destination_snap,
             active_congestion_lines=active_congestion_lines,
         )
-        healthy_pm25_variant = self._build_response_variant(
-            payload,
-            healthy_pm25_path,
-            delay_context,
-            via_factors={},
-            variant_name="healthy_pm25_candidate",
-            origin_snap=origin_snap,
-            destination_snap=destination_snap,
-            active_congestion_lines=active_congestion_lines,
-        )
-        healthy_wellbeing_variant = self._build_response_variant(
-            payload,
-            healthy_wellbeing_path,
-            delay_context,
-            via_factors={},
-            variant_name="healthy_wellbeing_candidate",
-            origin_snap=origin_snap,
-            destination_snap=destination_snap,
-            active_congestion_lines=active_congestion_lines,
-        )
         healthy_combined_variant = self._build_response_variant(
             payload,
             healthy_combined_path,
@@ -960,29 +903,13 @@ class RoutingService:
             destination_snap=destination_snap,
             active_congestion_lines=active_congestion_lines,
         )
-        healthy_waypoint_variants = [
-            self._build_response_variant(
-                payload,
-                path,
-                delay_context,
-                via_factors={},
-                variant_name=f"healthy_waypoint_candidate_{index}",
-                origin_snap=origin_snap,
-                destination_snap=destination_snap,
-                active_congestion_lines=active_congestion_lines,
-            )
-            for index, (_, path) in enumerate(healthy_waypoint_paths)
-        ]
         ensure_active()
         healthiest_variant = self._select_healthiest_variant(
             reference=reference_variant,
             candidates=[
                 reference_variant,
                 least_congestion_variant,
-                healthy_pm25_variant,
-                healthy_wellbeing_variant,
                 healthy_combined_variant,
-                *healthy_waypoint_variants,
             ],
         )
         comparison = self._build_comparison(
