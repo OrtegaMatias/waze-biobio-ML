@@ -413,7 +413,11 @@ class RoutingService:
         coordinates = [coord for _, coord in sorted(seq_map.items())]
         return self._nearest_point_on_polyline(point, coordinates)
 
-    def _nearest_road_snap(self, point: RoutePoint) -> RoadSnap:
+    def _nearest_road_snap(
+        self,
+        point: RoutePoint,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> RoadSnap:
         if self.graph is None:
             fallback = {"lat": point.lat, "lon": point.lon}
             return RoadSnap(fallback, fallback, float("inf"), {}, {})
@@ -423,7 +427,9 @@ class RoutingService:
         px, py = self._project_point(target, reference_lat)
         best: dict | None = None
 
-        for segment_id, seq_map in self.segment_lookup.items():
+        for segment_index, (segment_id, seq_map) in enumerate(self.segment_lookup.items()):
+            if segment_index % 256 == 0 and should_cancel is not None and should_cancel():
+                raise routing.RouteSearchCancelled()
             ordered = sorted(seq_map.items())
             for (start_seq, start_raw), (end_seq, end_raw) in zip(ordered, ordered[1:]):
                 start = {"lat": start_raw[0], "lon": start_raw[1]}
@@ -538,8 +544,8 @@ class RoutingService:
         self._ensure_fresh_data()
         if self.graph is None:
             raise ValueError("El grafo de rutas aún no está listo. Intenta nuevamente en unos segundos.")
-        origin_snap = self._nearest_road_snap(payload.origin)
-        destination_snap = self._nearest_road_snap(payload.destination)
+        origin_snap = self._nearest_road_snap(payload.origin, should_cancel)
+        destination_snap = self._nearest_road_snap(payload.destination, should_cancel)
         if origin_snap.distance_km > MAX_POINT_SNAP_KM:
             raise ValueError(
                 f"El origen esta a {origin_snap.distance_km:.2f} km de la red vial disponible. "

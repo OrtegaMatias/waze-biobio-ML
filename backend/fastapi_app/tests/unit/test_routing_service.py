@@ -853,3 +853,12 @@ def test_destination_snap_uses_mid_block_perpendicular_and_oneway_target(monkeyp
     assert route.reference.road_geometry[-1].lon == pytest.approx(0.005, abs=1e-6)
     assert route.reference.access_geometry[-1][0].lat == pytest.approx(0.0, abs=1e-6)
     assert route.reference.access_geometry[-1][0].lon == pytest.approx(0.005, abs=1e-6)
+
+
+def test_road_snap_stops_when_plan_is_cancelled():
+    service = routing_service.RoutingService()
+    service.graph = object()
+    service.segment_lookup = {"segment": {0: (0.0, 0.0), 1: (0.0, 0.01)}}
+
+    with pytest.raises(routing.RouteSearchCancelled):
+        service._nearest_road_snap(RoutePoint(lat=0.0, lon=0.005), should_cancel=lambda: True)
