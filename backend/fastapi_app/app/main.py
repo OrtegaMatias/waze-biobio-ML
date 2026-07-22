@@ -502,10 +502,23 @@ def _build_plan_response(route: RouteResponse, payload: PlanRouteRequest) -> Pla
         ("healthiest", "healthiest", healthiest_variant),
     ]
     routes: list[UserRouteCard] = []
+    visible_geometry_labels: dict[tuple[tuple[float, float], ...], str] = {}
     for route_key, badge_key, variant_key in semantic_targets:
         variant = variants[variant_key]
         badge = RouteBadge(key=badge_key, label=BADGE_LABELS[badge_key])
         cycleway_coverage = _cycleway_coverage_for_variant(variant)
+        geometry_key = tuple((round(point.lat, 6), round(point.lon, 6)) for point in variant.geometry)
+        why_changed = list(variant.why_changed)
+        matching_label = visible_geometry_labels.get(geometry_key)
+        if matching_label is not None:
+            explanation = (
+                f"Coincide con {matching_label}: el mismo trayecto obtuvo el mejor resultado "
+                f"para ambos criterios y no se encontro una alternativa valida que lo mejorara."
+            )
+            if explanation not in why_changed:
+                why_changed.insert(0, explanation)
+        else:
+            visible_geometry_labels[geometry_key] = USER_ROUTE_LABELS[route_key]
         card = UserRouteCard(
             key=route_key,
             label=USER_ROUTE_LABELS[route_key],
@@ -520,7 +533,7 @@ def _build_plan_response(route: RouteResponse, payload: PlanRouteRequest) -> Pla
             road_geometry=variant.road_geometry,
             access_geometry=variant.access_geometry,
             top_alerts=_variant_alerts(variant),
-            why_changed=variant.why_changed,
+            why_changed=why_changed,
             top_penalized_segments=variant.top_penalized_segments,
             top_preferred_vias=variant.top_preferred_vias,
             congestion_coverage=variant.congestion_coverage,

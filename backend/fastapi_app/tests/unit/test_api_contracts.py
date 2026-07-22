@@ -426,6 +426,8 @@ def test_plan_response_keeps_healthiest_visible_when_geometry_matches_shortest(m
     assert [badge.key for badge in base_route.badges] == ["fastest"]
     assert [badge.key for badge in healthiest_route.badges] == ["healthiest"]
     assert healthiest_route.geometry == base_route.geometry
+    assert healthiest_route.why_changed[0].startswith("Coincide con Llegar antes")
+    assert "no se encontro una alternativa valida" in healthiest_route.why_changed[0]
     assert response.selected_route_key == "least_congested"
 
 

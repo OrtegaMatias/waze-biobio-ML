@@ -152,10 +152,70 @@ def test_default_factor_remains_neutral_when_preferences_present(monkeypatch):
 
     service.compute_route(payload)
 
-    assert len(dummy_graph.calls) == 3
-    assert dummy_graph.calls[1]["default_via_factor"] == 1.0
-    assert "air_quality_factor" in dummy_graph.calls[2]
-    assert "urban_wellbeing_factor" in dummy_graph.calls[2]
+    assert len(dummy_graph.calls) == 5
+    personalized_call = next(call for call in dummy_graph.calls if call.get("via_factors"))
+    assert personalized_call["default_via_factor"] == 1.0
+    healthy_calls = [call for call in dummy_graph.calls if "air_quality_factor" in call]
+    assert len(healthy_calls) == 2
+    assert all("urban_wellbeing_factor" in call for call in healthy_calls)
+
+
+def test_diversity_factor_penalizes_only_edges_from_existing_paths():
+    def graph_node(node_id: str) -> routing.GraphNode:
+        return routing.GraphNode(
+            node_id=node_id,
+            segment_id=node_id,
+            segment_seq=0,
+            lat=0.0,
+            lon=0.0,
+            tipo_evento="Referencia",
+            velocidad_kmh=30.0,
+            duracion_hrs=0.1,
+            via="Test",
+            comuna="Test",
+        )
+
+    a = graph_node("a")
+    b = graph_node("b")
+    c = graph_node("c")
+    path = [
+        routing.RouteStep(
+            node_id="a", segment_id="a", segment_seq=0, lat=0.0, lon=0.0, via="Test", comuna="Test", peso=0.0
+        ),
+        routing.RouteStep(
+            node_id="b", segment_id="b", segment_seq=0, lat=0.0, lon=0.01, via="Test", comuna="Test", peso=1.0
+        ),
+    ]
+
+    factor = routing_service.RoutingService._diversity_edge_cost_factor(
+        [path],
+        base_factor=lambda _previous, _current: 2.0,
+    )
+
+    assert factor(a, b) == pytest.approx(2.0 * routing_service.ALTERNATIVE_OVERLAP_PENALTY)
+    assert factor(a, c) == pytest.approx(2.0)
+
+
+def test_reasonable_alternative_rejects_identical_and_excessive_detours():
+    def step(node_id: str, lon: float) -> routing.RouteStep:
+        return routing.RouteStep(
+            node_id=node_id,
+            segment_id=node_id,
+            segment_seq=0,
+            lat=0.0,
+            lon=lon,
+            via="Test",
+            comuna="Test",
+            peso=0.0,
+        )
+
+    reference = [step("a", 0.0), step("b", 0.01)]
+    reasonable = [step("a", 0.0), step("c", 0.005), step("b", 0.01)]
+    excessive = [step("a", 0.0), step("far", 0.02), step("b", 0.01)]
+
+    assert not routing_service.RoutingService._is_reasonable_alternative(reference, list(reference))
+    assert routing_service.RoutingService._is_reasonable_alternative(reference, reasonable)
+    assert not routing_service.RoutingService._is_reasonable_alternative(reference, excessive)
 
 
 def test_reference_variant_includes_congestion_delay(monkeypatch):

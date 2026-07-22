@@ -57,6 +57,9 @@ HEALTHY_PM25_MEANINGFUL_DELTA = 2.0
 HEALTHY_CONGESTION_RISK_TOLERANCE = 12.0
 HEALTHY_CONGESTION_SEGMENT_TOLERANCE = 1
 HEALTHY_HIGH_CONGESTION_PCT_TOLERANCE = 5.0
+ALTERNATIVE_OVERLAP_PENALTY = 3.0
+ALTERNATIVE_MAX_DISTANCE_RATIO = 1.35
+ALTERNATIVE_MIN_EXTRA_DISTANCE_KM = 0.5
 ACTIVE_CONGESTION_MATCH_TOLERANCE_M = 45.0
 ACTIVE_CONGESTION_NODE_TOLERANCE_M = 55.0
 ACTIVE_CONGESTION_FULL_IMPACT_M = 180.0
@@ -727,6 +730,25 @@ class RoutingService:
         else:
             least_congestion_path = list(reference_path)
 
+        if self._same_path(least_congestion_path, reference_path):
+            alternative_kwargs = dict(route_endpoint_kwargs)
+            alternative_kwargs["edge_cost_factor"] = self._diversity_edge_cost_factor(
+                [reference_path],
+                base_factor=route_endpoint_kwargs.get("edge_cost_factor"),
+            )
+            alternative_path = self.graph.shortest_path(
+                (payload.origin.lat, payload.origin.lon),
+                (payload.destination.lat, payload.destination.lon),
+                **alternative_kwargs,
+                incident_ctx=routing_context,
+                apply_penalties=True,
+            )
+            if self._is_reasonable_alternative(reference_path, alternative_path):
+                logger.info(
+                    "La ruta least_congestion coincidia con reference; se uso una alternativa con menor solapamiento."
+                )
+                least_congestion_path = alternative_path
+
         has_ubcf = bool(ubcf_factors)
         has_ibcf = bool(ibcf_factors)
         personalized_path: List[routing.RouteStep]
@@ -846,6 +868,28 @@ class RoutingService:
         )
         if not healthy_combined_path:
             healthy_combined_path = list(reference_path)
+        if any(
+            self._same_path(healthy_combined_path, existing_path)
+            for existing_path in (reference_path, least_congestion_path)
+        ):
+            healthy_alternative_kwargs = dict(route_endpoint_kwargs)
+            healthy_alternative_kwargs["edge_cost_factor"] = self._diversity_edge_cost_factor(
+                [reference_path, least_congestion_path],
+                base_factor=route_endpoint_kwargs.get("edge_cost_factor"),
+            )
+            healthy_alternative = self.graph.shortest_path(
+                (payload.origin.lat, payload.origin.lon),
+                (payload.destination.lat, payload.destination.lon),
+                **healthy_alternative_kwargs,
+                **healthy_penalty_kwargs,
+                air_quality_factor=air_quality_factor,
+                urban_wellbeing_factor=wellbeing_factor,
+            )
+            if self._is_reasonable_alternative(reference_path, healthy_alternative):
+                logger.info(
+                    "La candidata saludable coincidia con otra ruta; se evaluara una alternativa con menor solapamiento."
+                )
+                healthy_combined_path = healthy_alternative
 
         # Construir variantes de respuesta
         ensure_active()
@@ -984,6 +1028,55 @@ class RoutingService:
     @staticmethod
     def _variant_geometry_key(variant: RouteVariant) -> tuple[tuple[float, float], ...]:
         return tuple((round(point.lat, 6), round(point.lon, 6)) for point in variant.geometry)
+
+    @staticmethod
+    def _same_path(first: List[routing.RouteStep], second: List[routing.RouteStep]) -> bool:
+        return bool(first) and bool(second) and [step.node_id for step in first] == [step.node_id for step in second]
+
+    @staticmethod
+    def _path_distance_km(path: List[routing.RouteStep]) -> float:
+        return sum(
+            routing.haversine_km(previous.lat, previous.lon, current.lat, current.lon)
+            for previous, current in zip(path, path[1:])
+        )
+
+    @classmethod
+    def _is_reasonable_alternative(
+        cls,
+        reference: List[routing.RouteStep],
+        candidate: List[routing.RouteStep],
+    ) -> bool:
+        if not candidate or cls._same_path(reference, candidate):
+            return False
+        reference_distance = cls._path_distance_km(reference)
+        candidate_distance = cls._path_distance_km(candidate)
+        max_distance = max(
+            reference_distance * ALTERNATIVE_MAX_DISTANCE_RATIO,
+            reference_distance + ALTERNATIVE_MIN_EXTRA_DISTANCE_KM,
+        )
+        return candidate_distance <= max_distance + 1e-9
+
+    @staticmethod
+    def _diversity_edge_cost_factor(
+        paths: List[List[routing.RouteStep]],
+        *,
+        base_factor: Callable[[routing.GraphNode, routing.GraphNode], float] | None = None,
+    ) -> Callable[[routing.GraphNode, routing.GraphNode], float]:
+        used_edges = {
+            (previous.node_id, current.node_id)
+            for path in paths
+            for previous, current in zip(path, path[1:])
+        }
+
+        def factor(previous: routing.GraphNode, current: routing.GraphNode) -> float:
+            value = 1.0
+            if base_factor is not None:
+                value = max(1.0, float(base_factor(previous, current)))
+            if (previous.node_id, current.node_id) in used_edges:
+                value *= ALTERNATIVE_OVERLAP_PENALTY
+            return value
+
+        return factor
 
     def _log_variant_diagnostics(self, variants: Dict[str, RouteVariant]) -> None:
         rows = []
