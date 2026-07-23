@@ -631,6 +631,44 @@ def test_weighted_environmental_route_uses_hard_constraints_not_ranking():
     assert selected.incident_exposure.matched_incident_segments == 0
 
 
+def test_weighted_environmental_route_allows_ten_extra_minutes_from_ten_minute_trip():
+    reference = _healthy_candidate(lat=-36.0, minutes=10.0)
+    least_congestion = _healthy_candidate(lat=-36.005, minutes=10.0)
+    weighted = _healthy_candidate(
+        lat=-36.01,
+        distance_km=1.10,
+        minutes=20.0,
+    )
+
+    selected = routing_service.RoutingService._finalize_weighted_environmental_variant(
+        reference=reference,
+        least_congestion=least_congestion,
+        weighted=weighted,
+        waypoint_candidates=[],
+    )
+
+    assert selected.geometry == weighted.geometry
+
+
+def test_weighted_environmental_route_rejects_more_than_ten_extra_minutes():
+    reference = _healthy_candidate(lat=-36.0, minutes=10.0)
+    least_congestion = _healthy_candidate(lat=-36.005, minutes=10.0)
+    weighted = _healthy_candidate(
+        lat=-36.01,
+        distance_km=1.10,
+        minutes=20.1,
+    )
+
+    selected = routing_service.RoutingService._finalize_weighted_environmental_variant(
+        reference=reference,
+        least_congestion=least_congestion,
+        weighted=weighted,
+        waypoint_candidates=[],
+    )
+
+    assert selected.geometry == reference.geometry
+
+
 def test_healthiest_selection_prefers_meaningfully_lower_pm25_with_reasonable_detour():
     reference = _healthy_candidate(lat=-36.0, distance_km=1.0, minutes=10.0, pm25=56.0, wellbeing_score=90.0)
     cleaner = _healthy_candidate(lat=-36.01, distance_km=1.08, minutes=11.0, pm25=22.0, wellbeing_score=0.0)
