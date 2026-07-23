@@ -517,6 +517,8 @@ def test_least_congestion_variant_is_dedicated_penalized_route(monkeypatch):
     assert route.comparison.lowest_exposure_variant == "least_congestion"
     assert "air_quality_factor" not in service.graph.calls[1]
     assert "urban_wellbeing_factor" not in service.graph.calls[1]
+    assert service.graph.calls[1]["apply_historical_penalties"] is False
+    assert service.graph.calls[1]["geographic_path_limit_km"] > 0
 
 
 def test_cerro_caracol_blocks_internal_edges_but_allows_victor_lamas():

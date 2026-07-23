@@ -275,6 +275,94 @@ def test_shortest_path_prunes_nodes_outside_geographic_path_limit():
     assert [step.node_id for step in path] == ["source", "direct", "target"]
 
 
+def test_shortest_path_enforces_real_accumulated_distance_limit():
+    def node(node_id: str, lat: float, lon: float) -> routing.GraphNode:
+        return routing.GraphNode(
+            node_id, node_id, 0, lat, lon, "Referencia", 30.0, 0.1, node_id, "Test"
+        )
+
+    nodes = {
+        "source": node("source", 0.0, 0.0),
+        "direct": node("direct", 0.0, 0.001),
+        "detour-a": node("detour-a", 0.001, 0.0005),
+        "detour-b": node("detour-b", -0.001, 0.001),
+        "detour-c": node("detour-c", 0.001, 0.0015),
+        "target": node("target", 0.0, 0.002),
+    }
+    graph = routing.RouteGraph(
+        nodes,
+        {
+            "source": [("direct", 5.0), ("detour-a", 1.0)],
+            "direct": [("target", 5.0)],
+            "detour-a": [("detour-b", 1.0)],
+            "detour-b": [("detour-c", 1.0)],
+            "detour-c": [("target", 1.0)],
+            "target": [],
+        },
+    )
+
+    path = graph.shortest_path(
+        (0.0, 0.0),
+        (0.0, 0.002),
+        apply_penalties=False,
+        source_node_costs={"source": 0.0},
+        target_node_costs={"target": 0.0},
+        geographic_path_limit_km=0.3,
+    )
+
+    assert [step.node_id for step in path] == ["source", "direct", "target"]
+
+
+def test_shortest_path_can_ignore_global_historical_penalties():
+    def node(node_id: str, lat: float, lon: float, penalty: float = 1.0) -> routing.GraphNode:
+        return routing.GraphNode(
+            node_id,
+            node_id,
+            0,
+            lat,
+            lon,
+            "Referencia",
+            30.0,
+            0.1,
+            node_id,
+            "Test",
+            penalty_factor=penalty,
+        )
+
+    nodes = {
+        "source": node("source", 0.0, 0.0),
+        "historical": node("historical", 0.0, 0.001, penalty=2.75),
+        "clear-detour": node("clear-detour", 0.001, 0.001),
+        "target": node("target", 0.0, 0.002),
+    }
+    graph = routing.RouteGraph(
+        nodes,
+        {
+            "source": [("historical", 0.11), ("clear-detour", 0.16)],
+            "historical": [("target", 0.11)],
+            "clear-detour": [("target", 0.16)],
+            "target": [],
+        },
+    )
+    common = {
+        "source_node_costs": {"source": 0.0},
+        "target_node_costs": {"target": 0.0},
+        "incident_ctx": {"avoid_congestion": True},
+        "apply_penalties": True,
+    }
+
+    historical = graph.shortest_path((0.0, 0.0), (0.0, 0.002), **common)
+    contextual = graph.shortest_path(
+        (0.0, 0.0),
+        (0.0, 0.002),
+        **common,
+        apply_historical_penalties=False,
+    )
+
+    assert "clear-detour" in [step.node_id for step in historical]
+    assert "historical" in [step.node_id for step in contextual]
+
+
 def test_route_graph_penalizes_normalized_congestion_event_types():
     df = pd.DataFrame(
         [

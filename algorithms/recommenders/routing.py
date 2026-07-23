@@ -507,6 +507,7 @@ class RouteGraph:
         air_quality_factor: Optional[Callable[[GraphNode], float]] = None,
         urban_wellbeing_factor: Optional[Callable[[GraphNode], float]] = None,
         apply_penalties: bool = True,
+        apply_historical_penalties: bool = True,
         source_node_costs: Optional[Dict[str, float]] = None,
         target_node_costs: Optional[Dict[str, float]] = None,
         edge_filter: Optional[Callable[[GraphNode, GraphNode], bool]] = None,
@@ -547,6 +548,7 @@ class RouteGraph:
         target_cost_lookup = {node.node_id: max(0.0, float(cost)) for node, cost in target_candidates}
         target_ids = set(target_cost_lookup)
         distances: Dict[str, float] = {}
+        path_lengths_km: Dict[str, float] = {}
         previous: Dict[str, Optional[str]] = {}
         queue: List[Tuple[float, float, str]] = []
         best_target = None
@@ -607,6 +609,7 @@ class RouteGraph:
             initial_cost = max(0.0, snap_distance)
             if initial_cost < distances.get(source_node.node_id, float("inf")):
                 distances[source_node.node_id] = initial_cost
+                path_lengths_km[source_node.node_id] = initial_cost
                 previous[source_node.node_id] = None
                 queue.append(
                     (
@@ -699,7 +702,11 @@ class RouteGraph:
                 and node.franja_horaria
                 and node.franja_horaria == hour_bucket
             )
-            has_penalty = bool(node.penalty_factor and node.penalty_factor > 1.0)
+            has_penalty = bool(
+                apply_historical_penalties
+                and node.penalty_factor
+                and node.penalty_factor > 1.0
+            )
 
             # Factor base ligado a la severidad histórica
             # p.ej. penalty_factor=1.5 -> base_incident=1.5
@@ -735,6 +742,14 @@ class RouteGraph:
             if estimated_total >= best_target_total:
                 break
             if node_id in target_ids:
+                route_length_km = path_lengths_km.get(
+                    node_id, float("inf")
+                ) + target_cost_lookup.get(node_id, 0.0)
+                if (
+                    geographic_path_limit_km is not None
+                    and route_length_km > max(0.0, float(geographic_path_limit_km)) + 1e-9
+                ):
+                    continue
                 total_with_terminal = current_dist + target_cost_lookup.get(node_id, 0.0)
                 if total_with_terminal < best_target_total:
                     best_target_total = total_with_terminal
@@ -746,8 +761,23 @@ class RouteGraph:
                     continue
                 if edge_filter is not None and not edge_filter(current_node, neighbor_node):
                     continue
+                candidate_path_length_km = path_lengths_km.get(node_id, 0.0) + haversine_km(
+                    current_node.lat,
+                    current_node.lon,
+                    neighbor_node.lat,
+                    neighbor_node.lon,
+                )
+                if (
+                    geographic_path_limit_km is not None
+                    and candidate_path_length_km > max(0.0, float(geographic_path_limit_km)) + 1e-9
+                ):
+                    continue
                 if apply_penalties:
-                    penalty = max((current_node.penalty_factor + neighbor_node.penalty_factor) / 2, 1.0)
+                    penalty = (
+                        max((current_node.penalty_factor + neighbor_node.penalty_factor) / 2, 1.0)
+                        if apply_historical_penalties
+                        else 1.0
+                    )
                     speed_a = current_node.velocidad_kmh if math.isfinite(current_node.velocidad_kmh) else 0.0
                     speed_b = neighbor_node.velocidad_kmh if math.isfinite(neighbor_node.velocidad_kmh) else 0.0
                     avg_speed = (speed_a + speed_b) / 2 if speed_a > 0 and speed_b > 0 else max(speed_a, speed_b, 0.0)
@@ -778,6 +808,7 @@ class RouteGraph:
                 new_dist = current_dist + adjusted_weight
                 if new_dist < distances.get(neighbor, float("inf")):
                     distances[neighbor] = new_dist
+                    path_lengths_km[neighbor] = candidate_path_length_km
                     previous[neighbor] = node_id
                     heapq.heappush(
                         queue,

@@ -62,8 +62,8 @@ HEALTHY_ENVIRONMENT_WAYPOINT_LIMIT = 1
 HEALTHY_WAYPOINT_SEARCH_EXTRA_KM = 1.5
 HEALTHY_MAX_BACKTRACK_RATIO = 0.20
 ALTERNATIVE_OVERLAP_PENALTY = 3.0
-ALTERNATIVE_MAX_DISTANCE_RATIO = 1.35
-ALTERNATIVE_MIN_EXTRA_DISTANCE_KM = 0.5
+ALTERNATIVE_MAX_DISTANCE_RATIO = 2.0
+ALTERNATIVE_MAX_EXTRA_MIN = 15.0
 ACTIVE_CONGESTION_MATCH_TOLERANCE_M = 45.0
 ACTIVE_CONGESTION_NODE_TOLERANCE_M = 55.0
 ACTIVE_CONGESTION_FULL_IMPACT_M = 180.0
@@ -720,9 +720,10 @@ class RoutingService:
         reference_road_distance_km = self._path_distance_km(reference_path)
         endpoint_snap_distance_km = origin_snap.distance_km + destination_snap.distance_km
         reasonable_route_limit_km = (
-            max(
+            min(
                 reference_road_distance_km * ALTERNATIVE_MAX_DISTANCE_RATIO,
-                reference_road_distance_km + ALTERNATIVE_MIN_EXTRA_DISTANCE_KM,
+                reference_road_distance_km
+                + ROUTE_ASSUMED_SPEED_KMH * ALTERNATIVE_MAX_EXTRA_MIN / 60.0,
             )
             + endpoint_snap_distance_km
         )
@@ -741,6 +742,7 @@ class RoutingService:
                 **route_endpoint_kwargs,
                 incident_ctx=routing_context,
                 apply_penalties=True,
+                apply_historical_penalties=False,
                 geographic_path_limit_km=reasonable_route_limit_km,
             )
             if not least_congestion_path:
@@ -761,6 +763,7 @@ class RoutingService:
                 **alternative_kwargs,
                 incident_ctx=routing_context,
                 apply_penalties=True,
+                apply_historical_penalties=False,
                 geographic_path_limit_km=reasonable_route_limit_km,
             )
             if self._is_reasonable_alternative(reference_path, alternative_path):
@@ -1095,9 +1098,10 @@ class RoutingService:
             return False
         reference_distance = cls._path_distance_km(reference)
         candidate_distance = cls._path_distance_km(candidate)
-        max_distance = max(
+        max_distance = min(
             reference_distance * ALTERNATIVE_MAX_DISTANCE_RATIO,
-            reference_distance + ALTERNATIVE_MIN_EXTRA_DISTANCE_KM,
+            reference_distance
+            + ROUTE_ASSUMED_SPEED_KMH * ALTERNATIVE_MAX_EXTRA_MIN / 60.0,
         )
         return candidate_distance <= max_distance + 1e-9
 
