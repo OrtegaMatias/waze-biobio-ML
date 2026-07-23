@@ -53,7 +53,6 @@ HEALTHY_MAX_DISTANCE_RATIO = 2.0
 HEALTHY_MAX_EXTRA_MIN = 15.0
 ROUTE_ASSUMED_SPEED_KMH = 35.0
 HEALTHY_PM25_MEANINGFUL_DELTA = 2.0
-HEALTHY_WELLBEING_MEANINGFUL_DELTA = 10.0
 HEALTHY_CONGESTION_RISK_TOLERANCE = 12.0
 HEALTHY_CONGESTION_SEGMENT_TOLERANCE = 1
 HEALTHY_HIGH_CONGESTION_PCT_TOLERANCE = 5.0
@@ -1326,7 +1325,7 @@ class RoutingService:
             for candidate in waypoint_candidates
             if cls._route_backtracking_ratio(candidate) <= max_allowed_backtracking + 1e-9
         ]
-        ordered = [*safe_waypoint_candidates, weighted]
+        ordered = [*safe_waypoint_candidates, weighted, reference, least_congestion]
         feasible = [candidate for candidate in ordered if within_detour(candidate)]
         chosen = next(
             (
@@ -1336,73 +1335,11 @@ class RoutingService:
             ),
             None,
         )
+        missing_combined_alternative = chosen is None
         if chosen is None:
-            chosen = next((candidate for candidate in feasible if has_contact(candidate)), None)
-        if chosen is None:
-            chosen = next(iter(feasible), reference)
-
-        def meaningfully_improves_exposure(candidate: RouteVariant) -> bool:
-            reference_pm25 = (
-                float(reference.pm25_exposure.average_pm25)
-                if reference.pm25_exposure is not None and reference.pm25_exposure.available
-                else None
-            )
-            candidate_pm25 = (
-                float(candidate.pm25_exposure.average_pm25)
-                if candidate.pm25_exposure is not None and candidate.pm25_exposure.available
-                else None
-            )
-            reference_wellbeing = (
-                float(reference.urban_wellbeing.score)
-                if reference.urban_wellbeing is not None and reference.urban_wellbeing.available
-                else 0.0
-            )
-            candidate_wellbeing = (
-                float(candidate.urban_wellbeing.score)
-                if candidate.urban_wellbeing is not None and candidate.urban_wellbeing.available
-                else 0.0
-            )
-            congestion_not_worse = bool(
-                float(candidate.risk_score) <= float(reference.risk_score) + 1e-9
-                and candidate.incident_exposure.matched_incident_segments
-                <= reference.incident_exposure.matched_incident_segments
-                and float(candidate.congestion_coverage.high_pct)
-                <= float(reference.congestion_coverage.high_pct) + 1e-9
-            )
-            improves_pm25 = bool(
-                reference_pm25 is not None
-                and candidate_pm25 is not None
-                and candidate_pm25 <= reference_pm25 - HEALTHY_PM25_MEANINGFUL_DELTA
-            )
-            improves_wellbeing = bool(
-                candidate_wellbeing
-                >= reference_wellbeing + HEALTHY_WELLBEING_MEANINGFUL_DELTA
-                and (
-                    reference_pm25 is None
-                    or candidate_pm25 is None
-                    or candidate_pm25 <= reference_pm25
-                )
-            )
-            improves_congestion = bool(
-                float(candidate.risk_score) < float(reference.risk_score) - 1e-9
-                or candidate.incident_exposure.matched_incident_segments
-                < reference.incident_exposure.matched_incident_segments
-            )
-            return congestion_not_worse and (
-                improves_pm25 or improves_wellbeing or improves_congestion
-            )
-
-        rejected_without_environmental_gain = False
-        if (
-            cls._variant_geometry_key(chosen) != cls._variant_geometry_key(reference)
-            and not meaningfully_improves_exposure(chosen)
-        ):
             chosen = next(
-                (candidate for candidate in feasible if meaningfully_improves_exposure(candidate)),
+                (candidate for candidate in feasible if avoids_congestion(candidate)),
                 reference,
-            )
-            rejected_without_environmental_gain = (
-                cls._variant_geometry_key(chosen) == cls._variant_geometry_key(reference)
             )
 
         result = chosen.model_copy(deep=True) if hasattr(chosen, "model_copy") else deepcopy(chosen)
@@ -1415,10 +1352,10 @@ class RoutingService:
                 else "La geometria fue calculada directamente con los pesos ambientales por tramo."
             )
         ]
-        if rejected_without_environmental_gain:
+        if missing_combined_alternative:
             reasons[0] = (
-                "Se conservo la ruta directa porque el desvio no reducia de forma medible "
-                "la exposicion ambiental."
+                "No se encontro una alternativa que combine entorno urbano beneficioso "
+                "y ausencia de congestion dentro del desvio permitido."
             )
         if has_contact(result):
             feature = result.urban_wellbeing.top_features[0]

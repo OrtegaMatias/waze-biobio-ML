@@ -715,7 +715,7 @@ def test_weighted_environmental_route_is_not_reordered_by_a_final_score():
         waypoint_candidates=[waypoint],
     )
 
-    assert selected.geometry == weighted.geometry
+    assert selected.geometry == waypoint.geometry
     assert selected.healthy_route_score is None
     assert selected.why_changed[0].startswith("La geometria fue calculada directamente")
 
@@ -742,7 +742,7 @@ def test_weighted_environmental_route_uses_hard_constraints_not_ranking():
         waypoint_candidates=[congested_waypoint],
     )
 
-    assert selected.geometry == reference.geometry
+    assert selected.geometry == weighted.geometry
     assert selected.incident_exposure.matched_incident_segments == 0
 
 
@@ -766,7 +766,7 @@ def test_weighted_environmental_route_rejects_waypoint_that_backtracks():
     )
 
     assert routing_service.RoutingService._route_backtracking_ratio(waypoint) > 0.20
-    assert selected.geometry == weighted.geometry
+    assert selected.geometry == reference.geometry
     assert any("retroceder" in reason for reason in selected.why_changed)
 
 
@@ -848,7 +848,7 @@ def test_weighted_environmental_route_rejects_more_than_one_hundred_percent_extr
     assert selected.geometry == reference.geometry
 
 
-def test_weighted_environmental_route_keeps_direct_route_without_measurable_gain():
+def test_weighted_environmental_route_accepts_urban_contact_without_numeric_gain_threshold():
     reference = _healthy_candidate(
         lat=-36.0,
         distance_km=2.48,
@@ -873,8 +873,42 @@ def test_weighted_environmental_route_keeps_direct_route_without_measurable_gain
         waypoint_candidates=[],
     )
 
-    assert selected.geometry == reference.geometry
-    assert any("no reducia" in reason for reason in selected.why_changed)
+    assert selected.geometry == weighted.geometry
+    assert selected.urban_wellbeing is not None
+    assert selected.urban_wellbeing.top_features
+    assert selected.incident_exposure.matched_incident_segments == 0
+
+
+def test_weighted_environmental_route_never_prefers_urban_contact_with_congestion():
+    reference = _healthy_candidate(
+        lat=-36.0,
+        environmental_contact=False,
+        matched_segments=1,
+        high_pct=10.0,
+    )
+    least_congestion = _healthy_candidate(
+        lat=-36.005,
+        environmental_contact=False,
+    )
+    congested_urban_route = _healthy_candidate(
+        lat=-36.01,
+        wellbeing_score=100.0,
+        matched_segments=1,
+        high_pct=10.0,
+    )
+
+    selected = routing_service.RoutingService._finalize_weighted_environmental_variant(
+        reference=reference,
+        least_congestion=least_congestion,
+        weighted=congested_urban_route,
+        waypoint_candidates=[],
+    )
+
+    assert selected.geometry == least_congestion.geometry
+    assert selected.incident_exposure.matched_incident_segments == 0
+    assert selected.urban_wellbeing is not None
+    assert not selected.urban_wellbeing.top_features
+    assert any("combine entorno urbano" in reason for reason in selected.why_changed)
 
 
 def test_healthiest_selection_prefers_meaningfully_lower_pm25_with_reasonable_detour():
