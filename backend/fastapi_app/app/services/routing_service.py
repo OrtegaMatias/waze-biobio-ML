@@ -60,6 +60,7 @@ HEALTHY_CONGESTION_SEGMENT_TOLERANCE = 1
 HEALTHY_HIGH_CONGESTION_PCT_TOLERANCE = 5.0
 HEALTHY_ENVIRONMENT_WAYPOINT_LIMIT = 1
 HEALTHY_WAYPOINT_SEARCH_EXTRA_KM = 1.5
+HEALTHY_MAX_BACKTRACK_RATIO = 0.20
 ALTERNATIVE_OVERLAP_PENALTY = 3.0
 ALTERNATIVE_MAX_DISTANCE_RATIO = 1.35
 ALTERNATIVE_MIN_EXTRA_DISTANCE_KM = 0.5
@@ -883,9 +884,21 @@ class RoutingService:
             payload.destination,
             limit=HEALTHY_ENVIRONMENT_WAYPOINT_LIMIT,
         )
-        healthy_combined_path: List[routing.RouteStep] = []
+        healthy_weighted_path = self.graph.shortest_path(
+            (payload.origin.lat, payload.origin.lon),
+            (payload.destination.lat, payload.destination.lon),
+            **route_endpoint_kwargs,
+            **healthy_penalty_kwargs,
+            air_quality_factor=air_quality_factor,
+            urban_wellbeing_factor=wellbeing_factor,
+            geographic_path_limit_km=environmental_route_limit_km,
+        )
+        if not healthy_weighted_path:
+            healthy_weighted_path = list(reference_path)
+
+        healthy_waypoint_paths: List[List[routing.RouteStep]] = []
         for waypoint in waypoint_candidates:
-            healthy_combined_path = self._path_via_waypoint(
+            waypoint_path = self._path_via_waypoint(
                 payload,
                 waypoint,
                 origin_snap=origin_snap,
@@ -897,20 +910,8 @@ class RoutingService:
                 geographic_path_limit_km=environmental_route_limit_km,
                 should_cancel=should_cancel,
             )
-            if healthy_combined_path:
-                break
-        if not healthy_combined_path:
-            healthy_combined_path = self.graph.shortest_path(
-                (payload.origin.lat, payload.origin.lon),
-                (payload.destination.lat, payload.destination.lon),
-                **route_endpoint_kwargs,
-                **healthy_penalty_kwargs,
-                air_quality_factor=air_quality_factor,
-                urban_wellbeing_factor=wellbeing_factor,
-                geographic_path_limit_km=environmental_route_limit_km,
-            )
-        if not healthy_combined_path:
-            healthy_combined_path = list(reference_path)
+            if waypoint_path and not self._same_path(waypoint_path, healthy_weighted_path):
+                healthy_waypoint_paths.append(waypoint_path)
 
         # Construir variantes de respuesta
         ensure_active()
@@ -976,22 +977,35 @@ class RoutingService:
                 active_congestion_lines=active_congestion_lines,
             )
         )
-        healthy_combined_variant = self._build_response_variant(
+        healthy_weighted_variant = self._build_response_variant(
             payload,
-            healthy_combined_path,
+            healthy_weighted_path,
             delay_context,
             via_factors={},
-            variant_name="healthy_combined_candidate",
+            variant_name="healthy_weighted_candidate",
             origin_snap=origin_snap,
             destination_snap=destination_snap,
             active_congestion_lines=active_congestion_lines,
         )
+        healthy_waypoint_variants = [
+            self._build_response_variant(
+                payload,
+                path,
+                delay_context,
+                via_factors={},
+                variant_name=f"healthy_waypoint_candidate_{index}",
+                origin_snap=origin_snap,
+                destination_snap=destination_snap,
+                active_congestion_lines=active_congestion_lines,
+            )
+            for index, path in enumerate(healthy_waypoint_paths, start=1)
+        ]
         ensure_active()
         healthiest_variant = self._finalize_weighted_environmental_variant(
             reference=reference_variant,
             least_congestion=least_congestion_variant,
-            weighted=healthy_combined_variant,
-            waypoint_candidates=[],
+            weighted=healthy_weighted_variant,
+            waypoint_candidates=healthy_waypoint_variants,
         )
         comparison = self._build_comparison(
             reference=reference_variant,
@@ -1244,12 +1258,12 @@ class RoutingService:
         weighted: RouteVariant,
         waypoint_candidates: List[RouteVariant],
     ) -> RouteVariant:
-        """Validate the weighted path without applying a second route ranking.
+        """Compare the direct weighted path with safe environmental detours.
 
         Dijkstra has already chosen ``weighted`` using pollution, congestion and
-        environmental edge costs. A waypoint path is tried first only when the
-        direct weighted search could not produce a distinct effective contact.
-        The checks below are hard product constraints, not a score or ranking.
+        environmental edge costs. Waypoint paths may improve effective contact,
+        but they must remain within the time limit and cannot introduce a large
+        regression toward the origin.
         """
 
         fastest_time = min(
@@ -1277,7 +1291,21 @@ class RoutingService:
                 and float(candidate.congestion_coverage.high_pct) <= 1e-9
             )
 
-        ordered = [*waypoint_candidates, weighted]
+        weighted_backtracking = cls._route_backtracking_ratio(weighted)
+        max_allowed_backtracking = max(
+            HEALTHY_MAX_BACKTRACK_RATIO,
+            weighted_backtracking + HEALTHY_MAX_BACKTRACK_RATIO / 2.0,
+        )
+        rejected_backtracking = any(
+            cls._route_backtracking_ratio(candidate) > max_allowed_backtracking + 1e-9
+            for candidate in waypoint_candidates
+        )
+        safe_waypoint_candidates = [
+            candidate
+            for candidate in waypoint_candidates
+            if cls._route_backtracking_ratio(candidate) <= max_allowed_backtracking + 1e-9
+        ]
+        ordered = [*safe_waypoint_candidates, weighted]
         feasible = [candidate for candidate in ordered if within_detour(candidate)]
         chosen = next(
             (
@@ -1311,12 +1339,52 @@ class RoutingService:
             reasons.append("La alternativa evita los segmentos de congestion identificados.")
         else:
             reasons.append("No fue posible evitar toda la congestion identificada dentro del desvio permitido.")
+        if rejected_backtracking:
+            reasons.append("Se descarto un desvio ambiental porque obligaba a retroceder en el trayecto.")
         if cls._variant_total_minutes(result) > fastest_time + 0.1:
             reasons.append(
                 f"La ruta ponderada agrega {cls._variant_total_minutes(result) - fastest_time:.1f} min."
             )
         result.why_changed = reasons[:4]
         return result
+
+    @staticmethod
+    def _route_backtracking_ratio(variant: RouteVariant) -> float:
+        """Measure cumulative backwards movement along the origin-destination axis."""
+
+        if len(variant.geometry) < 3:
+            return 0.0
+        origin = variant.geometry[0]
+        destination = variant.geometry[-1]
+        reference_lat = (float(origin.lat) + float(destination.lat)) / 2.0
+        origin_x, origin_y = RoutingService._project_point(
+            {"lat": float(origin.lat), "lon": float(origin.lon)},
+            reference_lat,
+        )
+        destination_x, destination_y = RoutingService._project_point(
+            {"lat": float(destination.lat), "lon": float(destination.lon)},
+            reference_lat,
+        )
+        axis_x = destination_x - origin_x
+        axis_y = destination_y - origin_y
+        direct_distance = math.hypot(axis_x, axis_y)
+        if direct_distance <= 1e-9:
+            return 0.0
+
+        progress_values = []
+        for point in variant.geometry:
+            point_x, point_y = RoutingService._project_point(
+                {"lat": float(point.lat), "lon": float(point.lon)},
+                reference_lat,
+            )
+            progress_values.append(
+                ((point_x - origin_x) * axis_x + (point_y - origin_y) * axis_y) / direct_distance
+            )
+        backwards_distance = sum(
+            max(0.0, previous - current)
+            for previous, current in zip(progress_values, progress_values[1:])
+        )
+        return backwards_distance / direct_distance
 
     @classmethod
     def _select_healthiest_variant(

@@ -667,6 +667,30 @@ def test_weighted_environmental_route_uses_hard_constraints_not_ranking():
     assert selected.incident_exposure.matched_incident_segments == 0
 
 
+def test_weighted_environmental_route_rejects_waypoint_that_backtracks():
+    reference = _healthy_candidate(lat=-36.0, wellbeing_score=10.0)
+    least_congestion = _healthy_candidate(lat=-36.005, wellbeing_score=10.0)
+    weighted = _healthy_candidate(lat=-36.01, wellbeing_score=20.0, environmental_contact=False)
+    waypoint = _healthy_candidate(lat=-36.015, wellbeing_score=100.0)
+    waypoint.geometry = [
+        RoutePoint(lat=-36.0100, lon=-73.0),
+        RoutePoint(lat=-36.0180, lon=-73.0),
+        RoutePoint(lat=-36.0120, lon=-73.0),
+        RoutePoint(lat=-36.0200, lon=-73.0),
+    ]
+
+    selected = routing_service.RoutingService._finalize_weighted_environmental_variant(
+        reference=reference,
+        least_congestion=least_congestion,
+        weighted=weighted,
+        waypoint_candidates=[waypoint],
+    )
+
+    assert routing_service.RoutingService._route_backtracking_ratio(waypoint) > 0.20
+    assert selected.geometry == weighted.geometry
+    assert any("retroceder" in reason for reason in selected.why_changed)
+
+
 def test_weighted_environmental_route_allows_ten_extra_minutes_from_ten_minute_trip():
     reference = _healthy_candidate(lat=-36.0, minutes=10.0)
     least_congestion = _healthy_candidate(lat=-36.005, minutes=10.0)
