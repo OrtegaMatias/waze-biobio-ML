@@ -1014,14 +1014,11 @@ class RoutingService:
             for waypoint_path, _waypoint in environmental_waypoint_paths
         ]
         ensure_active()
-        healthiest_variant = self._select_healthiest_variant(
+        healthiest_variant = self._finalize_weighted_environmental_variant(
             reference=reference_variant,
-            candidates=[
-                reference_variant,
-                least_congestion_variant,
-                healthy_combined_variant,
-                *environmental_waypoint_variants,
-            ],
+            least_congestion=least_congestion_variant,
+            weighted=healthy_combined_variant,
+            waypoint_candidates=environmental_waypoint_variants,
         )
         comparison = self._build_comparison(
             reference=reference_variant,
@@ -1234,6 +1231,94 @@ class RoutingService:
         if first[-1].node_id == second[0].node_id:
             return [*first, *second[1:]]
         return [*first, *second]
+
+    @classmethod
+    def _finalize_weighted_environmental_variant(
+        cls,
+        *,
+        reference: RouteVariant,
+        least_congestion: RouteVariant,
+        weighted: RouteVariant,
+        waypoint_candidates: List[RouteVariant],
+    ) -> RouteVariant:
+        """Validate the weighted path without applying a second route ranking.
+
+        Dijkstra has already chosen ``weighted`` using pollution, congestion and
+        environmental edge costs. A waypoint path is tried first only when the
+        direct weighted search could not produce a distinct effective contact.
+        The checks below are hard product constraints, not a score or ranking.
+        """
+
+        fastest_time = min(
+            cls._variant_total_minutes(reference),
+            cls._variant_total_minutes(least_congestion),
+        )
+        max_extra_time = min(
+            HEALTHY_MAX_EXTRA_MIN,
+            max(HEALTHY_MIN_EXTRA_MIN, fastest_time * HEALTHY_EXTRA_TIME_RATIO),
+        )
+        max_time = fastest_time + max_extra_time
+        max_distance = reference.distance_km * HEALTHY_MAX_DISTANCE_RATIO
+
+        def within_detour(candidate: RouteVariant) -> bool:
+            return (
+                cls._variant_total_minutes(candidate) <= max_time + 1e-9
+                and candidate.distance_km <= max_distance + 1e-9
+            )
+
+        def has_contact(candidate: RouteVariant) -> bool:
+            return bool(
+                candidate.urban_wellbeing is not None
+                and candidate.urban_wellbeing.available
+                and candidate.urban_wellbeing.top_features
+            )
+
+        def avoids_congestion(candidate: RouteVariant) -> bool:
+            return (
+                candidate.incident_exposure.matched_incident_segments == 0
+                and float(candidate.congestion_coverage.high_pct) <= 1e-9
+            )
+
+        ordered = [*waypoint_candidates, weighted]
+        feasible = [candidate for candidate in ordered if within_detour(candidate)]
+        chosen = next(
+            (
+                candidate
+                for candidate in feasible
+                if has_contact(candidate) and avoids_congestion(candidate)
+            ),
+            None,
+        )
+        if chosen is None:
+            chosen = next((candidate for candidate in feasible if has_contact(candidate)), None)
+        if chosen is None:
+            chosen = next(iter(feasible), reference)
+
+        result = chosen.model_copy(deep=True) if hasattr(chosen, "model_copy") else deepcopy(chosen)
+        result.healthy_route_score = None
+        same_as_reference = cls._variant_geometry_key(result) == cls._variant_geometry_key(reference)
+        reasons = [
+            (
+                "La ruta ponderada coincide con la ruta directa para este viaje."
+                if same_as_reference
+                else "La geometria fue calculada directamente con los pesos ambientales por tramo."
+            )
+        ]
+        if has_contact(result):
+            feature = result.urban_wellbeing.top_features[0]
+            reasons.append(f"El trayecto pasa junto a {feature.name}.")
+        else:
+            reasons.append("No se encontro un contacto ambiental valido dentro del desvio maximo permitido.")
+        if avoids_congestion(result):
+            reasons.append("La alternativa evita los segmentos de congestion identificados.")
+        else:
+            reasons.append("No fue posible evitar toda la congestion identificada dentro del desvio permitido.")
+        if cls._variant_total_minutes(result) > fastest_time + 0.1:
+            reasons.append(
+                f"La ruta ponderada agrega {cls._variant_total_minutes(result) - fastest_time:.1f} min."
+            )
+        result.why_changed = reasons[:4]
+        return result
 
     @classmethod
     def _select_healthiest_variant(

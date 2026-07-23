@@ -581,6 +581,56 @@ def test_healthiest_selection_prefers_distinct_environmental_geometry_when_valid
     assert selected.geometry == distinct_environmental.geometry
 
 
+def test_weighted_environmental_route_is_not_reordered_by_a_final_score():
+    reference = _healthy_candidate(lat=-36.0, wellbeing_score=90.0, pm25=10.0)
+    least_congestion = _healthy_candidate(lat=-36.005, wellbeing_score=90.0, pm25=10.0)
+    weighted = _healthy_candidate(lat=-36.01, wellbeing_score=100.0, pm25=5.0)
+    waypoint = _healthy_candidate(
+        lat=-36.015,
+        distance_km=1.04,
+        minutes=10.4,
+        wellbeing_score=1.0,
+        pm25=80.0,
+    )
+
+    selected = routing_service.RoutingService._finalize_weighted_environmental_variant(
+        reference=reference,
+        least_congestion=least_congestion,
+        weighted=weighted,
+        waypoint_candidates=[waypoint],
+    )
+
+    assert selected.geometry == waypoint.geometry
+    assert selected.healthy_route_score is None
+    assert selected.why_changed[0].startswith("La geometria fue calculada directamente")
+
+
+def test_weighted_environmental_route_uses_hard_constraints_not_ranking():
+    reference = _healthy_candidate(lat=-36.0)
+    least_congestion = _healthy_candidate(lat=-36.005)
+    weighted = _healthy_candidate(lat=-36.01, wellbeing_score=10.0, pm25=40.0)
+    congested_waypoint = _healthy_candidate(
+        lat=-36.015,
+        distance_km=1.04,
+        minutes=10.4,
+        risk_score=1.0,
+        matched_segments=1,
+        high_pct=1.0,
+        wellbeing_score=100.0,
+        pm25=5.0,
+    )
+
+    selected = routing_service.RoutingService._finalize_weighted_environmental_variant(
+        reference=reference,
+        least_congestion=least_congestion,
+        weighted=weighted,
+        waypoint_candidates=[congested_waypoint],
+    )
+
+    assert selected.geometry == weighted.geometry
+    assert selected.incident_exposure.matched_incident_segments == 0
+
+
 def test_healthiest_selection_prefers_meaningfully_lower_pm25_with_reasonable_detour():
     reference = _healthy_candidate(lat=-36.0, distance_km=1.0, minutes=10.0, pm25=56.0, wellbeing_score=90.0)
     cleaner = _healthy_candidate(lat=-36.01, distance_km=1.08, minutes=11.0, pm25=22.0, wellbeing_score=0.0)
