@@ -153,7 +153,7 @@ def test_default_factor_remains_neutral_when_preferences_present(monkeypatch):
 
     service.compute_route(payload)
 
-    assert len(dummy_graph.calls) == 4
+    assert len(dummy_graph.calls) == 3
     personalized_call = next(call for call in dummy_graph.calls if call.get("via_factors"))
     assert personalized_call["default_via_factor"] == 1.0
     healthy_calls = [call for call in dummy_graph.calls if "air_quality_factor" in call]

@@ -752,27 +752,6 @@ class RoutingService:
         else:
             least_congestion_path = list(reference_path)
 
-        if self._same_path(least_congestion_path, reference_path):
-            alternative_kwargs = dict(route_endpoint_kwargs)
-            alternative_kwargs["edge_cost_factor"] = self._diversity_edge_cost_factor(
-                [reference_path],
-                base_factor=route_endpoint_kwargs.get("edge_cost_factor"),
-            )
-            alternative_path = self.graph.shortest_path(
-                (payload.origin.lat, payload.origin.lon),
-                (payload.destination.lat, payload.destination.lon),
-                **alternative_kwargs,
-                incident_ctx=routing_context,
-                apply_penalties=True,
-                apply_historical_penalties=False,
-                geographic_path_limit_km=reasonable_route_limit_km,
-            )
-            if self._is_reasonable_alternative(reference_path, alternative_path):
-                logger.info(
-                    "La ruta least_congestion coincidia con reference; se uso una alternativa con menor solapamiento."
-                )
-                least_congestion_path = alternative_path
-
         has_ubcf = bool(ubcf_factors)
         has_ibcf = bool(ibcf_factors)
         personalized_path: List[routing.RouteStep]
