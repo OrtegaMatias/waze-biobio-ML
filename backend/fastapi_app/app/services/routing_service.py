@@ -1194,6 +1194,28 @@ class RoutingService:
     ) -> List[routing.RouteStep]:
         waypoint_lat = float(waypoint["lat"])
         waypoint_lon = float(waypoint["lon"])
+        waypoint_point = RoutePoint(lat=waypoint_lat, lon=waypoint_lon)
+        waypoint_snap = self._nearest_road_snap(waypoint_point, should_cancel)
+        anchor_node_ids = [
+            node_id
+            for node_id in set(waypoint_snap.source_node_costs) | set(waypoint_snap.target_node_costs)
+            if node_id in self.graph.nodes
+        ]
+        if not anchor_node_ids:
+            nearest_nodes = self.graph.nearest_nodes(waypoint_lat, waypoint_lon, limit=1)
+            if not nearest_nodes:
+                return []
+            anchor_node_ids = [nearest_nodes[0][0].node_id]
+        anchor_node_id = min(
+            anchor_node_ids,
+            key=lambda node_id: routing.haversine_km(
+                waypoint_lat,
+                waypoint_lon,
+                self.graph.nodes[node_id].lat,
+                self.graph.nodes[node_id].lon,
+            ),
+        )
+        anchor_node_costs = {anchor_node_id: 0.0}
         first_limit = geographic_path_limit_km
         second_limit = geographic_path_limit_km
         if geographic_path_limit_km is not None:
@@ -1221,6 +1243,7 @@ class RoutingService:
             (payload.origin.lat, payload.origin.lon),
             (waypoint_lat, waypoint_lon),
             source_node_costs=origin_snap.source_node_costs if origin_snap else None,
+            target_node_costs=anchor_node_costs,
             incident_ctx=incident_ctx,
             apply_penalties=apply_penalties,
             air_quality_factor=air_quality_factor,
@@ -1233,6 +1256,7 @@ class RoutingService:
         second = self.graph.shortest_path(
             (waypoint_lat, waypoint_lon),
             (payload.destination.lat, payload.destination.lon),
+            source_node_costs=anchor_node_costs,
             target_node_costs=destination_snap.target_node_costs if destination_snap else None,
             incident_ctx=incident_ctx,
             apply_penalties=apply_penalties,
@@ -1245,9 +1269,15 @@ class RoutingService:
         )
         if not first or not second:
             return []
-        if first[-1].node_id == second[0].node_id:
-            return [*first, *second[1:]]
-        return [*first, *second]
+        if first[-1].node_id != second[0].node_id:
+            logger.warning(
+                "Se descarto una ruta ambiental discontinua en el waypoint %s: %s -> %s.",
+                waypoint.get("name") or "sin nombre",
+                first[-1].node_id,
+                second[0].node_id,
+            )
+            return []
+        return [*first, *second[1:]]
 
     @classmethod
     def _finalize_weighted_environmental_variant(

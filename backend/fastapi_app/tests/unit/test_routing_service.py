@@ -197,6 +197,82 @@ def test_environmental_factors_are_reused_for_duplicate_coordinates(monkeypatch)
     assert wellbeing.calls == 1
 
 
+def test_environmental_waypoint_uses_one_shared_road_anchor(monkeypatch):
+    service = routing_service.RoutingService()
+
+    def graph_node(node_id: str, lon: float) -> routing.GraphNode:
+        return routing.GraphNode(
+            node_id=node_id,
+            segment_id=node_id,
+            segment_seq=0,
+            lat=0.0,
+            lon=lon,
+            tipo_evento="Referencia",
+            velocidad_kmh=30.0,
+            duracion_hrs=0.1,
+            via="Calle de prueba",
+            comuna="Test",
+        )
+
+    class DummyGraph:
+        def __init__(self):
+            self.nodes = {
+                "near": graph_node("near", 0.0101),
+                "far": graph_node("far", 0.0150),
+            }
+            self.calls = []
+
+        def shortest_path(self, origin, destination, **kwargs):
+            self.calls.append(kwargs)
+            is_first_half = kwargs.get("target_node_costs") is not None
+            anchor_costs = kwargs["target_node_costs"] if is_first_half else kwargs["source_node_costs"]
+            anchor = self.nodes[next(iter(anchor_costs))]
+            anchor_step = routing.RouteStep(
+                node_id=anchor.node_id,
+                segment_id=anchor.segment_id,
+                segment_seq=anchor.segment_seq,
+                lat=anchor.lat,
+                lon=anchor.lon,
+                via=anchor.via,
+                comuna=anchor.comuna,
+                peso=0.0,
+            )
+            endpoint = routing.RouteStep(
+                node_id="origin" if is_first_half else "destination",
+                segment_id="endpoint",
+                segment_seq=0,
+                lat=origin[0] if is_first_half else destination[0],
+                lon=origin[1] if is_first_half else destination[1],
+                via="Calle de prueba",
+                comuna="Test",
+                peso=0.0,
+            )
+            return [endpoint, anchor_step] if is_first_half else [anchor_step, endpoint]
+
+    service.graph = DummyGraph()
+    waypoint_snap = routing_service.RoadSnap(
+        point={"lat": 0.0, "lon": 0.01},
+        projected_point={"lat": 0.0, "lon": 0.01},
+        distance_km=0.0,
+        source_node_costs={"near": 0.01},
+        target_node_costs={"far": 0.01},
+    )
+    monkeypatch.setattr(service, "_nearest_road_snap", lambda *_args, **_kwargs: waypoint_snap)
+    payload = RouteRequest(
+        origin=RoutePoint(lat=0.0, lon=0.0),
+        destination=RoutePoint(lat=0.0, lon=0.02),
+        preferences=[],
+        avoid_congestion=False,
+        avoid_accidents=False,
+    )
+
+    path = service._path_via_waypoint(payload, {"lat": 0.0, "lon": 0.01, "name": "Parque"})
+
+    assert [step.node_id for step in path] == ["origin", "near", "destination"]
+    assert service.graph.calls[0]["target_node_costs"] == {"near": 0.0}
+    assert service.graph.calls[1]["source_node_costs"] == {"near": 0.0}
+
+
 def test_diversity_factor_penalizes_only_edges_from_existing_paths():
     def graph_node(node_id: str) -> routing.GraphNode:
         return routing.GraphNode(
