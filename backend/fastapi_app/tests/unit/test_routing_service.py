@@ -153,12 +153,48 @@ def test_default_factor_remains_neutral_when_preferences_present(monkeypatch):
 
     service.compute_route(payload)
 
-    assert len(dummy_graph.calls) == 5
+    assert len(dummy_graph.calls) == 4
     personalized_call = next(call for call in dummy_graph.calls if call.get("via_factors"))
     assert personalized_call["default_via_factor"] == 1.0
     healthy_calls = [call for call in dummy_graph.calls if "air_quality_factor" in call]
-    assert len(healthy_calls) == 2
+    assert len(healthy_calls) == 1
     assert all("urban_wellbeing_factor" in call for call in healthy_calls)
+    assert all(call.get("geographic_path_limit_km", 0) > 0 for call in healthy_calls)
+
+
+def test_environmental_factors_are_reused_for_duplicate_coordinates(monkeypatch):
+    class DummyService:
+        def __init__(self):
+            self.calls = 0
+
+        def route_cost_factor(self, *_args):
+            self.calls += 1
+            return 0.8
+
+    air = DummyService()
+    wellbeing = DummyService()
+    monkeypatch.setattr(routing_service, "get_air_quality_service", lambda: air)
+    monkeypatch.setattr(routing_service, "get_urban_wellbeing_service", lambda: wellbeing)
+    first = routing.GraphNode(
+        node_id="event-a",
+        segment_id="segment-a",
+        segment_seq=0,
+        lat=-36.82,
+        lon=-73.04,
+        tipo_evento="Referencia",
+        velocidad_kmh=30.0,
+        duracion_hrs=0.1,
+        via="Test",
+        comuna="Concepcion",
+    )
+    duplicate = routing.GraphNode(**{**first.__dict__, "node_id": "event-b"})
+
+    air_factor = routing_service.RoutingService._air_quality_cost_factor(8.0)
+    wellbeing_factor = routing_service.RoutingService._urban_wellbeing_cost_factor()
+    assert air_factor(first) == air_factor(duplicate)
+    assert wellbeing_factor(first) == wellbeing_factor(duplicate)
+    assert air.calls == 1
+    assert wellbeing.calls == 1
 
 
 def test_diversity_factor_penalizes_only_edges_from_existing_paths():
@@ -638,6 +674,25 @@ def test_weighted_environmental_route_allows_ten_extra_minutes_from_ten_minute_t
         lat=-36.01,
         distance_km=1.10,
         minutes=20.0,
+    )
+
+    selected = routing_service.RoutingService._finalize_weighted_environmental_variant(
+        reference=reference,
+        least_congestion=least_congestion,
+        weighted=weighted,
+        waypoint_candidates=[],
+    )
+
+    assert selected.geometry == weighted.geometry
+
+
+def test_weighted_environmental_route_uses_time_limit_instead_of_old_distance_ratio():
+    reference = _healthy_candidate(lat=-36.0, distance_km=1.0, minutes=10.0)
+    least_congestion = _healthy_candidate(lat=-36.005, distance_km=1.1, minutes=10.0)
+    weighted = _healthy_candidate(
+        lat=-36.01,
+        distance_km=2.0,
+        minutes=19.0,
     )
 
     selected = routing_service.RoutingService._finalize_weighted_environmental_variant(

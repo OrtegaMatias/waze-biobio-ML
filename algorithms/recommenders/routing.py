@@ -511,6 +511,7 @@ class RouteGraph:
         target_node_costs: Optional[Dict[str, float]] = None,
         edge_filter: Optional[Callable[[GraphNode, GraphNode], bool]] = None,
         edge_cost_factor: Optional[Callable[[GraphNode, GraphNode], float]] = None,
+        geographic_path_limit_km: Optional[float] = None,
         use_heuristic: bool = True,
         should_cancel: Optional[Callable[[], bool]] = None,
     ) -> List[RouteStep]:
@@ -618,6 +619,23 @@ class RouteGraph:
         heapq.heapify(queue)
         nodes = self.nodes
         adjacency = self.adjacency
+        geographic_eligibility: Dict[str, bool] = {}
+
+        def within_geographic_limit(node: GraphNode) -> bool:
+            if geographic_path_limit_km is None:
+                return True
+            cached = geographic_eligibility.get(node.node_id)
+            if cached is not None:
+                return cached
+            lower_bound = haversine_km(origin[0], origin[1], node.lat, node.lon) + haversine_km(
+                node.lat,
+                node.lon,
+                destination[0],
+                destination[1],
+            )
+            eligible = lower_bound <= max(0.0, float(geographic_path_limit_km)) + 1e-9
+            geographic_eligibility[node.node_id] = eligible
+            return eligible
 
         def preference_factor(via: str) -> float:
             if via_factors:
@@ -724,6 +742,8 @@ class RouteGraph:
             current_node = nodes[node_id]
             for neighbor, base_weight in adjacency.get(node_id, []):
                 neighbor_node = nodes[neighbor]
+                if not within_geographic_limit(neighbor_node):
+                    continue
                 if edge_filter is not None and not edge_filter(current_node, neighbor_node):
                     continue
                 if apply_penalties:

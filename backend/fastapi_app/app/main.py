@@ -784,7 +784,7 @@ CONGESTION_COVERAGE_FILES = {
 RAIN_DAILY_PATH = data_loader.ROOT_DIR / "data_processed" / "gran_concepcion_rain_daily.csv"
 
 
-def _build_hotspot_points() -> List[dict]:
+def _build_hotspot_points(limit: int = 10000) -> List[dict]:
     events = data_loader.load_congestion_events()
     event_type_series = (
         events["tipo_evento"]
@@ -796,43 +796,33 @@ def _build_hotspot_points() -> List[dict]:
         .str.strip()
         .str.lower()
     )
-    congestions = events[event_type_series == "congestion"].dropna(subset=["lat", "lon"])
+    congestions = events[event_type_series == "congestion"].dropna(subset=["lat", "lon"]).head(limit)
     if congestions.empty:
         return []
-    bucketed = []
-    for _, row in congestions.iterrows():
-        try:
-            hora_inicio = pd.to_datetime(row.get("hora_inicio"), format="%H:%M", errors="coerce")
-            hora_fin = pd.to_datetime(row.get("hora_fin"), format="%H:%M", errors="coerce")
-        except Exception:
-            hora_inicio = hora_fin = None
-        if pd.isna(hora_inicio):
-            hora_inicio = None
-        if pd.isna(hora_fin):
-            hora_fin = None
-        start_float = float(hora_inicio.hour + hora_inicio.minute / 60) if hora_inicio is not None else None
-        end_float = float(hora_fin.hour + hora_fin.minute / 60) if hora_fin is not None else None
-        speed = row.get("velocidad_kmh")
-        try:
-            speed_value = float(speed) if speed is not None else None
-        except Exception:
-            speed_value = None
-        weight = 0.5
-        if speed_value is not None and speed_value > 0:
-            weight = min(2.0, max(0.1, 1 / max(speed_value, 5)))
-        bucketed.append(
-            {
-                "lat": float(row["lat"]),
-                "lon": float(row["lon"]),
-                "weight": float(weight),
-                "day": str(row.get("dia_semana") or ""),
-                "bucket": str(row.get("franja_horaria") or ""),
-                "segment_id": str(row.get("segment_id") or ""),
-                "hora_inicio_float": start_float,
-                "hora_fin_float": end_float,
-            }
-        )
-    return bucketed
+    empty = pd.Series(index=congestions.index, dtype=object)
+    start = pd.to_datetime(congestions.get("hora_inicio", empty), format="%H:%M", errors="coerce")
+    end = pd.to_datetime(congestions.get("hora_fin", empty), format="%H:%M", errors="coerce")
+    speed = pd.to_numeric(congestions.get("velocidad_kmh", empty), errors="coerce")
+    valid_speed = speed.notna() & (speed > 0)
+    weights = pd.Series(0.5, index=congestions.index, dtype=float)
+    weights.loc[valid_speed] = (1.0 / speed.loc[valid_speed].clip(lower=5.0)).clip(lower=0.1, upper=2.0)
+
+    def text_column(name: str) -> pd.Series:
+        return congestions.get(name, empty).fillna("").astype(str)
+
+    result = pd.DataFrame(
+        {
+            "lat": pd.to_numeric(congestions["lat"], errors="coerce"),
+            "lon": pd.to_numeric(congestions["lon"], errors="coerce"),
+            "weight": weights,
+            "day": text_column("dia_semana"),
+            "bucket": text_column("franja_horaria"),
+            "segment_id": text_column("segment_id"),
+            "hora_inicio_float": (start.dt.hour + start.dt.minute / 60.0).astype(object).where(start.notna(), None),
+            "hora_fin_float": (end.dt.hour + end.dt.minute / 60.0).astype(object).where(end.notna(), None),
+        }
+    )
+    return result.to_dict(orient="records")
 
 
 def _cached_hotspots(limit: int) -> List[dict]:
@@ -840,7 +830,7 @@ def _cached_hotspots(limit: int) -> List[dict]:
     signature = data_loader.data_version()
     with _hotspot_cache_lock:
         if _hotspot_cache["signature"] != signature:
-            _hotspot_cache["points"] = _build_hotspot_points()
+            _hotspot_cache["points"] = _build_hotspot_points(limit)
             _hotspot_cache["signature"] = signature
         return list(_hotspot_cache["points"][:limit])
 

@@ -53,11 +53,13 @@ HEALTHY_MAX_DISTANCE_RATIO = 1.15
 HEALTHY_MAX_EXTRA_MIN = 10.0
 HEALTHY_MIN_EXTRA_MIN = 2.0
 HEALTHY_EXTRA_TIME_RATIO = 1.0
+ROUTE_ASSUMED_SPEED_KMH = 35.0
 HEALTHY_PM25_MEANINGFUL_DELTA = 2.0
 HEALTHY_CONGESTION_RISK_TOLERANCE = 12.0
 HEALTHY_CONGESTION_SEGMENT_TOLERANCE = 1
 HEALTHY_HIGH_CONGESTION_PCT_TOLERANCE = 5.0
 HEALTHY_ENVIRONMENT_WAYPOINT_LIMIT = 1
+HEALTHY_WAYPOINT_SEARCH_EXTRA_KM = 1.5
 ALTERNATIVE_OVERLAP_PENALTY = 3.0
 ALTERNATIVE_MAX_DISTANCE_RATIO = 1.35
 ALTERNATIVE_MIN_EXTRA_DISTANCE_KM = 0.5
@@ -714,6 +716,20 @@ class RoutingService:
             raise ValueError(
                 "No existe un camino continuo entre el origen y el destino con los datos viales disponibles."
             )
+        reference_road_distance_km = self._path_distance_km(reference_path)
+        endpoint_snap_distance_km = origin_snap.distance_km + destination_snap.distance_km
+        reasonable_route_limit_km = (
+            max(
+                reference_road_distance_km * ALTERNATIVE_MAX_DISTANCE_RATIO,
+                reference_road_distance_km + ALTERNATIVE_MIN_EXTRA_DISTANCE_KM,
+            )
+            + endpoint_snap_distance_km
+        )
+        environmental_route_limit_km = (
+            reference_road_distance_km
+            + ROUTE_ASSUMED_SPEED_KMH * HEALTHY_MAX_EXTRA_MIN / 60.0
+            + endpoint_snap_distance_km
+        )
 
         # Optimización: si no hay preferencias de CF, generar solo 1 ruta con penalizaciones
         logger.info("Generando ruta least_congestion (solo penalizacion por congestion historica)...")
@@ -724,6 +740,7 @@ class RoutingService:
                 **route_endpoint_kwargs,
                 incident_ctx=routing_context,
                 apply_penalties=True,
+                geographic_path_limit_km=reasonable_route_limit_km,
             )
             if not least_congestion_path:
                 logger.warning("No se pudo construir ruta least_congestion; usando ruta reference como fallback.")
@@ -743,6 +760,7 @@ class RoutingService:
                 **alternative_kwargs,
                 incident_ctx=routing_context,
                 apply_penalties=True,
+                geographic_path_limit_km=reasonable_route_limit_km,
             )
             if self._is_reasonable_alternative(reference_path, alternative_path):
                 logger.info(
@@ -854,71 +872,20 @@ class RoutingService:
 
         air_quality_factor = self._air_quality_cost_factor(payload.departure_hour)
         wellbeing_factor = self._urban_wellbeing_cost_factor()
+        wellbeing_service = get_urban_wellbeing_service()
         logger.info("Generando ruta saludable combinada por PM2.5 y bienestar urbano...")
         healthy_penalty_kwargs = {
             "incident_ctx": routing_context,
             "apply_penalties": bool(needs_context),
         }
-        healthy_combined_path = self.graph.shortest_path(
-            (payload.origin.lat, payload.origin.lon),
-            (payload.destination.lat, payload.destination.lon),
-            **route_endpoint_kwargs,
-            **healthy_penalty_kwargs,
-            air_quality_factor=air_quality_factor,
-            urban_wellbeing_factor=wellbeing_factor,
+        waypoint_candidates = wellbeing_service.candidate_waypoints(
+            payload.origin,
+            payload.destination,
+            limit=HEALTHY_ENVIRONMENT_WAYPOINT_LIMIT,
         )
-        if not healthy_combined_path:
-            healthy_combined_path = list(reference_path)
-        if any(
-            self._same_path(healthy_combined_path, existing_path)
-            for existing_path in (reference_path, least_congestion_path)
-        ):
-            healthy_alternative_kwargs = dict(route_endpoint_kwargs)
-            healthy_alternative_kwargs["edge_cost_factor"] = self._diversity_edge_cost_factor(
-                [reference_path, least_congestion_path],
-                base_factor=route_endpoint_kwargs.get("edge_cost_factor"),
-            )
-            healthy_alternative = self.graph.shortest_path(
-                (payload.origin.lat, payload.origin.lon),
-                (payload.destination.lat, payload.destination.lon),
-                **healthy_alternative_kwargs,
-                **healthy_penalty_kwargs,
-                air_quality_factor=air_quality_factor,
-                urban_wellbeing_factor=wellbeing_factor,
-            )
-            if self._is_reasonable_alternative(reference_path, healthy_alternative):
-                logger.info(
-                    "La candidata saludable coincidia con otra ruta; se evaluara una alternativa con menor solapamiento."
-                )
-                healthy_combined_path = healthy_alternative
-
-        wellbeing_service = get_urban_wellbeing_service()
-        try:
-            combined_contact_analysis = wellbeing_service.evaluate_route(
-                [{"lat": step.lat, "lon": step.lon} for step in healthy_combined_path]
-            )
-        except Exception:
-            combined_contact_analysis = None
-        combined_has_contact = bool(
-            combined_contact_analysis
-            and combined_contact_analysis.get("top_features")
-        )
-        combined_is_distinct = not any(
-            self._same_path(healthy_combined_path, existing_path)
-            for existing_path in (reference_path, least_congestion_path)
-        )
-        waypoint_candidates = (
-            []
-            if combined_has_contact and combined_is_distinct
-            else wellbeing_service.candidate_waypoints(
-                payload.origin,
-                payload.destination,
-                limit=HEALTHY_ENVIRONMENT_WAYPOINT_LIMIT,
-            )
-        )
-        environmental_waypoint_paths: List[tuple[List[routing.RouteStep], dict]] = []
+        healthy_combined_path: List[routing.RouteStep] = []
         for waypoint in waypoint_candidates:
-            waypoint_path = self._path_via_waypoint(
+            healthy_combined_path = self._path_via_waypoint(
                 payload,
                 waypoint,
                 origin_snap=origin_snap,
@@ -927,16 +894,23 @@ class RoutingService:
                 apply_penalties=bool(needs_context),
                 air_quality_factor=air_quality_factor,
                 urban_wellbeing_factor=wellbeing_factor,
+                geographic_path_limit_km=environmental_route_limit_km,
                 should_cancel=should_cancel,
             )
-            if not self._is_reasonable_alternative(reference_path, waypoint_path):
-                continue
-            if any(
-                self._same_path(waypoint_path, existing_path)
-                for existing_path in (reference_path, least_congestion_path, healthy_combined_path)
-            ):
-                continue
-            environmental_waypoint_paths.append((waypoint_path, waypoint))
+            if healthy_combined_path:
+                break
+        if not healthy_combined_path:
+            healthy_combined_path = self.graph.shortest_path(
+                (payload.origin.lat, payload.origin.lon),
+                (payload.destination.lat, payload.destination.lon),
+                **route_endpoint_kwargs,
+                **healthy_penalty_kwargs,
+                air_quality_factor=air_quality_factor,
+                urban_wellbeing_factor=wellbeing_factor,
+                geographic_path_limit_km=environmental_route_limit_km,
+            )
+        if not healthy_combined_path:
+            healthy_combined_path = list(reference_path)
 
         # Construir variantes de respuesta
         ensure_active()
@@ -960,35 +934,47 @@ class RoutingService:
             destination_snap=destination_snap,
             active_congestion_lines=active_congestion_lines,
         )
-        ubcf_variant = self._build_response_variant(
-            payload,
-            ubcf_path,
-            delay_context,
-            via_factors=ubcf_factors,
-            variant_name="ubcf",
-            origin_snap=origin_snap,
-            destination_snap=destination_snap,
-            active_congestion_lines=active_congestion_lines,
+        ubcf_variant = (
+            deepcopy(least_congestion_variant)
+            if self._same_path(ubcf_path, least_congestion_path) and not ubcf_factors
+            else self._build_response_variant(
+                payload,
+                ubcf_path,
+                delay_context,
+                via_factors=ubcf_factors,
+                variant_name="ubcf",
+                origin_snap=origin_snap,
+                destination_snap=destination_snap,
+                active_congestion_lines=active_congestion_lines,
+            )
         )
-        ibcf_variant = self._build_response_variant(
-            payload,
-            ibcf_path,
-            delay_context,
-            via_factors=ibcf_factors,
-            variant_name="ibcf",
-            origin_snap=origin_snap,
-            destination_snap=destination_snap,
-            active_congestion_lines=active_congestion_lines,
+        ibcf_variant = (
+            deepcopy(least_congestion_variant)
+            if self._same_path(ibcf_path, least_congestion_path) and not ibcf_factors
+            else self._build_response_variant(
+                payload,
+                ibcf_path,
+                delay_context,
+                via_factors=ibcf_factors,
+                variant_name="ibcf",
+                origin_snap=origin_snap,
+                destination_snap=destination_snap,
+                active_congestion_lines=active_congestion_lines,
+            )
         )
-        personalized_variant = self._build_response_variant(
-            payload,
-            personalized_path,
-            delay_context,
-            via_factors=legacy_factors,
-            variant_name="personalized",
-            origin_snap=origin_snap,
-            destination_snap=destination_snap,
-            active_congestion_lines=active_congestion_lines,
+        personalized_variant = (
+            deepcopy(ubcf_variant)
+            if self._same_path(personalized_path, ubcf_path) and not legacy_factors
+            else self._build_response_variant(
+                payload,
+                personalized_path,
+                delay_context,
+                via_factors=legacy_factors,
+                variant_name="personalized",
+                origin_snap=origin_snap,
+                destination_snap=destination_snap,
+                active_congestion_lines=active_congestion_lines,
+            )
         )
         healthy_combined_variant = self._build_response_variant(
             payload,
@@ -1000,25 +986,12 @@ class RoutingService:
             destination_snap=destination_snap,
             active_congestion_lines=active_congestion_lines,
         )
-        environmental_waypoint_variants = [
-            self._build_response_variant(
-                payload,
-                waypoint_path,
-                delay_context,
-                via_factors={},
-                variant_name="healthy_waypoint_candidate",
-                origin_snap=origin_snap,
-                destination_snap=destination_snap,
-                active_congestion_lines=active_congestion_lines,
-            )
-            for waypoint_path, _waypoint in environmental_waypoint_paths
-        ]
         ensure_active()
         healthiest_variant = self._finalize_weighted_environmental_variant(
             reference=reference_variant,
             least_congestion=least_congestion_variant,
             weighted=healthy_combined_variant,
-            waypoint_candidates=environmental_waypoint_variants,
+            waypoint_candidates=[],
         )
         comparison = self._build_comparison(
             reference=reference_variant,
@@ -1162,14 +1135,15 @@ class RoutingService:
     @staticmethod
     def _air_quality_cost_factor(departure_hour: float):
         service = get_air_quality_service()
-        cache: Dict[str, float] = {}
+        cache: Dict[tuple[float, float], float] = {}
 
         def factor(node: routing.GraphNode) -> float:
-            cached = cache.get(node.node_id)
+            coordinate = (round(node.lat, 6), round(node.lon, 6))
+            cached = cache.get(coordinate)
             if cached is not None:
                 return cached
             value = service.route_cost_factor(node.lat, node.lon, departure_hour)
-            cache[node.node_id] = value
+            cache[coordinate] = value
             return value
 
         return factor
@@ -1177,14 +1151,15 @@ class RoutingService:
     @staticmethod
     def _urban_wellbeing_cost_factor():
         service = get_urban_wellbeing_service()
-        cache: Dict[str, float] = {}
+        cache: Dict[tuple[float, float], float] = {}
 
         def factor(node: routing.GraphNode) -> float:
-            cached = cache.get(node.node_id)
+            coordinate = (round(node.lat, 6), round(node.lon, 6))
+            cached = cache.get(coordinate)
             if cached is not None:
                 return cached
             value = service.route_cost_factor(node.lat, node.lon)
-            cache[node.node_id] = value
+            cache[coordinate] = value
             return value
 
         return factor
@@ -1200,28 +1175,56 @@ class RoutingService:
         apply_penalties: bool = False,
         air_quality_factor: Callable[[routing.GraphNode], float] | None = None,
         urban_wellbeing_factor: Callable[[routing.GraphNode], float] | None = None,
+        geographic_path_limit_km: float | None = None,
         should_cancel: Callable[[], bool] | None = None,
     ) -> List[routing.RouteStep]:
+        waypoint_lat = float(waypoint["lat"])
+        waypoint_lon = float(waypoint["lon"])
+        first_limit = geographic_path_limit_km
+        second_limit = geographic_path_limit_km
+        if geographic_path_limit_km is not None:
+            first_direct = routing.haversine_km(
+                payload.origin.lat,
+                payload.origin.lon,
+                waypoint_lat,
+                waypoint_lon,
+            )
+            second_direct = routing.haversine_km(
+                waypoint_lat,
+                waypoint_lon,
+                payload.destination.lat,
+                payload.destination.lon,
+            )
+            total_direct = first_direct + second_direct
+            search_extra = min(
+                HEALTHY_WAYPOINT_SEARCH_EXTRA_KM,
+                max(0.0, geographic_path_limit_km - total_direct),
+            )
+            if total_direct > 1e-9:
+                first_limit = first_direct + search_extra * first_direct / total_direct
+                second_limit = second_direct + search_extra * second_direct / total_direct
         first = self.graph.shortest_path(
             (payload.origin.lat, payload.origin.lon),
-            (float(waypoint["lat"]), float(waypoint["lon"])),
+            (waypoint_lat, waypoint_lon),
             source_node_costs=origin_snap.source_node_costs if origin_snap else None,
             incident_ctx=incident_ctx,
             apply_penalties=apply_penalties,
             air_quality_factor=air_quality_factor,
             urban_wellbeing_factor=urban_wellbeing_factor,
+            geographic_path_limit_km=first_limit,
             edge_filter=_cerro_caracol_edge_allowed,
             edge_cost_factor=_cerro_caracol_edge_cost_factor,
             should_cancel=should_cancel,
         )
         second = self.graph.shortest_path(
-            (float(waypoint["lat"]), float(waypoint["lon"])),
+            (waypoint_lat, waypoint_lon),
             (payload.destination.lat, payload.destination.lon),
             target_node_costs=destination_snap.target_node_costs if destination_snap else None,
             incident_ctx=incident_ctx,
             apply_penalties=apply_penalties,
             air_quality_factor=air_quality_factor,
             urban_wellbeing_factor=urban_wellbeing_factor,
+            geographic_path_limit_km=second_limit,
             edge_filter=_cerro_caracol_edge_allowed,
             edge_cost_factor=_cerro_caracol_edge_cost_factor,
             should_cancel=should_cancel,
@@ -1258,13 +1261,8 @@ class RoutingService:
             max(HEALTHY_MIN_EXTRA_MIN, fastest_time * HEALTHY_EXTRA_TIME_RATIO),
         )
         max_time = fastest_time + max_extra_time
-        max_distance = reference.distance_km * HEALTHY_MAX_DISTANCE_RATIO
-
         def within_detour(candidate: RouteVariant) -> bool:
-            return (
-                cls._variant_total_minutes(candidate) <= max_time + 1e-9
-                and candidate.distance_km <= max_distance + 1e-9
-            )
+            return cls._variant_total_minutes(candidate) <= max_time + 1e-9
 
         def has_contact(candidate: RouteVariant) -> bool:
             return bool(

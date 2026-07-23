@@ -232,6 +232,49 @@ def test_shortest_path_respects_edge_filter():
     assert [step.node_id for step in path] == ["source", "detour", "target"]
 
 
+def test_shortest_path_prunes_nodes_outside_geographic_path_limit():
+    def node(node_id: str, lat: float, lon: float) -> routing.GraphNode:
+        return routing.GraphNode(
+            node_id=node_id,
+            segment_id=node_id,
+            segment_seq=0,
+            lat=lat,
+            lon=lon,
+            tipo_evento="Referencia",
+            velocidad_kmh=30.0,
+            duracion_hrs=0.1,
+            via="Test",
+            comuna="Test",
+        )
+
+    nodes = {
+        "source": node("source", 0.0, 0.0),
+        "direct": node("direct", 0.0, 0.001),
+        "far": node("far", 0.02, 0.001),
+        "target": node("target", 0.0, 0.002),
+    }
+    graph = routing.RouteGraph(
+        nodes,
+        {
+            "source": [("direct", 5.0), ("far", 1.0)],
+            "direct": [("target", 5.0)],
+            "far": [("target", 1.0)],
+            "target": [],
+        },
+    )
+
+    path = graph.shortest_path(
+        (0.0, 0.0),
+        (0.0, 0.002),
+        apply_penalties=False,
+        source_node_costs={"source": 0.0},
+        target_node_costs={"target": 0.0},
+        geographic_path_limit_km=0.3,
+    )
+
+    assert [step.node_id for step in path] == ["source", "direct", "target"]
+
+
 def test_route_graph_penalizes_normalized_congestion_event_types():
     df = pd.DataFrame(
         [
