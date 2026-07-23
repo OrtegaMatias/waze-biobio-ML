@@ -715,7 +715,7 @@ def test_weighted_environmental_route_is_not_reordered_by_a_final_score():
         waypoint_candidates=[waypoint],
     )
 
-    assert selected.geometry == waypoint.geometry
+    assert selected.geometry == weighted.geometry
     assert selected.healthy_route_score is None
     assert selected.why_changed[0].startswith("La geometria fue calculada directamente")
 
@@ -742,7 +742,7 @@ def test_weighted_environmental_route_uses_hard_constraints_not_ranking():
         waypoint_candidates=[congested_waypoint],
     )
 
-    assert selected.geometry == weighted.geometry
+    assert selected.geometry == reference.geometry
     assert selected.incident_exposure.matched_incident_segments == 0
 
 
@@ -777,6 +777,7 @@ def test_weighted_environmental_route_allows_ten_extra_minutes_from_ten_minute_t
         lat=-36.01,
         distance_km=1.10,
         minutes=20.0,
+        wellbeing_score=15.0,
     )
 
     selected = routing_service.RoutingService._finalize_weighted_environmental_variant(
@@ -796,6 +797,7 @@ def test_weighted_environmental_route_allows_up_to_one_hundred_percent_extra_dis
         lat=-36.01,
         distance_km=2.0,
         minutes=19.0,
+        wellbeing_score=15.0,
     )
 
     selected = routing_service.RoutingService._finalize_weighted_environmental_variant(
@@ -844,6 +846,35 @@ def test_weighted_environmental_route_rejects_more_than_one_hundred_percent_extr
     )
 
     assert selected.geometry == reference.geometry
+
+
+def test_weighted_environmental_route_keeps_direct_route_without_measurable_gain():
+    reference = _healthy_candidate(
+        lat=-36.0,
+        distance_km=2.48,
+        minutes=4.3,
+        pm25=13.9,
+        wellbeing_score=0.0,
+        environmental_contact=False,
+    )
+    least_congestion = reference.model_copy(deep=True)
+    weighted = _healthy_candidate(
+        lat=-36.01,
+        distance_km=2.99,
+        minutes=5.1,
+        pm25=14.0,
+        wellbeing_score=6.6,
+    )
+
+    selected = routing_service.RoutingService._finalize_weighted_environmental_variant(
+        reference=reference,
+        least_congestion=least_congestion,
+        weighted=weighted,
+        waypoint_candidates=[],
+    )
+
+    assert selected.geometry == reference.geometry
+    assert any("no reducia" in reason for reason in selected.why_changed)
 
 
 def test_healthiest_selection_prefers_meaningfully_lower_pm25_with_reasonable_detour():
