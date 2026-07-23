@@ -13,6 +13,7 @@ from backend.fastapi_app.app.schemas.routes import (
     RouteVariant,
     UrbanWellbeingAnalysis,
     ViaPreference,
+    WellbeingFeatureImpact,
 )
 from backend.fastapi_app.app.services import routing_service
 from algorithms.recommenders import routing
@@ -442,6 +443,7 @@ def _healthy_candidate(
     high_pct: float = 0.0,
     wellbeing_score: float = 0.0,
     pm25: float = 20.0,
+    environmental_contact: bool = True,
 ) -> RouteVariant:
     return RouteVariant(
         distance_km=distance_km,
@@ -460,6 +462,20 @@ def _healthy_candidate(
         urban_wellbeing=UrbanWellbeingAnalysis(
             available=True,
             score=wellbeing_score,
+            nearby_feature_count=1 if environmental_contact else 0,
+            top_features=(
+                [
+                    WellbeingFeatureImpact(
+                        feature_id="test-park",
+                        name="Parque de prueba",
+                        category="green_space",
+                        subtype="park",
+                        source="test",
+                    )
+                ]
+                if environmental_contact
+                else []
+            ),
             method="test",
             data_source="test",
         ),
@@ -498,6 +514,71 @@ def test_healthiest_selection_uses_wellbeing_when_congestion_is_equivalent():
     assert selected.geometry == greener.geometry
     assert selected.urban_wellbeing is not None
     assert selected.urban_wellbeing.score == 90.0
+
+
+def test_healthiest_selection_requires_effective_environmental_contact():
+    reference = _healthy_candidate(
+        lat=-36.0,
+        wellbeing_score=95.0,
+        environmental_contact=False,
+    )
+    route_beside_park = _healthy_candidate(
+        lat=-36.01,
+        distance_km=1.04,
+        minutes=10.4,
+        wellbeing_score=20.0,
+        environmental_contact=True,
+    )
+
+    selected = routing_service.RoutingService._select_healthiest_variant(
+        reference=reference,
+        candidates=[reference, route_beside_park],
+    )
+
+    assert selected.geometry == route_beside_park.geometry
+    assert any("pasa junto a" in reason for reason in selected.why_changed)
+
+
+def test_healthiest_selection_prefers_contact_route_without_congestion():
+    congested_park = _healthy_candidate(
+        lat=-36.0,
+        wellbeing_score=95.0,
+        risk_score=5.0,
+        matched_segments=1,
+        high_pct=2.0,
+    )
+    clear_park = _healthy_candidate(
+        lat=-36.01,
+        distance_km=1.04,
+        minutes=10.4,
+        wellbeing_score=20.0,
+    )
+
+    selected = routing_service.RoutingService._select_healthiest_variant(
+        reference=congested_park,
+        candidates=[congested_park, clear_park],
+    )
+
+    assert selected.geometry == clear_park.geometry
+    assert selected.incident_exposure.matched_incident_segments == 0
+
+
+def test_healthiest_selection_prefers_distinct_environmental_geometry_when_valid():
+    reference = _healthy_candidate(lat=-36.0, wellbeing_score=40.0)
+    least_congestion = _healthy_candidate(lat=-36.005, wellbeing_score=45.0)
+    distinct_environmental = _healthy_candidate(
+        lat=-36.01,
+        distance_km=1.04,
+        minutes=10.4,
+        wellbeing_score=50.0,
+    )
+
+    selected = routing_service.RoutingService._select_healthiest_variant(
+        reference=reference,
+        candidates=[reference, least_congestion, distinct_environmental],
+    )
+
+    assert selected.geometry == distinct_environmental.geometry
 
 
 def test_healthiest_selection_prefers_meaningfully_lower_pm25_with_reasonable_detour():

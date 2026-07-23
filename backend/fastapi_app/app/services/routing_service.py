@@ -57,6 +57,7 @@ HEALTHY_PM25_MEANINGFUL_DELTA = 2.0
 HEALTHY_CONGESTION_RISK_TOLERANCE = 12.0
 HEALTHY_CONGESTION_SEGMENT_TOLERANCE = 1
 HEALTHY_HIGH_CONGESTION_PCT_TOLERANCE = 5.0
+HEALTHY_ENVIRONMENT_WAYPOINT_LIMIT = 1
 ALTERNATIVE_OVERLAP_PENALTY = 3.0
 ALTERNATIVE_MAX_DISTANCE_RATIO = 1.35
 ALTERNATIVE_MIN_EXTRA_DISTANCE_KM = 0.5
@@ -891,6 +892,52 @@ class RoutingService:
                 )
                 healthy_combined_path = healthy_alternative
 
+        wellbeing_service = get_urban_wellbeing_service()
+        try:
+            combined_contact_analysis = wellbeing_service.evaluate_route(
+                [{"lat": step.lat, "lon": step.lon} for step in healthy_combined_path]
+            )
+        except Exception:
+            combined_contact_analysis = None
+        combined_has_contact = bool(
+            combined_contact_analysis
+            and combined_contact_analysis.get("top_features")
+        )
+        combined_is_distinct = not any(
+            self._same_path(healthy_combined_path, existing_path)
+            for existing_path in (reference_path, least_congestion_path)
+        )
+        waypoint_candidates = (
+            []
+            if combined_has_contact and combined_is_distinct
+            else wellbeing_service.candidate_waypoints(
+                payload.origin,
+                payload.destination,
+                limit=HEALTHY_ENVIRONMENT_WAYPOINT_LIMIT,
+            )
+        )
+        environmental_waypoint_paths: List[tuple[List[routing.RouteStep], dict]] = []
+        for waypoint in waypoint_candidates:
+            waypoint_path = self._path_via_waypoint(
+                payload,
+                waypoint,
+                origin_snap=origin_snap,
+                destination_snap=destination_snap,
+                incident_ctx=routing_context,
+                apply_penalties=bool(needs_context),
+                air_quality_factor=air_quality_factor,
+                urban_wellbeing_factor=wellbeing_factor,
+                should_cancel=should_cancel,
+            )
+            if not self._is_reasonable_alternative(reference_path, waypoint_path):
+                continue
+            if any(
+                self._same_path(waypoint_path, existing_path)
+                for existing_path in (reference_path, least_congestion_path, healthy_combined_path)
+            ):
+                continue
+            environmental_waypoint_paths.append((waypoint_path, waypoint))
+
         # Construir variantes de respuesta
         ensure_active()
         reference_variant = self._build_response_variant(
@@ -953,6 +1000,19 @@ class RoutingService:
             destination_snap=destination_snap,
             active_congestion_lines=active_congestion_lines,
         )
+        environmental_waypoint_variants = [
+            self._build_response_variant(
+                payload,
+                waypoint_path,
+                delay_context,
+                via_factors={},
+                variant_name="healthy_waypoint_candidate",
+                origin_snap=origin_snap,
+                destination_snap=destination_snap,
+                active_congestion_lines=active_congestion_lines,
+            )
+            for waypoint_path, _waypoint in environmental_waypoint_paths
+        ]
         ensure_active()
         healthiest_variant = self._select_healthiest_variant(
             reference=reference_variant,
@@ -960,6 +1020,7 @@ class RoutingService:
                 reference_variant,
                 least_congestion_variant,
                 healthy_combined_variant,
+                *environmental_waypoint_variants,
             ],
         )
         comparison = self._build_comparison(
@@ -1140,6 +1201,8 @@ class RoutingService:
         destination_snap: RoadSnap | None = None,
         incident_ctx: Dict[str, object] | None = None,
         apply_penalties: bool = False,
+        air_quality_factor: Callable[[routing.GraphNode], float] | None = None,
+        urban_wellbeing_factor: Callable[[routing.GraphNode], float] | None = None,
         should_cancel: Callable[[], bool] | None = None,
     ) -> List[routing.RouteStep]:
         first = self.graph.shortest_path(
@@ -1148,6 +1211,8 @@ class RoutingService:
             source_node_costs=origin_snap.source_node_costs if origin_snap else None,
             incident_ctx=incident_ctx,
             apply_penalties=apply_penalties,
+            air_quality_factor=air_quality_factor,
+            urban_wellbeing_factor=urban_wellbeing_factor,
             edge_filter=_cerro_caracol_edge_allowed,
             edge_cost_factor=_cerro_caracol_edge_cost_factor,
             should_cancel=should_cancel,
@@ -1158,6 +1223,8 @@ class RoutingService:
             target_node_costs=destination_snap.target_node_costs if destination_snap else None,
             incident_ctx=incident_ctx,
             apply_penalties=apply_penalties,
+            air_quality_factor=air_quality_factor,
+            urban_wellbeing_factor=urban_wellbeing_factor,
             edge_filter=_cerro_caracol_edge_allowed,
             edge_cost_factor=_cerro_caracol_edge_cost_factor,
             should_cancel=should_cancel,
@@ -1195,6 +1262,34 @@ class RoutingService:
             if cls._variant_total_minutes(candidate) <= max_time + 1e-9
             and candidate.distance_km <= max_distance + 1e-9
         ] or [reference]
+
+        environmental_contacts = [
+            candidate
+            for candidate in feasible
+            if candidate.urban_wellbeing is not None
+            and candidate.urban_wellbeing.available
+            and bool(candidate.urban_wellbeing.top_features)
+        ]
+        contact_without_congestion = [
+            candidate
+            for candidate in environmental_contacts
+            if candidate.incident_exposure.matched_incident_segments == 0
+            and float(candidate.congestion_coverage.high_pct) <= 1e-9
+        ]
+        baseline_geometry_keys = {cls._variant_geometry_key(reference)}
+        if len(candidates) >= 3:
+            baseline_geometry_keys.add(cls._variant_geometry_key(candidates[1]))
+        distinct_contact_without_congestion = [
+            candidate
+            for candidate in contact_without_congestion
+            if cls._variant_geometry_key(candidate) not in baseline_geometry_keys
+        ]
+        if distinct_contact_without_congestion:
+            feasible = distinct_contact_without_congestion
+        elif contact_without_congestion:
+            feasible = contact_without_congestion
+        elif environmental_contacts:
+            feasible = environmental_contacts
 
         pm25_values = [
             float(candidate.pm25_exposure.average_pm25)
@@ -1311,7 +1406,14 @@ class RoutingService:
             reasons.append("Se descartaron alternativas ambientales con congestion claramente mayor.")
         if result.urban_wellbeing is not None and result.urban_wellbeing.top_features:
             feature = result.urban_wellbeing.top_features[0]
-            reasons.append(f"El trayecto pasa cerca de {feature.name}, considerado por su aporte al entorno del viaje.")
+            reasons.append(f"El trayecto pasa junto a {feature.name}, considerado por su aporte al entorno del viaje.")
+        else:
+            reasons.append("No se encontro un contacto ambiental valido dentro del desvio maximo permitido.")
+        if (
+            result.incident_exposure.matched_incident_segments == 0
+            and float(result.congestion_coverage.high_pct) <= 1e-9
+        ):
+            reasons.append("La alternativa evita los segmentos de congestion identificados.")
         if cls._variant_total_minutes(result) > fastest_time + 0.1:
             reasons.append(
                 f"La menor exposicion agrega {cls._variant_total_minutes(result) - fastest_time:.1f} min frente a la ruta mas directa."
