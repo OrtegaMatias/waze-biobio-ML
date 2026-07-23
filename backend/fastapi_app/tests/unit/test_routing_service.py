@@ -160,6 +160,7 @@ def test_default_factor_remains_neutral_when_preferences_present(monkeypatch):
     assert len(healthy_calls) == 1
     assert all("urban_wellbeing_factor" in call for call in healthy_calls)
     assert all(call.get("geographic_path_limit_km", 0) > 0 for call in healthy_calls)
+    assert all(call.get("apply_historical_penalties") is False for call in healthy_calls)
 
 
 def test_environmental_factors_are_reused_for_duplicate_coordinates(monkeypatch):
@@ -788,7 +789,7 @@ def test_weighted_environmental_route_allows_ten_extra_minutes_from_ten_minute_t
     assert selected.geometry == weighted.geometry
 
 
-def test_weighted_environmental_route_uses_time_limit_instead_of_old_distance_ratio():
+def test_weighted_environmental_route_allows_up_to_one_hundred_percent_extra_distance():
     reference = _healthy_candidate(lat=-36.0, distance_km=1.0, minutes=10.0)
     least_congestion = _healthy_candidate(lat=-36.005, distance_km=1.1, minutes=10.0)
     weighted = _healthy_candidate(
@@ -807,13 +808,32 @@ def test_weighted_environmental_route_uses_time_limit_instead_of_old_distance_ra
     assert selected.geometry == weighted.geometry
 
 
-def test_weighted_environmental_route_rejects_more_than_ten_extra_minutes():
+def test_weighted_environmental_route_rejects_more_than_fifteen_extra_minutes():
     reference = _healthy_candidate(lat=-36.0, minutes=10.0)
     least_congestion = _healthy_candidate(lat=-36.005, minutes=10.0)
     weighted = _healthy_candidate(
         lat=-36.01,
         distance_km=1.10,
-        minutes=20.1,
+        minutes=25.1,
+    )
+
+    selected = routing_service.RoutingService._finalize_weighted_environmental_variant(
+        reference=reference,
+        least_congestion=least_congestion,
+        weighted=weighted,
+        waypoint_candidates=[],
+    )
+
+    assert selected.geometry == reference.geometry
+
+
+def test_weighted_environmental_route_rejects_more_than_one_hundred_percent_extra_distance():
+    reference = _healthy_candidate(lat=-36.0, distance_km=1.0, minutes=10.0)
+    least_congestion = _healthy_candidate(lat=-36.005, distance_km=1.1, minutes=10.0)
+    weighted = _healthy_candidate(
+        lat=-36.01,
+        distance_km=2.01,
+        minutes=12.0,
     )
 
     selected = routing_service.RoutingService._finalize_weighted_environmental_variant(

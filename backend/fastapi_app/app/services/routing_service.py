@@ -49,10 +49,8 @@ HEALTHY_PM25_WEIGHT = 0.25
 HEALTHY_CONGESTION_WEIGHT = 0.35
 HEALTHY_WELLBEING_WEIGHT = 0.30
 HEALTHY_TRAVEL_WEIGHT = 0.10
-HEALTHY_MAX_DISTANCE_RATIO = 1.15
-HEALTHY_MAX_EXTRA_MIN = 10.0
-HEALTHY_MIN_EXTRA_MIN = 2.0
-HEALTHY_EXTRA_TIME_RATIO = 1.0
+HEALTHY_MAX_DISTANCE_RATIO = 2.0
+HEALTHY_MAX_EXTRA_MIN = 15.0
 ROUTE_ASSUMED_SPEED_KMH = 35.0
 HEALTHY_PM25_MEANINGFUL_DELTA = 2.0
 HEALTHY_CONGESTION_RISK_TOLERANCE = 12.0
@@ -728,8 +726,11 @@ class RoutingService:
             + endpoint_snap_distance_km
         )
         environmental_route_limit_km = (
-            reference_road_distance_km
-            + ROUTE_ASSUMED_SPEED_KMH * HEALTHY_MAX_EXTRA_MIN / 60.0
+            min(
+                reference_road_distance_km * HEALTHY_MAX_DISTANCE_RATIO,
+                reference_road_distance_km
+                + ROUTE_ASSUMED_SPEED_KMH * HEALTHY_MAX_EXTRA_MIN / 60.0,
+            )
             + endpoint_snap_distance_km
         )
 
@@ -892,6 +893,7 @@ class RoutingService:
             (payload.destination.lat, payload.destination.lon),
             **route_endpoint_kwargs,
             **healthy_penalty_kwargs,
+            apply_historical_penalties=False,
             air_quality_factor=air_quality_factor,
             urban_wellbeing_factor=wellbeing_factor,
             geographic_path_limit_km=environmental_route_limit_km,
@@ -908,6 +910,7 @@ class RoutingService:
                 destination_snap=destination_snap,
                 incident_ctx=routing_context,
                 apply_penalties=bool(needs_context),
+                apply_historical_penalties=False,
                 air_quality_factor=air_quality_factor,
                 urban_wellbeing_factor=wellbeing_factor,
                 geographic_path_limit_km=environmental_route_limit_km,
@@ -1191,6 +1194,7 @@ class RoutingService:
         destination_snap: RoadSnap | None = None,
         incident_ctx: Dict[str, object] | None = None,
         apply_penalties: bool = False,
+        apply_historical_penalties: bool = True,
         air_quality_factor: Callable[[routing.GraphNode], float] | None = None,
         urban_wellbeing_factor: Callable[[routing.GraphNode], float] | None = None,
         geographic_path_limit_km: float | None = None,
@@ -1250,6 +1254,7 @@ class RoutingService:
             target_node_costs=anchor_node_costs,
             incident_ctx=incident_ctx,
             apply_penalties=apply_penalties,
+            apply_historical_penalties=apply_historical_penalties,
             air_quality_factor=air_quality_factor,
             urban_wellbeing_factor=urban_wellbeing_factor,
             geographic_path_limit_km=first_limit,
@@ -1264,6 +1269,7 @@ class RoutingService:
             target_node_costs=destination_snap.target_node_costs if destination_snap else None,
             incident_ctx=incident_ctx,
             apply_penalties=apply_penalties,
+            apply_historical_penalties=apply_historical_penalties,
             air_quality_factor=air_quality_factor,
             urban_wellbeing_factor=urban_wellbeing_factor,
             geographic_path_limit_km=second_limit,
@@ -1304,13 +1310,14 @@ class RoutingService:
             cls._variant_total_minutes(reference),
             cls._variant_total_minutes(least_congestion),
         )
-        max_extra_time = min(
-            HEALTHY_MAX_EXTRA_MIN,
-            max(HEALTHY_MIN_EXTRA_MIN, fastest_time * HEALTHY_EXTRA_TIME_RATIO),
-        )
-        max_time = fastest_time + max_extra_time
+        max_time = fastest_time + HEALTHY_MAX_EXTRA_MIN
+        max_distance = reference.distance_km * HEALTHY_MAX_DISTANCE_RATIO
+
         def within_detour(candidate: RouteVariant) -> bool:
-            return cls._variant_total_minutes(candidate) <= max_time + 1e-9
+            return (
+                cls._variant_total_minutes(candidate) <= max_time + 1e-9
+                and candidate.distance_km <= max_distance + 1e-9
+            )
 
         def has_contact(candidate: RouteVariant) -> bool:
             return bool(
@@ -1428,11 +1435,7 @@ class RoutingService:
         candidates: List[RouteVariant],
     ) -> RouteVariant:
         fastest_time = min(cls._variant_total_minutes(candidate) for candidate in candidates)
-        max_extra_time = min(
-            HEALTHY_MAX_EXTRA_MIN,
-            max(HEALTHY_MIN_EXTRA_MIN, fastest_time * HEALTHY_EXTRA_TIME_RATIO),
-        )
-        max_time = fastest_time + max_extra_time
+        max_time = fastest_time + HEALTHY_MAX_EXTRA_MIN
         max_distance = reference.distance_km * HEALTHY_MAX_DISTANCE_RATIO
 
         unique: Dict[tuple[tuple[float, float], ...], RouteVariant] = {}
