@@ -793,6 +793,11 @@ class EnvironmentalImpactService:
                 if "_memory_lag_hours" in segment_rows.columns
                 else 0
             )
+            recency_weight = (
+                float(segment_rows["_memory_weight"].max())
+                if "_memory_weight" in segment_rows.columns
+                else 1.0
+            )
             base_geometry = self._segment_geometry(segment_rows, origin_lon, origin_lat)
             if base_geometry is None or base_geometry.is_empty:
                 continue
@@ -813,6 +818,7 @@ class EnvironmentalImpactService:
                         "segment_id": point.segment_id,
                         "via": point.via,
                         "lag_hours": lag_hours,
+                        "recency_weight": recency_weight,
                     }
                 )
 
@@ -874,6 +880,7 @@ class EnvironmentalImpactService:
                         str(source["segment_id"]) for source in contributors if int(source["lag_hours"]) > 0
                     },
                     "memory_max_lag_hours": max(int(source["lag_hours"]) for source in contributors),
+                    "recency_weight": max(float(source["recency_weight"]) for source in contributors),
                     "contributor_count": len(contributors),
                 }
             )
@@ -903,6 +910,12 @@ class EnvironmentalImpactService:
                     if total_area > 0
                     else max(float(record["score"]) for record in local_records)
                 )
+                recency_weight_avg = (
+                    sum(float(record["recency_weight"]) * float(record["area"]) for record in local_records)
+                    / total_area
+                    if total_area > 0
+                    else max(float(record["recency_weight"]) for record in local_records)
+                )
                 segment_ids = sorted(
                     set().union(*(record["segment_ids"] for record in local_records))
                 )
@@ -929,6 +942,7 @@ class EnvironmentalImpactService:
                             "memory_max_lag_hours": max(
                                 int(record["memory_max_lag_hours"]) for record in local_records
                             ),
+                            "recency_weight": round(recency_weight_avg, 3),
                             "overlap_count_max": max(int(record["contributor_count"]) for record in local_records),
                             "composition": "background_plus_distance_weighted_congestion",
                             "z_index": level_order[level],

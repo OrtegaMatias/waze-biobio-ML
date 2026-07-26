@@ -71,6 +71,9 @@ ACTIVE_CONGESTION_MATCH_TOLERANCE_M = 45.0
 ACTIVE_CONGESTION_NODE_TOLERANCE_M = 55.0
 ACTIVE_CONGESTION_FULL_IMPACT_M = 180.0
 ACTIVE_CONGESTION_MIN_IMPACT_FACTOR = 0.12
+ENVIRONMENT_LOW_ZONE_PENALTY = (0.04, 0.10)
+ENVIRONMENT_MEDIUM_ZONE_PENALTY = (0.90, 1.50)
+ENVIRONMENT_HIGH_ZONE_PENALTY = (2.00, 3.00)
 DAY_ALIASES = {
     "lunes": "Monday",
     "martes": "Tuesday",
@@ -1492,20 +1495,41 @@ class RoutingService:
             return None
         features = list((snapshot.zones or {}).get("features") or [])
         geometries = []
-        scores = []
+        penalties = []
         for feature in features:
             properties = feature.get("properties") or {}
-            if int(properties.get("current_focus_count") or 0) <= 0:
-                continue
             try:
                 geometry = shape(feature.get("geometry") or {})
                 score = float(properties.get("score_avg") or 0.0)
+                recency_weight = float(properties.get("recency_weight") or 0.0)
             except (TypeError, ValueError):
                 continue
             if geometry.is_empty:
                 continue
+            if recency_weight <= 0:
+                if int(properties.get("current_focus_count") or 0) > 0:
+                    recency_weight = 1.0
+                elif int(properties.get("memory_max_lag_hours") or 0) <= 1:
+                    recency_weight = 0.25
+                else:
+                    recency_weight = 0.10
+            level = str(properties.get("level") or "low").strip().lower()
+            score = max(0.0, min(100.0, score))
+            if level == "high":
+                low_penalty, high_penalty = ENVIRONMENT_HIGH_ZONE_PENALTY
+                progress = max(0.0, min(1.0, (score - 65.0) / 35.0))
+            elif level == "medium":
+                low_penalty, high_penalty = ENVIRONMENT_MEDIUM_ZONE_PENALTY
+                progress = max(0.0, min(1.0, (score - 35.0) / 30.0))
+            else:
+                low_penalty, high_penalty = ENVIRONMENT_LOW_ZONE_PENALTY
+                progress = max(0.0, min(1.0, score / 35.0))
+            zone_penalty = (low_penalty + (high_penalty - low_penalty) * progress) * max(
+                0.0,
+                min(1.0, recency_weight),
+            )
             geometries.append(geometry)
-            scores.append(max(0.0, min(1.0, score / 100.0)))
+            penalties.append(zone_penalty)
         if not geometries:
             return None
         tree = STRtree(geometries)
@@ -1518,7 +1542,7 @@ class RoutingService:
                 return cached
             point = Point(float(node.lon), float(node.lat))
             matched = [
-                scores[int(index)]
+                penalties[int(index)]
                 for index in tree.query(point)
                 if geometries[int(index)].covers(point)
             ]

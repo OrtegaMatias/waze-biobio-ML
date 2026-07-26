@@ -180,6 +180,7 @@ def test_environmental_impact_uses_only_real_congestion_rows(tmp_path, monkeypat
     assert snapshot.zones["type"] == "FeatureCollection"
     assert snapshot.zones["features"]
     assert snapshot.zones["features"][0]["geometry"]["type"] in {"Polygon", "MultiPolygon"}
+    assert all(feature["properties"]["recency_weight"] == 1.0 for feature in snapshot.zones["features"])
     assert snapshot.congestion_lines["features"][0]["properties"]["recency"] == "actual"
     assert snapshot.congestion_lines["features"][0]["properties"]["observation_count"] == 1
     assert snapshot.congestion_lines["features"][0]["properties"]["level"] == "high"
@@ -188,6 +189,10 @@ def test_environmental_impact_uses_only_real_congestion_rows(tmp_path, monkeypat
     assert snapshot.congestion_lines["features"][0]["properties"]["duration_min"] == 30.0
     assert residual_snapshot.summary.available is True
     assert residual_snapshot.points[0].score < snapshot.points[0].score
+    assert all(
+        0.0 < feature["properties"]["recency_weight"] < 1.0
+        for feature in residual_snapshot.zones["features"]
+    )
     assert residual_snapshot.congestion_lines["features"] == []
     assert empty_snapshot.summary.available is False
     assert empty_snapshot.points == []

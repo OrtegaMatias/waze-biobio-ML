@@ -231,6 +231,68 @@ def test_environmental_factors_are_reused_for_duplicate_coordinates(monkeypatch)
     assert wellbeing.calls == 1
 
 
+def test_environmental_zone_cost_allows_green_and_prioritizes_avoiding_orange_and_red(monkeypatch):
+    def feature(level, score, min_lon, max_lon, recency_weight=1.0):
+        return {
+            "type": "Feature",
+            "properties": {
+                "level": level,
+                "score_avg": score,
+                "current_focus_count": 1 if recency_weight == 1.0 else 0,
+                "memory_max_lag_hours": 1,
+                "recency_weight": recency_weight,
+            },
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[
+                    [min_lon, -36.83],
+                    [max_lon, -36.83],
+                    [max_lon, -36.81],
+                    [min_lon, -36.81],
+                    [min_lon, -36.83],
+                ]],
+            },
+        }
+
+    class DummyEnvironmentalService:
+        def build_snapshot(self, *_args):
+            return type(
+                "Snapshot",
+                (),
+                {
+                    "zones": {
+                        "features": [
+                            feature("low", 25.0, -73.06, -73.05),
+                            feature("medium", 50.0, -73.05, -73.04),
+                            feature("high", 80.0, -73.04, -73.03),
+                            feature("high", 80.0, -73.03, -73.02, recency_weight=0.25),
+                        ]
+                    }
+                },
+            )()
+
+    monkeypatch.setattr(
+        routing_service,
+        "get_environmental_impact_service",
+        lambda: DummyEnvironmentalService(),
+    )
+    payload = RouteRequest(
+        origin=RoutePoint(lat=-36.82, lon=-73.06),
+        destination=RoutePoint(lat=-36.82, lon=-73.02),
+        congestion_date="2025-03-19",
+        departure_hour=9.0,
+    )
+    factor = routing_service.RoutingService._adverse_environment_cost_factor(payload)
+
+    green = factor(routing.GraphNode("green", "g", 0, -36.82, -73.055, "Referencia", 40, 0, "G", "Test"))
+    orange = factor(routing.GraphNode("orange", "o", 0, -36.82, -73.045, "Referencia", 40, 0, "O", "Test"))
+    red = factor(routing.GraphNode("red", "r", 0, -36.82, -73.035, "Referencia", 40, 0, "R", "Test"))
+    remembered_red = factor(routing.GraphNode("memory", "m", 0, -36.82, -73.025, "Referencia", 40, 0, "M", "Test"))
+
+    assert 1.0 < green < orange < red
+    assert 1.0 < remembered_red < orange
+
+
 def test_environmental_waypoint_uses_one_shared_road_anchor(monkeypatch):
     service = routing_service.RoutingService()
 
