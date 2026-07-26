@@ -82,8 +82,6 @@ export type TravelerProfileId =
   | "moderate_risk"
   | "risk_taker";
 
-export type TravelStyle = "safe" | "balanced" | "fast";
-
 export type RecommendationItem = {
   via: string;
   estimated_rating: number;

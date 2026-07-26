@@ -294,7 +294,6 @@ def test_routes_plan_returns_user_facing_contract(monkeypatch):
         "destination": {"lat": -36.81, "lon": -73.05},
         "day_of_week": "Wednesday",
         "departure_hour": 8.0,
-        "travel_style": "balanced",
         "avoid_congestion": True,
         "avoid_accidents": False,
     }

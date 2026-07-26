@@ -347,7 +347,6 @@ class PlanRouteRequest(BaseModel):
     congestion_date: str | None = None
     day_of_week: str = Field("Monday")
     departure_hour: float = Field(8.0, ge=0.0, le=24.0)
-    travel_style: Literal["safe", "balanced", "fast"] = "balanced"
     avoid_congestion: bool = True
     avoid_accidents: bool = False
 

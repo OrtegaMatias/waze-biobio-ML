@@ -123,7 +123,6 @@ def _plan_request_key(payload: PlanRouteRequest) -> tuple:
         payload.congestion_date,
         payload.day_of_week,
         payload.departure_hour,
-        payload.travel_style,
         payload.avoid_congestion,
         payload.avoid_accidents,
     )
@@ -756,9 +755,8 @@ async def plan_route(
     plan_result_cache.set(request_key, response)
     duration = (time.perf_counter() - start) * 1000
     logger.info(
-        "POST /routes/plan -> rutas=%d estilo=%s en %.1f ms",
+        "POST /routes/plan -> rutas=%d en %.1f ms",
         len(response.routes),
-        payload.travel_style,
         duration,
     )
     return response

@@ -35,7 +35,6 @@ import type {
   ReadinessStatus,
   RoutePoint,
   RouteType,
-  TravelStyle,
   UrbanWellbeingCategory,
   UrbanWellbeingFeature,
 } from "../types";
@@ -47,7 +46,6 @@ type PlannerState = {
   destination: RoutePoint | null;
   day_of_week: string;
   departure_hour: number;
-  travel_style: TravelStyle;
   avoid_congestion: boolean;
 };
 
@@ -1196,7 +1194,6 @@ export function PlanPage() {
     destination: null,
     day_of_week: "Wednesday",
     departure_hour: 8,
-    travel_style: "balanced",
     avoid_congestion: true,
   });
   const [activePin, setActivePin] = useState<PinKey>("origin");
@@ -1697,7 +1694,6 @@ export function PlanPage() {
         congestion_date: selectedCongestionDate,
         day_of_week: planner.day_of_week,
         departure_hour: planner.departure_hour,
-        travel_style: planner.travel_style,
         avoid_congestion: planner.avoid_congestion,
         avoid_accidents: false,
       }, controller.signal);
