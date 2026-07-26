@@ -18,6 +18,8 @@ from typing import Callable, Dict, List, Tuple
 import numpy as np
 import pandas as pd
 from sklearn.neighbors import BallTree
+from shapely.geometry import Point, shape
+from shapely.strtree import STRtree
 
 from algorithms.recommenders import data_loader, routing
 
@@ -27,6 +29,7 @@ from ..schemas.routes import (
     RoutePoint,
     RouteComparison,
     RouteCongestionCoverage,
+    RouteOptimizationTrace,
     RouteDelta,
     RouteRequest,
     RouteResponse,
@@ -36,6 +39,7 @@ from ..schemas.routes import (
 )
 from .air_quality_service import get_air_quality_service
 from .environmental_impact_service import get_environmental_impact_service
+from .routing_costs import RouteCostTotals, RoutingCostModel, sum_breakdowns
 from .urban_wellbeing_service import get_urban_wellbeing_service
 
 logger = logging.getLogger(__name__)
@@ -62,6 +66,7 @@ HEALTHY_MAX_BACKTRACK_RATIO = 0.20
 ALTERNATIVE_OVERLAP_PENALTY = 3.0
 ALTERNATIVE_MAX_DISTANCE_RATIO = 2.0
 ALTERNATIVE_MAX_EXTRA_MIN = 15.0
+FLUENT_MAX_DISTANCE_RATIO = 1.50
 ACTIVE_CONGESTION_MATCH_TOLERANCE_M = 45.0
 ACTIVE_CONGESTION_NODE_TOLERANCE_M = 55.0
 ACTIVE_CONGESTION_FULL_IMPACT_M = 180.0
@@ -205,6 +210,17 @@ def _cerro_caracol_edge_cost_factor(source: routing.GraphNode, target: routing.G
     return 1.0
 
 
+def _vehicle_edge_allowed(source: routing.GraphNode, target: routing.GraphNode) -> bool:
+    blocked_classes = {"bridleway", "cycleway", "footway", "path", "pedestrian", "steps"}
+    blocked_access = {"no", "private"}
+    for node in (source, target):
+        if str(getattr(node, "road_class", "") or "").strip().lower() in blocked_classes:
+            return False
+        if str(getattr(node, "motor_vehicle", "") or "").strip().lower() in blocked_access:
+            return False
+    return True
+
+
 @dataclass(frozen=True)
 class RoadSnap:
     point: Dict[str, float]
@@ -261,6 +277,7 @@ class RoutingService:
         self.events = None
         self.graph = None
         self.segment_lookup = {}
+        self.segment_lengths_km: Dict[str, float] = {}
         self._progress = progress
         self._build_lock = Lock()
         logger.info("Inicializando RoutingService (lazy build)")
@@ -281,6 +298,7 @@ class RoutingService:
                 self.events = None
                 self.graph = cached["graph"]
                 self.segment_lookup = cached["segment_lookup"]
+                self.segment_lengths_km = self._build_segment_lengths(self.segment_lookup)
                 logger.info(
                     "Grafo cargado desde cache: %d nodos, %d segmentos",
                     len(self.graph.nodes),
@@ -309,6 +327,7 @@ class RoutingService:
 
             self.graph = routing.RouteGraph.from_events(events, progress=rg_progress)
             self.segment_lookup = self._build_segment_lookup(events)
+            self.segment_lengths_km = self._build_segment_lengths(self.segment_lookup)
             self.events = None
             logger.info(
                 "Grafo cargado: %d nodos, %d segmentos",
@@ -354,6 +373,19 @@ class RoutingService:
             }
             lookup[segment_id] = seq_map
         return lookup
+
+    @staticmethod
+    def _build_segment_lengths(
+        segment_lookup: Dict[str, Dict[int, Tuple[float, float]]],
+    ) -> Dict[str, float]:
+        lengths: Dict[str, float] = {}
+        for segment_id, seq_map in segment_lookup.items():
+            ordered = [coord for _, coord in sorted(seq_map.items())]
+            lengths[segment_id] = sum(
+                routing.haversine_km(start[0], start[1], end[0], end[1])
+                for start, end in zip(ordered, ordered[1:])
+            )
+        return lengths
 
     def _segment_between(self, segment_id: str, start_seq: int, end_seq: int) -> List[Tuple[float, float]]:
         seq_map = self.segment_lookup.get(segment_id)
@@ -537,6 +569,196 @@ class RoutingService:
         )
 
     def compute_route(
+        self,
+        payload: RouteRequest,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> RouteResponse:
+        """Calculate the three product routes directly from their own edge costs."""
+
+        def ensure_active() -> None:
+            if should_cancel is not None and should_cancel():
+                raise routing.RouteSearchCancelled()
+
+        ensure_active()
+        self._ensure_fresh_data()
+        if self.graph is None:
+            raise ValueError("El grafo de rutas aun no esta listo. Intenta nuevamente en unos segundos.")
+
+        origin_snap = self._nearest_road_snap(payload.origin, should_cancel)
+        destination_snap = self._nearest_road_snap(payload.destination, should_cancel)
+        if origin_snap.distance_km > MAX_POINT_SNAP_KM:
+            raise ValueError(
+                f"El origen esta a {origin_snap.distance_km:.2f} km de la red vial disponible. "
+                "Mueve el punto a una calle con cobertura de datos."
+            )
+        if destination_snap.distance_km > MAX_POINT_SNAP_KM:
+            raise ValueError(
+                f"El destino esta a {destination_snap.distance_km:.2f} km de la red vial disponible. "
+                "Mueve el punto a una calle con cobertura de datos."
+            )
+
+        day_value = _normalize_day(payload.day_of_week)
+        hour_bucket = data_loader.hour_bucket(payload.departure_hour)
+        analysis_context = {
+            "day": day_value,
+            "hour_bucket": hour_bucket,
+            "include_congestion": True,
+            "include_accidents": False,
+            "match_filters": True,
+        }
+        active_congestion_lines = self._active_congestion_lines(payload)
+        congestion_scores, congestion_speeds = self._active_congestion_node_metrics(
+            active_congestion_lines
+        )
+        model = RoutingCostModel(
+            congestion_scores=congestion_scores,
+            congestion_speeds_kmh=congestion_speeds,
+            segment_lengths_km=self.segment_lengths_km,
+            pm25_factor=self._air_quality_cost_factor(
+                payload.departure_hour,
+                payload.congestion_date,
+            ),
+            wellbeing_factor=self._urban_wellbeing_cost_factor(),
+            adverse_environment_factor=self._adverse_environment_cost_factor(payload),
+        )
+
+        def search(objective: str, geographic_limit_km: float | None = None) -> List[routing.RouteStep]:
+            cost_function = getattr(model, objective)
+            source_costs = self._endpoint_objective_costs(
+                model,
+                origin_snap.source_node_costs,
+                objective,
+            )
+            target_costs = self._endpoint_objective_costs(
+                model,
+                destination_snap.target_node_costs,
+                objective,
+            )
+            return self.graph.shortest_path(
+                (payload.origin.lat, payload.origin.lon),
+                (payload.destination.lat, payload.destination.lon),
+                source_node_costs=source_costs,
+                target_node_costs=target_costs,
+                source_path_distances_km=origin_snap.source_node_costs,
+                target_path_distances_km=destination_snap.target_node_costs,
+                edge_filter=_vehicle_edge_allowed,
+                edge_cost=lambda source, target, distance: cost_function(
+                    source,
+                    target,
+                    distance,
+                ).optimization_cost_min,
+                geographic_path_limit_km=geographic_limit_km,
+                apply_penalties=False,
+                use_heuristic=False,
+                should_cancel=should_cancel,
+            )
+
+        logger.info("Generando Llegar antes con costo temporal contextual...")
+        fastest_path = search("fastest")
+        if not fastest_path:
+            raise ValueError(
+                "No existe un camino vehicular continuo entre el origen y el destino con los datos disponibles."
+            )
+        fastest_distance_km = self._path_distance_km(fastest_path)
+        endpoint_distance_km = origin_snap.distance_km + destination_snap.distance_km
+        fluent_limit_km = fastest_distance_km * FLUENT_MAX_DISTANCE_RATIO + endpoint_distance_km
+
+        ensure_active()
+        logger.info("Generando Circulacion mas fluida con costo temporal y congestion exacta...")
+        fluent_path = search("fluent", fluent_limit_km)
+        if not fluent_path:
+            fluent_path = list(fastest_path)
+
+        ensure_active()
+        logger.info("Generando Menor exposicion ambiental con costo ambiental directo...")
+        environmental_path = search("environmental")
+        if not environmental_path:
+            environmental_path = list(fastest_path)
+
+        fastest_totals = self._path_cost_totals(
+            fastest_path,
+            model,
+            "fastest",
+            origin_snap,
+            destination_snap,
+        )
+        fluent_totals = self._path_cost_totals(
+            fluent_path,
+            model,
+            "fluent",
+            origin_snap,
+            destination_snap,
+        )
+        environmental_totals = self._path_cost_totals(
+            environmental_path,
+            model,
+            "environmental",
+            origin_snap,
+            destination_snap,
+        )
+
+        fastest_variant = self._build_response_variant(
+            payload,
+            fastest_path,
+            analysis_context,
+            via_factors={},
+            variant_name="reference",
+            origin_snap=origin_snap,
+            destination_snap=destination_snap,
+            active_congestion_lines=active_congestion_lines,
+            cost_totals=fastest_totals,
+            cost_objective="fastest",
+        )
+        fluent_variant = self._build_response_variant(
+            payload,
+            fluent_path,
+            analysis_context,
+            via_factors={},
+            variant_name="least_congestion",
+            origin_snap=origin_snap,
+            destination_snap=destination_snap,
+            active_congestion_lines=active_congestion_lines,
+            cost_totals=fluent_totals,
+            cost_objective="fluent",
+        )
+        environmental_variant = self._build_response_variant(
+            payload,
+            environmental_path,
+            analysis_context,
+            via_factors={},
+            variant_name="healthiest",
+            origin_snap=origin_snap,
+            destination_snap=destination_snap,
+            active_congestion_lines=active_congestion_lines,
+            cost_totals=environmental_totals,
+            cost_objective="environmental",
+        )
+        comparison = self._build_comparison(
+            reference=fastest_variant,
+            least_congestion=fluent_variant,
+            ubcf=fluent_variant,
+            ibcf=fluent_variant,
+            healthiest=environmental_variant,
+            personalized=fluent_variant,
+        )
+        self._log_variant_diagnostics(
+            {
+                "reference": fastest_variant,
+                "least_congestion": fluent_variant,
+                "healthiest": environmental_variant,
+            }
+        )
+        return RouteResponse(
+            reference=fastest_variant,
+            least_congestion=fluent_variant,
+            ubcf=fluent_variant.model_copy(deep=True),
+            ibcf=fluent_variant.model_copy(deep=True),
+            healthiest=environmental_variant,
+            personalized=fluent_variant.model_copy(deep=True),
+            comparison=comparison,
+        )
+
+    def _compute_route_legacy(
         self,
         payload: RouteRequest,
         should_cancel: Callable[[], bool] | None = None,
@@ -1070,6 +1292,54 @@ class RoutingService:
             for previous, current in zip(path, path[1:])
         )
 
+    def _endpoint_objective_costs(
+        self,
+        model: RoutingCostModel,
+        distances_km: Dict[str, float],
+        objective: str,
+    ) -> Dict[str, float]:
+        if self.graph is None:
+            return {}
+        cost_function = getattr(model, objective)
+        result: Dict[str, float] = {}
+        for node_id, distance_km in distances_km.items():
+            node = self.graph.nodes.get(node_id)
+            if node is None:
+                continue
+            result[node_id] = cost_function(node, node, float(distance_km)).optimization_cost_min
+        return result
+
+    def _path_cost_totals(
+        self,
+        path: List[routing.RouteStep],
+        model: RoutingCostModel,
+        objective: str,
+        origin_snap: RoadSnap,
+        destination_snap: RoadSnap,
+    ) -> RouteCostTotals:
+        if self.graph is None or not path:
+            return RouteCostTotals()
+        cost_function = getattr(model, objective)
+        breakdowns = []
+        first_node = self.graph.nodes.get(path[0].node_id)
+        last_node = self.graph.nodes.get(path[-1].node_id)
+        if first_node is not None:
+            source_distance = float(origin_snap.source_node_costs.get(first_node.node_id, 0.0))
+            if source_distance > 0:
+                breakdowns.append(cost_function(first_node, first_node, source_distance))
+        for previous, current in zip(path, path[1:]):
+            source = self.graph.nodes.get(previous.node_id)
+            target = self.graph.nodes.get(current.node_id)
+            if source is None or target is None:
+                continue
+            distance = routing.haversine_km(source.lat, source.lon, target.lat, target.lon)
+            breakdowns.append(cost_function(source, target, distance))
+        if last_node is not None:
+            target_distance = float(destination_snap.target_node_costs.get(last_node.node_id, 0.0))
+            if target_distance > 0:
+                breakdowns.append(cost_function(last_node, last_node, target_distance))
+        return sum_breakdowns(breakdowns)
+
     @classmethod
     def _is_reasonable_alternative(
         cls,
@@ -1133,16 +1403,29 @@ class RoutingService:
         logger.info("Diagnostico de variantes de ruta:\n%s", "\n".join(rows))
 
     @staticmethod
-    def _air_quality_cost_factor(departure_hour: float):
+    def _air_quality_cost_factor(departure_hour: float, snapshot_date: str | None = None):
         service = get_air_quality_service()
         cache: Dict[tuple[float, float], float] = {}
+        snapshot = None
+        if snapshot_date:
+            try:
+                snapshot = service.station_snapshot(snapshot_date, int(departure_hour))
+            except Exception as exc:
+                logger.warning("No se pudo cargar PM2.5 exacto para el costo de ruta: %s", exc)
 
         def factor(node: routing.GraphNode) -> float:
             coordinate = (round(node.lat, 6), round(node.lon, 6))
             cached = cache.get(coordinate)
             if cached is not None:
                 return cached
-            value = service.route_cost_factor(node.lat, node.lon, departure_hour)
+            if snapshot_date:
+                value = (
+                    service.route_cost_factor_from_snapshot(snapshot, node.lat, node.lon)
+                    if snapshot is not None and snapshot.available
+                    else 1.0
+                )
+            else:
+                value = service.route_cost_factor(node.lat, node.lon, departure_hour)
             cache[coordinate] = value
             return value
 
@@ -1159,6 +1442,56 @@ class RoutingService:
             if cached is not None:
                 return cached
             value = service.route_cost_factor(node.lat, node.lon)
+            cache[coordinate] = value
+            return value
+
+        return factor
+
+    @staticmethod
+    def _adverse_environment_cost_factor(payload: RouteRequest):
+        if not payload.congestion_date:
+            return None
+        try:
+            snapshot = get_environmental_impact_service().build_snapshot(
+                payload.congestion_date,
+                int(payload.departure_hour),
+            )
+        except Exception as exc:
+            logger.warning("No se pudo cargar la capa ambiental exacta para rutas: %s", exc)
+            return None
+        features = list((snapshot.zones or {}).get("features") or [])
+        geometries = []
+        scores = []
+        for feature in features:
+            properties = feature.get("properties") or {}
+            if int(properties.get("current_focus_count") or 0) <= 0:
+                continue
+            try:
+                geometry = shape(feature.get("geometry") or {})
+                score = float(properties.get("score_avg") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if geometry.is_empty:
+                continue
+            geometries.append(geometry)
+            scores.append(max(0.0, min(1.0, score / 100.0)))
+        if not geometries:
+            return None
+        tree = STRtree(geometries)
+        cache: Dict[tuple[float, float], float] = {}
+
+        def factor(node: routing.GraphNode) -> float:
+            coordinate = (round(node.lat, 6), round(node.lon, 6))
+            cached = cache.get(coordinate)
+            if cached is not None:
+                return cached
+            point = Point(float(node.lon), float(node.lat))
+            matched = [
+                scores[int(index)]
+                for index in tree.query(point)
+                if geometries[int(index)].covers(point)
+            ]
+            value = 1.0 + max(matched, default=0.0)
             cache[coordinate] = value
             return value
 
@@ -1733,20 +2066,30 @@ class RoutingService:
             and feature_via == node_via
         )
 
-    def _active_congestion_node_penalties(self, active_congestion_lines: List[dict]) -> Dict[str, float]:
+    def _active_congestion_node_metrics(
+        self,
+        active_congestion_lines: List[dict],
+    ) -> tuple[Dict[str, float], Dict[str, float]]:
         if self.graph is None or not active_congestion_lines:
-            return {}
+            return {}, {}
         congestion_coords: list[tuple[float, float]] = []
         congestion_feature_indices: list[int] = []
-        congestion_features: list[tuple[dict, List[Dict[str, float]], float]] = []
+        congestion_features: list[tuple[dict, List[Dict[str, float]], float, float | None]] = []
         for feature in active_congestion_lines:
             line = self._congestion_line_points(feature)
             if len(line) < 2:
                 continue
             properties = feature.get("properties", {})
             score = float(properties.get("score") or 0.0)
+            raw_speed = properties.get("speed_kmh")
+            try:
+                speed_kmh = float(raw_speed) if raw_speed is not None else None
+            except (TypeError, ValueError):
+                speed_kmh = None
+            if speed_kmh is not None and (not math.isfinite(speed_kmh) or speed_kmh < 5.0):
+                speed_kmh = None
             feature_index = len(congestion_features)
-            congestion_features.append((properties, line, score))
+            congestion_features.append((properties, line, score, speed_kmh))
             for start, end in zip(line, line[1:]):
                 segment_length_m = routing.haversine_km(
                     start["lat"], start["lon"], end["lat"], end["lon"]
@@ -1764,7 +2107,7 @@ class RoutingService:
             congestion_coords.append((line[-1]["lat"], line[-1]["lon"]))
             congestion_feature_indices.append(feature_index)
         if not congestion_coords:
-            return {}
+            return {}, {}
 
         node_ids: list[str] = []
         node_coords: list[tuple[float, float]] = []
@@ -1773,26 +2116,33 @@ class RoutingService:
                 node_ids.append(node_id)
                 node_coords.append((node.lat, node.lon))
         if not node_coords:
-            return {}
+            return {}, {}
 
         tree = BallTree(np.radians(np.asarray(congestion_coords, dtype=float)), metric="haversine")
         radius = (ACTIVE_CONGESTION_NODE_TOLERANCE_M * 1.35) / (routing.EARTH_RADIUS_KM * 1000)
         neighbor_indices = tree.query_radius(np.radians(np.asarray(node_coords, dtype=float)), r=radius)
-        penalties: Dict[str, float] = {}
+        scores: Dict[str, float] = {}
+        speeds: Dict[str, float] = {}
         for node_id, neighbors in zip(node_ids, neighbor_indices):
             node = self.graph.nodes[node_id]
-            matching_scores = []
+            matching: list[tuple[float, float | None]] = []
             for feature_index in {congestion_feature_indices[int(index)] for index in neighbors}:
-                properties, line, score = congestion_features[feature_index]
+                properties, line, score, speed_kmh = congestion_features[feature_index]
                 if not self._node_matches_congestion_feature(node, properties):
                     continue
                 point = {"lat": node.lat, "lon": node.lon}
                 if self._point_to_polyline_distance_m(point, line) <= ACTIVE_CONGESTION_NODE_TOLERANCE_M:
-                    matching_scores.append(score)
-            if matching_scores:
-                score = max(matching_scores)
-                penalties[node_id] = 1.0 + (score / 100.0) * 80.0
-        return penalties
+                    matching.append((score, speed_kmh))
+            if matching:
+                scores[node_id] = max(0.0, min(1.0, max(item[0] for item in matching) / 100.0))
+                valid_speeds = [item[1] for item in matching if item[1] is not None]
+                if valid_speeds:
+                    speeds[node_id] = min(valid_speeds)
+        return scores, speeds
+
+    def _active_congestion_node_penalties(self, active_congestion_lines: List[dict]) -> Dict[str, float]:
+        scores, _speeds = self._active_congestion_node_metrics(active_congestion_lines)
+        return {node_id: 1.0 + score * 80.0 for node_id, score in scores.items()}
 
     def _active_congestion_segment_impacts(
         self,
@@ -2124,6 +2474,8 @@ class RoutingService:
         origin_snap: RoadSnap | None = None,
         destination_snap: RoadSnap | None = None,
         active_congestion_lines: List[dict] | None = None,
+        cost_totals: RouteCostTotals | None = None,
+        cost_objective: str | None = None,
     ) -> RouteVariant:
         first_graph = path[0]
         last_graph = path[-1]
@@ -2201,10 +2553,13 @@ class RoutingService:
                     cumulative_cost=round(cumulative_cost, 3),
                 )
             )
-        avg_speed = 35
-        estimated_minutes = (distance / max(avg_speed, 5)) * 60
-        extra_minutes = 0.0
-        if context:
+        estimated_minutes = (
+            float(cost_totals.base_time_min)
+            if cost_totals is not None
+            else (distance / 35.0) * 60.0
+        )
+        extra_minutes = float(cost_totals.congestion_delay_min) if cost_totals is not None else 0.0
+        if context and cost_totals is None:
             include_congestion = bool(context.get("include_congestion", True))
             match_filters = bool(context.get("match_filters", True))
             day_value = str(context.get("day") or "").lower() if match_filters else ""
@@ -2252,6 +2607,7 @@ class RoutingService:
             pm25_exposure = get_air_quality_service().estimate_route_exposure(
                 geometry=geometry,
                 departure_hour=payload.departure_hour,
+                snapshot_date=payload.congestion_date,
             )
         except Exception as exc:  # pragma: no cover - defensive fallback for optional layer
             logger.warning("No se pudo estimar exposicion PM2.5 para la ruta: %s", exc)
@@ -2262,6 +2618,23 @@ class RoutingService:
             logger.warning("No se pudo estimar bienestar urbano para la ruta: %s", exc)
             urban_wellbeing = None
 
+        optimization_trace = None
+        if cost_totals is not None and cost_objective in {"fastest", "fluent", "environmental"}:
+            optimization_trace = RouteOptimizationTrace(
+                objective=cost_objective,
+                logical_segment_count=len({step.segment_id for step in path}),
+                base_time_min=round(cost_totals.base_time_min, 3),
+                congestion_delay_min=round(cost_totals.congestion_delay_min, 3),
+                congestion_penalty_min=round(cost_totals.congestion_penalty_min, 3),
+                stop_penalty_min=round(cost_totals.stop_penalty_min, 3),
+                pm25_penalty_min=round(cost_totals.pm25_penalty_min, 3),
+                adverse_environment_penalty_min=round(
+                    cost_totals.adverse_environment_penalty_min,
+                    3,
+                ),
+                urban_benefit_min=round(cost_totals.urban_benefit_min, 3),
+                optimization_cost_min=round(cost_totals.optimization_cost_min, 3),
+            )
         return RouteVariant(
             distance_km=round(distance, 2),
             estimated_duration_min=round(estimated_minutes, 1),
@@ -2278,6 +2651,7 @@ class RoutingService:
             top_penalized_segments=top_penalized_segments,
             top_preferred_vias=top_preferred_vias,
             congestion_coverage=congestion_coverage,
+            optimization_trace=optimization_trace,
         )
 
     def _build_geometry(self, path: List[routing.RouteStep]) -> List[Dict[str, float]]:

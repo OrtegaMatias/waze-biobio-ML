@@ -265,6 +265,20 @@ class RouteCongestionCoverage(BaseModel):
     primary_via: str | None = None
 
 
+class RouteOptimizationTrace(BaseModel):
+    objective: Literal["fastest", "fluent", "environmental"]
+    cost_model_version: str = "direct-edge-cost-v1"
+    logical_segment_count: int = 0
+    base_time_min: float = 0.0
+    congestion_delay_min: float = 0.0
+    congestion_penalty_min: float = 0.0
+    stop_penalty_min: float = 0.0
+    pm25_penalty_min: float = 0.0
+    adverse_environment_penalty_min: float = 0.0
+    urban_benefit_min: float = 0.0
+    optimization_cost_min: float = 0.0
+
+
 class RouteVariant(BaseModel):
     distance_km: float
     estimated_duration_min: float
@@ -282,6 +296,7 @@ class RouteVariant(BaseModel):
     top_penalized_segments: List[SegmentImpact] = Field(default_factory=list)
     top_preferred_vias: List[PreferredViaImpact] = Field(default_factory=list)
     congestion_coverage: RouteCongestionCoverage = Field(default_factory=RouteCongestionCoverage)
+    optimization_trace: RouteOptimizationTrace | None = None
 
 
 class RouteDelta(BaseModel):

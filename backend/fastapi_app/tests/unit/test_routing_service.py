@@ -105,7 +105,7 @@ def test_routing_service_uses_cache_without_loading_events(monkeypatch):
     assert service.segment_lookup == {"segA": {0: (-36.0, -73.0)}}
 
 
-def test_default_factor_remains_neutral_when_preferences_present(monkeypatch):
+def test_direct_route_generation_ignores_legacy_collaborative_preferences(monkeypatch):
     service = routing_service.RoutingService()
 
     class DummyGraph:
@@ -154,13 +154,9 @@ def test_default_factor_remains_neutral_when_preferences_present(monkeypatch):
     service.compute_route(payload)
 
     assert len(dummy_graph.calls) == 3
-    personalized_call = next(call for call in dummy_graph.calls if call.get("via_factors"))
-    assert personalized_call["default_via_factor"] == 1.0
-    healthy_calls = [call for call in dummy_graph.calls if "air_quality_factor" in call]
-    assert len(healthy_calls) == 1
-    assert all("urban_wellbeing_factor" in call for call in healthy_calls)
-    assert all(call.get("geographic_path_limit_km", 0) > 0 for call in healthy_calls)
-    assert all(call.get("apply_historical_penalties") is False for call in healthy_calls)
+    assert all(not call.get("via_factors") for call in dummy_graph.calls)
+    assert all(call.get("edge_cost") is not None for call in dummy_graph.calls)
+    assert all(call.get("use_heuristic") is False for call in dummy_graph.calls)
 
 
 def test_environmental_factors_are_reused_for_duplicate_coordinates(monkeypatch):
@@ -332,7 +328,7 @@ def test_reasonable_alternative_rejects_identical_and_excessive_detours():
     assert not routing_service.RoutingService._is_reasonable_alternative(reference, excessive)
 
 
-def test_reference_variant_includes_congestion_delay(monkeypatch):
+def test_reference_variant_does_not_mix_historical_delay_without_active_context(monkeypatch):
     service = routing_service.RoutingService()
 
     class DummyGraph:
@@ -387,8 +383,8 @@ def test_reference_variant_includes_congestion_delay(monkeypatch):
 
     route = service.compute_route(payload)
 
-    assert route.reference.extra_delay_min == pytest.approx(35.0)
-    assert route.personalized.extra_delay_min == pytest.approx(35.0)
+    assert route.reference.extra_delay_min == pytest.approx(0.0)
+    assert route.personalized.extra_delay_min == pytest.approx(0.0)
     assert route.reference.estimated_duration_min < 10
     assert route.personalized.estimated_duration_min < 10
 
@@ -479,7 +475,7 @@ def test_least_congestion_variant_is_dedicated_penalized_route(monkeypatch):
 
         def shortest_path(self, _origin, _destination, **kwargs):
             self.calls.append(kwargs)
-            if kwargs.get("apply_penalties") is False:
+            if kwargs.get("geographic_path_limit_km") is None:
                 return direct_path
             return detour_path
 
@@ -516,9 +512,8 @@ def test_least_congestion_variant_is_dedicated_penalized_route(monkeypatch):
     assert route.least_congestion.incident_exposure.matched_incident_segments == 0
     assert route.least_congestion.distance_km > route.reference.distance_km
     assert route.comparison.lowest_exposure_variant == "least_congestion"
-    assert "air_quality_factor" not in service.graph.calls[1]
-    assert "urban_wellbeing_factor" not in service.graph.calls[1]
-    assert service.graph.calls[1]["apply_historical_penalties"] is False
+    assert all(call.get("edge_cost") is not None for call in service.graph.calls)
+    assert service.graph.calls[1]["apply_penalties"] is False
     assert service.graph.calls[1]["geographic_path_limit_km"] > 0
 
 
@@ -546,6 +541,32 @@ def test_cerro_caracol_blocks_internal_edges_but_allows_victor_lamas():
     assert routing_service._cerro_caracol_edge_allowed(outside, victor_lamas)
     assert routing_service._cerro_caracol_edge_cost_factor(inside, inside) > 1.0
     assert routing_service._cerro_caracol_edge_cost_factor(outside, victor_lamas) == 1.0
+
+
+def test_vehicle_filter_uses_osm_access_instead_of_geographic_proximity():
+    def node(node_id: str, road_class: str, motor_vehicle: str = "") -> routing.GraphNode:
+        return routing.GraphNode(
+            node_id=node_id,
+            segment_id=node_id,
+            segment_seq=0,
+            lat=-36.8360,
+            lon=-73.0470,
+            tipo_evento="Referencia",
+            velocidad_kmh=30.0,
+            duracion_hrs=0.1,
+            via="Cerro Caracol",
+            comuna="Concepcion",
+            road_class=road_class,
+            motor_vehicle=motor_vehicle,
+        )
+
+    road = node("road", "residential")
+    footpath = node("foot", "footway")
+    private_road = node("private", "service", "private")
+
+    assert routing_service._vehicle_edge_allowed(road, road)
+    assert not routing_service._vehicle_edge_allowed(road, footpath)
+    assert not routing_service._vehicle_edge_allowed(road, private_road)
 
 
 def _healthy_candidate(
