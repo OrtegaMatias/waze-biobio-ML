@@ -1928,7 +1928,7 @@ export function PlanningMap({
           {projectedHotspots.map((point) => (
             <circle className="hotspot-svg-point" cx={point.x} cy={point.y} key={point.key} r={point.r} />
           ))}
-          {projectedCycleways.map((item) => (
+          {projectedCycleways.filter((item) => !item.evidence).map((item) => (
             <path
               className={`cycleway-svg-line cycleway-${item.category} ${item.evidence ? "cycleway-evidence" : ""}`}
               d={item.path}
@@ -2024,6 +2024,13 @@ export function PlanningMap({
                 />
               ))}
             </g>
+          ))}
+          {projectedCycleways.filter((item) => item.evidence).map((item) => (
+            <path
+              className={`cycleway-svg-line cycleway-${item.category} cycleway-evidence`}
+              d={item.path}
+              key={`cycleway-evidence-${item.key}`}
+            />
           ))}
           {projectedRoutes.map((item) => (
             <path

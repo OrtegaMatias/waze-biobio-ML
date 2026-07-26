@@ -911,10 +911,13 @@ input[type="range"] {
 }
 
 .cycleway-svg-line.cycleway-evidence {
-  stroke: rgba(8, 145, 178, 0.95);
-  stroke-width: 5;
-  stroke-dasharray: none;
-  filter: drop-shadow(0 2px 5px rgba(15, 23, 42, 0.28));
+  stroke: #22d3ee;
+  stroke-width: 4;
+  stroke-dasharray: 2 8;
+  stroke-linecap: round;
+  filter:
+    drop-shadow(0 0 1px rgba(255, 255, 255, 1))
+    drop-shadow(0 2px 4px rgba(15, 23, 42, 0.42));
 }
 
 .cycleway-segregated_cycleway,
