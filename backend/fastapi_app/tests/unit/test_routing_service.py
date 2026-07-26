@@ -163,6 +163,39 @@ def test_direct_route_generation_ignores_legacy_collaborative_preferences(monkey
     assert route.healthiest.optimization_trace.objective == "environmental"
 
 
+def test_exact_congestion_is_loaded_even_when_legacy_avoid_flag_is_false(monkeypatch):
+    expected_feature = {
+        "type": "Feature",
+        "properties": {"segment_id": "seg-congestion"},
+        "geometry": {"type": "LineString", "coordinates": [[-73.0, -36.0], [-73.01, -36.01]]},
+    }
+
+    class DummySnapshot:
+        congestion_lines = {"type": "FeatureCollection", "features": [expected_feature]}
+
+    class DummyEnvironmentalService:
+        def build_snapshot(self, snapshot_date, snapshot_hour):
+            assert snapshot_date == "2025-03-13"
+            assert snapshot_hour == 8
+            return DummySnapshot()
+
+    monkeypatch.setattr(
+        routing_service,
+        "get_environmental_impact_service",
+        lambda: DummyEnvironmentalService(),
+    )
+    service = routing_service.RoutingService()
+    payload = RouteRequest(
+        origin=RoutePoint(lat=-36.0, lon=-73.0),
+        destination=RoutePoint(lat=-36.01, lon=-73.01),
+        congestion_date="2025-03-13",
+        departure_hour=8.0,
+        avoid_congestion=False,
+    )
+
+    assert service._active_congestion_lines(payload) == [expected_feature]
+
+
 def test_environmental_factors_are_reused_for_duplicate_coordinates(monkeypatch):
     class DummyService:
         def __init__(self):

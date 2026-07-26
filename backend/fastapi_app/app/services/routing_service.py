@@ -1962,7 +1962,7 @@ class RoutingService:
         return matches_day and matches_hour
 
     def _active_congestion_lines(self, payload: RouteRequest) -> List[dict]:
-        if not payload.avoid_congestion or not payload.congestion_date:
+        if not payload.congestion_date:
             return []
         try:
             snapshot = get_environmental_impact_service().build_snapshot(
@@ -2383,7 +2383,7 @@ class RoutingService:
     ) -> List[str]:
         reasons: List[str] = []
         if variant_name == "reference":
-            reasons.append("Esta ruta usa Dijkstra puro y prioriza la ruta mas corta disponible.")
+            reasons.append("Esta ruta usa Dijkstra y minimiza el tiempo estimado para la fecha y hora seleccionadas.")
         elif variant_name.startswith("healthy_") or variant_name == "healthiest":
             reasons.append("Esta variante prioriza menor exposicion ambiental y mejores condiciones del entorno.")
         else:
