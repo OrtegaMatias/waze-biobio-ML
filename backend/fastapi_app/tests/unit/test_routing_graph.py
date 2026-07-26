@@ -640,6 +640,40 @@ def test_constrained_dijkstra_keeps_non_dominated_cost_and_distance_labels():
     assert [step.node_id for step in path] == ["source", "merge", "target"]
 
 
+def test_constrained_dijkstra_can_limit_contextual_time_instead_of_distance():
+    nodes = {
+        "source": routing.GraphNode("source", "source", 0, 0.0, 0.0, "Referencia", 40.0, 0.0, "S", "Test"),
+        "slow": routing.GraphNode("slow", "slow", 0, 0.001, 0.0, "Referencia", 40.0, 0.0, "Lenta", "Test"),
+        "fast": routing.GraphNode("fast", "fast", 0, 0.0, 0.001, "Referencia", 40.0, 0.0, "Rapida", "Test"),
+        "target": routing.GraphNode("target", "target", 0, 0.001, 0.001, "Referencia", 40.0, 0.0, "T", "Test"),
+    }
+    adjacency = {
+        "source": [("slow", 1.0), ("fast", 2.0)],
+        "slow": [("target", 1.0)],
+        "fast": [("target", 2.0)],
+        "target": [],
+    }
+    resource_minutes = {
+        ("source", "slow"): 6.0,
+        ("slow", "target"): 6.0,
+        ("source", "fast"): 2.0,
+        ("fast", "target"): 2.0,
+    }
+    graph = routing.RouteGraph(nodes, adjacency, spatial_node_ids=list(nodes))
+
+    path = graph.shortest_path_constrained(
+        source_node_costs={"source": 0.0},
+        target_node_costs={"target": 0.0},
+        source_resource_costs={"source": 0.0},
+        target_resource_costs={"target": 0.0},
+        edge_cost=lambda _source, _target, supplied: supplied,
+        edge_resource_cost=lambda source, target, _supplied: resource_minutes[(source.node_id, target.node_id)],
+        max_resource_cost=10.0,
+    )
+
+    assert [step.node_id for step in path] == ["source", "fast", "target"]
+
+
 def test_shortest_path_applies_preferences():
     nodes = {
         "start": routing.GraphNode("start", "seg_start", 0, 0.0, 0.0, "Referencia", 30.0, 0.1, "Inicio", "Test"),

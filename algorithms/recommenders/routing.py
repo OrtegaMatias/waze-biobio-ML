@@ -923,16 +923,29 @@ class RouteGraph:
         *,
         source_node_costs: Dict[str, float],
         target_node_costs: Dict[str, float],
-        source_path_distances_km: Dict[str, float],
-        target_path_distances_km: Dict[str, float],
         edge_cost: Callable[[GraphNode, GraphNode, float], float],
-        max_path_length_km: float,
+        source_path_distances_km: Optional[Dict[str, float]] = None,
+        target_path_distances_km: Optional[Dict[str, float]] = None,
+        max_path_length_km: Optional[float] = None,
+        source_resource_costs: Optional[Dict[str, float]] = None,
+        target_resource_costs: Optional[Dict[str, float]] = None,
+        edge_resource_cost: Optional[Callable[[GraphNode, GraphNode, float], float]] = None,
+        max_resource_cost: Optional[float] = None,
         edge_filter: Optional[Callable[[GraphNode, GraphNode], bool]] = None,
         should_cancel: Optional[Callable[[], bool]] = None,
     ) -> List[RouteStep]:
-        """Resource-constrained Dijkstra with non-dominated cost/distance labels."""
+        """Resource-constrained Dijkstra with non-dominated cost/resource labels.
 
-        max_length = max(0.0, float(max_path_length_km))
+        The legacy distance arguments remain supported, while callers can provide
+        an independent resource such as contextual travel time.
+        """
+
+        source_resources = source_resource_costs or source_path_distances_km or {}
+        target_resources = target_resource_costs or target_path_distances_km or {}
+        raw_max_resource = max_resource_cost if max_resource_cost is not None else max_path_length_km
+        if raw_max_resource is None:
+            raise ValueError("max_resource_cost es obligatorio para la busqueda restringida.")
+        max_resource = max(0.0, float(raw_max_resource))
         target_ids = {
             node_id
             for node_id, cost in target_node_costs.items()
@@ -947,26 +960,26 @@ class RouteGraph:
         queue: List[tuple[float, int]] = []
         next_label_id = 0
 
-        def add_label(node_id: str, cost: float, distance_km: float, previous_label: Optional[int]) -> int | None:
+        def add_label(node_id: str, cost: float, resource_cost: float, previous_label: Optional[int]) -> int | None:
             nonlocal next_label_id
-            if distance_km > max_length + 1e-9:
+            if resource_cost > max_resource + 1e-9:
                 return None
             existing_ids = labels_by_node[node_id]
             for label_id in existing_ids:
                 if label_id not in active_labels:
                     continue
-                _node, existing_cost, existing_distance, _previous = labels[label_id]
-                if existing_cost <= cost + 1e-12 and existing_distance <= distance_km + 1e-12:
+                _node, existing_cost, existing_resource, _previous = labels[label_id]
+                if existing_cost <= cost + 1e-12 and existing_resource <= resource_cost + 1e-12:
                     return None
             for label_id in list(existing_ids):
                 if label_id not in active_labels:
                     continue
-                _node, existing_cost, existing_distance, _previous = labels[label_id]
-                if cost <= existing_cost + 1e-12 and distance_km <= existing_distance + 1e-12:
+                _node, existing_cost, existing_resource, _previous = labels[label_id]
+                if cost <= existing_cost + 1e-12 and resource_cost <= existing_resource + 1e-12:
                     active_labels.discard(label_id)
             label_id = next_label_id
             next_label_id += 1
-            labels[label_id] = (node_id, cost, distance_km, previous_label)
+            labels[label_id] = (node_id, cost, resource_cost, previous_label)
             active_labels.add(label_id)
             labels_by_node[node_id].append(label_id)
             heapq.heappush(queue, (cost, label_id))
@@ -976,8 +989,8 @@ class RouteGraph:
             if node_id not in self.nodes:
                 continue
             cost = max(0.0, float(raw_cost))
-            distance = max(0.0, float(source_path_distances_km.get(node_id, 0.0)))
-            add_label(node_id, cost, distance, None)
+            resource = max(0.0, float(source_resources.get(node_id, 0.0)))
+            add_label(node_id, cost, resource, None)
 
         best_target_label: int | None = None
         best_target_total = float("inf")
@@ -986,7 +999,7 @@ class RouteGraph:
             current_cost, label_id = heapq.heappop(queue)
             if label_id not in active_labels:
                 continue
-            node_id, stored_cost, current_distance, _previous = labels[label_id]
+            node_id, stored_cost, current_resource, _previous = labels[label_id]
             if current_cost > stored_cost + 1e-12 or current_cost >= best_target_total:
                 continue
             expanded += 1
@@ -994,10 +1007,10 @@ class RouteGraph:
                 raise RouteSearchCancelled()
 
             if node_id in target_ids:
-                terminal_distance = max(0.0, float(target_path_distances_km.get(node_id, 0.0)))
-                total_distance = current_distance + terminal_distance
+                terminal_resource = max(0.0, float(target_resources.get(node_id, 0.0)))
+                total_resource = current_resource + terminal_resource
                 total_cost = current_cost + max(0.0, float(target_node_costs.get(node_id, 0.0)))
-                if total_distance <= max_length + 1e-9 and total_cost < best_target_total:
+                if total_resource <= max_resource + 1e-9 and total_cost < best_target_total:
                     best_target_total = total_cost
                     best_target_label = label_id
 
@@ -1006,9 +1019,15 @@ class RouteGraph:
                 target = self.nodes[neighbor_id]
                 if edge_filter is not None and not edge_filter(source, target):
                     continue
-                edge_distance = haversine_km(source.lat, source.lon, target.lat, target.lon)
-                candidate_distance = current_distance + max(0.0, edge_distance)
-                if candidate_distance > max_length + 1e-9:
+                candidate_resource_increment = (
+                    edge_resource_cost(source, target, base_weight)
+                    if edge_resource_cost is not None
+                    else haversine_km(source.lat, source.lon, target.lat, target.lon)
+                )
+                if not math.isfinite(candidate_resource_increment) or candidate_resource_increment < 0:
+                    continue
+                candidate_resource = current_resource + float(candidate_resource_increment)
+                if candidate_resource > max_resource + 1e-9:
                     continue
                 candidate_edge_cost = edge_cost(source, target, base_weight)
                 if not math.isfinite(candidate_edge_cost) or candidate_edge_cost < 0:
@@ -1016,7 +1035,7 @@ class RouteGraph:
                 add_label(
                     neighbor_id,
                     current_cost + float(candidate_edge_cost),
-                    candidate_distance,
+                    candidate_resource,
                     label_id,
                 )
 
@@ -1026,7 +1045,7 @@ class RouteGraph:
         chain_label_ids: List[int] = []
         current_label: int | None = best_target_label
         while current_label is not None:
-            node_id, _cost, _distance, previous_label = labels[current_label]
+            node_id, _cost, _resource, previous_label = labels[current_label]
             node_ids.append(node_id)
             chain_label_ids.append(current_label)
             current_label = previous_label
