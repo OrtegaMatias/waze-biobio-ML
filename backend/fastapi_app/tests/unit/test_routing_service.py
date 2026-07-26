@@ -512,8 +512,10 @@ def test_least_congestion_variant_is_dedicated_penalized_route(monkeypatch):
 
         def shortest_path(self, _origin, _destination, **kwargs):
             self.calls.append(kwargs)
-            if kwargs.get("geographic_path_limit_km") is None:
-                return direct_path
+            return direct_path
+
+        def shortest_path_constrained(self, **kwargs):
+            self.calls.append(kwargs)
             return detour_path
 
     class DummyAirQualityService:
@@ -530,6 +532,11 @@ def test_least_congestion_variant_is_dedicated_penalized_route(monkeypatch):
     }
     monkeypatch.setattr(service, "_ensure_fresh_data", lambda: None)
     monkeypatch.setattr(routing_service, "get_air_quality_service", lambda: DummyAirQualityService())
+    monkeypatch.setattr(
+        service,
+        "_path_cost_totals",
+        lambda *_args, **_kwargs: routing_service.RouteCostTotals(base_time_min=10.0),
+    )
 
     payload = RouteRequest(
         origin=RoutePoint(lat=-36.0, lon=-73.0),
@@ -550,8 +557,10 @@ def test_least_congestion_variant_is_dedicated_penalized_route(monkeypatch):
     assert route.least_congestion.distance_km > route.reference.distance_km
     assert route.comparison.lowest_exposure_variant == "least_congestion"
     assert all(call.get("edge_cost") is not None for call in service.graph.calls)
-    assert service.graph.calls[1]["apply_penalties"] is False
-    assert service.graph.calls[1]["geographic_path_limit_km"] > 0
+    assert service.graph.calls[1].get("edge_resource_cost") is not None
+    assert service.graph.calls[1]["max_resource_cost"] == pytest.approx(15.0)
+    assert service.graph.calls[2].get("edge_resource_cost") is not None
+    assert service.graph.calls[2]["max_resource_cost"] == pytest.approx(15.0)
 
 
 def test_cerro_caracol_blocks_internal_edges_but_allows_victor_lamas():

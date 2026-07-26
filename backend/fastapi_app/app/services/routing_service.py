@@ -66,7 +66,7 @@ HEALTHY_MAX_BACKTRACK_RATIO = 0.20
 ALTERNATIVE_OVERLAP_PENALTY = 3.0
 ALTERNATIVE_MAX_DISTANCE_RATIO = 2.0
 ALTERNATIVE_MAX_EXTRA_MIN = 15.0
-FLUENT_MAX_DISTANCE_RATIO = 1.50
+ALTERNATIVE_MAX_TIME_RATIO = 1.50
 ACTIVE_CONGESTION_MATCH_TOLERANCE_M = 45.0
 ACTIVE_CONGESTION_NODE_TOLERANCE_M = 55.0
 ACTIVE_CONGESTION_FULL_IMPACT_M = 180.0
@@ -622,7 +622,7 @@ class RoutingService:
             adverse_environment_factor=self._adverse_environment_cost_factor(payload),
         )
 
-        def search(objective: str, geographic_limit_km: float | None = None) -> List[routing.RouteStep]:
+        def search(objective: str, max_contextual_time_min: float | None = None) -> List[routing.RouteStep]:
             cost_function = getattr(model, objective)
             source_costs = self._endpoint_objective_costs(
                 model,
@@ -635,22 +635,37 @@ class RoutingService:
                 objective,
             )
             if (
-                objective == "fluent"
-                and geographic_limit_km is not None
+                objective in {"fluent", "environmental"}
+                and max_contextual_time_min is not None
                 and hasattr(self.graph, "shortest_path_constrained")
             ):
+                source_time_costs = self._endpoint_objective_costs(
+                    model,
+                    origin_snap.source_node_costs,
+                    "fastest",
+                )
+                target_time_costs = self._endpoint_objective_costs(
+                    model,
+                    destination_snap.target_node_costs,
+                    "fastest",
+                )
                 return self.graph.shortest_path_constrained(
                     source_node_costs=source_costs,
                     target_node_costs=target_costs,
-                    source_path_distances_km=origin_snap.source_node_costs,
-                    target_path_distances_km=destination_snap.target_node_costs,
+                    source_resource_costs=source_time_costs,
+                    target_resource_costs=target_time_costs,
                     edge_filter=_vehicle_edge_allowed,
                     edge_cost=lambda source, target, distance: cost_function(
                         source,
                         target,
                         distance,
                     ).optimization_cost_min,
-                    max_path_length_km=geographic_limit_km,
+                    edge_resource_cost=lambda source, target, distance: model.fastest(
+                        source,
+                        target,
+                        distance,
+                    ).travel_time_min,
+                    max_resource_cost=max_contextual_time_min,
                     should_cancel=should_cancel,
                 )
             return self.graph.shortest_path(
@@ -666,7 +681,6 @@ class RoutingService:
                     target,
                     distance,
                 ).optimization_cost_min,
-                geographic_path_limit_km=geographic_limit_km,
                 apply_penalties=False,
                 use_heuristic=False,
                 should_cancel=should_cancel,
@@ -678,22 +692,6 @@ class RoutingService:
             raise ValueError(
                 "No existe un camino vehicular continuo entre el origen y el destino con los datos disponibles."
             )
-        fastest_distance_km = self._path_distance_km(fastest_path)
-        endpoint_distance_km = origin_snap.distance_km + destination_snap.distance_km
-        fluent_limit_km = fastest_distance_km * FLUENT_MAX_DISTANCE_RATIO + endpoint_distance_km
-
-        ensure_active()
-        logger.info("Generando Circulacion mas fluida con costo temporal y congestion exacta...")
-        fluent_path = search("fluent", fluent_limit_km)
-        if not fluent_path:
-            fluent_path = list(fastest_path)
-
-        ensure_active()
-        logger.info("Generando Menor exposicion ambiental con costo ambiental directo...")
-        environmental_path = search("environmental")
-        if not environmental_path:
-            environmental_path = list(fastest_path)
-
         fastest_totals = self._path_cost_totals(
             fastest_path,
             model,
@@ -701,6 +699,20 @@ class RoutingService:
             origin_snap,
             destination_snap,
         )
+        alternative_time_limit_min = fastest_totals.travel_time_min * ALTERNATIVE_MAX_TIME_RATIO
+
+        ensure_active()
+        logger.info("Generando Circulacion mas fluida con costo temporal y congestion exacta...")
+        fluent_path = search("fluent", alternative_time_limit_min)
+        if not fluent_path:
+            fluent_path = list(fastest_path)
+
+        ensure_active()
+        logger.info("Generando Menor exposicion ambiental con costo ambiental directo...")
+        environmental_path = search("environmental", alternative_time_limit_min)
+        if not environmental_path:
+            environmental_path = list(fastest_path)
+
         fluent_totals = self._path_cost_totals(
             fluent_path,
             model,
