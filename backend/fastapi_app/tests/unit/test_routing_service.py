@@ -231,6 +231,16 @@ def test_environmental_factors_are_reused_for_duplicate_coordinates(monkeypatch)
     assert wellbeing.calls == 1
 
 
+def test_road_name_compatibility_accepts_conservative_aliases():
+    service = routing_service.RoutingService()
+
+    assert service._road_names_compatible("Salas", "Obispo Hipolito Salas")
+    assert service._road_names_compatible("Av. Prat", "Avenida Arturo Prat")
+    assert service._road_names_compatible("O'Higgins", "Avenida Bernardo O'Higgins")
+    assert not service._road_names_compatible("Los Carrera", "Ignacio Carrera Pinto")
+    assert not service._road_names_compatible("Sin Nombre", "Obispo Hipolito Salas")
+
+
 def test_environmental_zone_cost_allows_green_and_prioritizes_avoiding_orange_and_red(monkeypatch):
     def feature(level, score, min_lon, max_lon, recency_weight=1.0):
         return {
@@ -1337,6 +1347,44 @@ def test_active_congestion_perpendicular_street_does_not_penalize_crossing_nodes
     assert penalties["congested"] > 1.0
 
 
+def test_active_congestion_alias_penalizes_the_same_osm_street():
+    service = routing_service.RoutingService()
+    service.graph = routing.RouteGraph(
+        nodes={
+            "salas-a": routing.GraphNode(
+                "salas-a", "osm-salas", 0, -36.8315, -73.0610,
+                "Referencia", 30.0, 0.1, "Salas", "Concepcion",
+            ),
+            "salas-b": routing.GraphNode(
+                "salas-b", "osm-salas", 1, -36.8260, -73.0610,
+                "Referencia", 30.0, 0.1, "Salas", "Concepcion",
+            ),
+        },
+        adjacency={},
+    )
+    active_line = {
+        "type": "Feature",
+        "properties": {
+            "segment_id": "kml-obispo-salas",
+            "via": "Obispo Hipolito Salas",
+            "score": 70.0,
+            "speed_kmh": 14.0,
+        },
+        "geometry": {
+            "type": "LineString",
+            "coordinates": [
+                [-73.0610, -36.8320],
+                [-73.0610, -36.8250],
+            ],
+        },
+    }
+
+    scores, speeds = service._active_congestion_node_metrics([active_line])
+
+    assert scores == {"salas-a": pytest.approx(0.7), "salas-b": pytest.approx(0.7)}
+    assert speeds == {"salas-a": pytest.approx(14.0), "salas-b": pytest.approx(14.0)}
+
+
 def test_active_congestion_perpendicular_street_does_not_count_in_route_coverage():
     service = routing_service.RoutingService()
     route_geometry = [
@@ -1426,6 +1474,53 @@ def test_route_coverage_matches_the_local_street_instead_of_any_route_via():
 
     assert impacts == []
     assert coverage.high_m == 0.0
+
+
+def test_route_coverage_recognizes_an_abbreviated_osm_street_name():
+    service = routing_service.RoutingService()
+    route_geometry = [
+        {"lat": -36.8315, "lon": -73.0610},
+        {"lat": -36.8260, "lon": -73.0610},
+    ]
+    route_path = [
+        routing.RouteStep(
+            "salas-a", "osm-salas", 0, -36.8315, -73.0610,
+            "Salas", "Concepcion", 0.0,
+        ),
+        routing.RouteStep(
+            "salas-b", "osm-salas", 1, -36.8260, -73.0610,
+            "Salas", "Concepcion", 1.0,
+        ),
+    ]
+    active_line = {
+        "type": "Feature",
+        "properties": {
+            "segment_id": "kml-obispo-salas",
+            "via": "Obispo Hipolito Salas",
+            "comuna": "Concepcion",
+            "level": "high",
+            "recency": "actual",
+            "score": 70.0,
+        },
+        "geometry": {
+            "type": "LineString",
+            "coordinates": [
+                [-73.0610, -36.8320],
+                [-73.0610, -36.8250],
+            ],
+        },
+    }
+
+    impacts, coverage = service._active_congestion_segment_impacts(
+        route_geometry,
+        {service._normalize_road_name("Salas")},
+        {"osm-salas"},
+        [active_line],
+        route_path=route_path,
+    )
+
+    assert len(impacts) == 1
+    assert coverage.high_m > 500.0
 
 
 def test_destination_snap_uses_mid_block_perpendicular_and_oneway_target(monkeypatch):

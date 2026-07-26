@@ -2096,6 +2096,27 @@ class RoutingService:
         return re.sub(r"[^a-z0-9]+", " ", text).strip()
 
     @classmethod
+    def _road_names_compatible(cls, first: str | None, second: str | None) -> bool:
+        """Match conservative OSM/source aliases without relying on one-off names."""
+
+        first_name = cls._normalize_road_name(first)
+        second_name = cls._normalize_road_name(second)
+        invalid_names = {"", "sin nombre", "unknown", "desconocida"}
+        if first_name in invalid_names or second_name in invalid_names:
+            return False
+        if first_name == second_name:
+            return True
+        first_tokens = set(first_name.split())
+        second_tokens = set(second_name.split())
+        shorter, longer = (
+            (first_tokens, second_tokens)
+            if len(first_tokens) <= len(second_tokens)
+            else (second_tokens, first_tokens)
+        )
+        distinctive_tokens = {token for token in shorter if len(token) >= 4 and not token.isdigit()}
+        return bool(distinctive_tokens and shorter.issubset(longer))
+
+    @classmethod
     def _route_matches_congestion_feature(
         cls,
         properties: dict,
@@ -2106,7 +2127,7 @@ class RoutingService:
         if segment_id and segment_id in route_segment_ids:
             return True
         via = cls._normalize_road_name(str(properties.get("via") or ""))
-        return bool(via and via not in {"sin nombre", "unknown", "desconocida"} and via in route_vias)
+        return any(cls._road_names_compatible(via, route_via) for route_via in route_vias)
 
     @classmethod
     def _node_matches_congestion_feature(cls, node: routing.GraphNode, properties: dict) -> bool:
@@ -2115,11 +2136,7 @@ class RoutingService:
             return True
         feature_via = cls._normalize_road_name(str(properties.get("via") or ""))
         node_via = cls._normalize_road_name(node.via)
-        return bool(
-            feature_via
-            and feature_via not in {"sin nombre", "unknown", "desconocida"}
-            and feature_via == node_via
-        )
+        return cls._road_names_compatible(feature_via, node_via)
 
     def _active_congestion_node_metrics(
         self,
@@ -2231,8 +2248,8 @@ class RoutingService:
                     matches_via = bool(
                         feature_via
                         and feature_via not in {"sin nombre", "unknown", "desconocida"}
-                        and feature_via == self._normalize_road_name(previous.via)
-                        and feature_via == self._normalize_road_name(current.via)
+                        and self._road_names_compatible(feature_via, previous.via)
+                        and self._road_names_compatible(feature_via, current.via)
                     )
                     if matches_segment or matches_via:
                         local_pairs.append(
