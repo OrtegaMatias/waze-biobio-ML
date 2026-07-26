@@ -918,6 +918,142 @@ class RouteGraph:
         path.reverse()
         return path
 
+    def shortest_path_constrained(
+        self,
+        *,
+        source_node_costs: Dict[str, float],
+        target_node_costs: Dict[str, float],
+        source_path_distances_km: Dict[str, float],
+        target_path_distances_km: Dict[str, float],
+        edge_cost: Callable[[GraphNode, GraphNode, float], float],
+        max_path_length_km: float,
+        edge_filter: Optional[Callable[[GraphNode, GraphNode], bool]] = None,
+        should_cancel: Optional[Callable[[], bool]] = None,
+    ) -> List[RouteStep]:
+        """Resource-constrained Dijkstra with non-dominated cost/distance labels."""
+
+        max_length = max(0.0, float(max_path_length_km))
+        target_ids = {
+            node_id
+            for node_id, cost in target_node_costs.items()
+            if node_id in self.nodes and math.isfinite(float(cost))
+        }
+        if not target_ids:
+            return []
+
+        labels: Dict[int, tuple[str, float, float, Optional[int]]] = {}
+        active_labels: Set[int] = set()
+        labels_by_node: Dict[str, List[int]] = defaultdict(list)
+        queue: List[tuple[float, int]] = []
+        next_label_id = 0
+
+        def add_label(node_id: str, cost: float, distance_km: float, previous_label: Optional[int]) -> int | None:
+            nonlocal next_label_id
+            if distance_km > max_length + 1e-9:
+                return None
+            existing_ids = labels_by_node[node_id]
+            for label_id in existing_ids:
+                if label_id not in active_labels:
+                    continue
+                _node, existing_cost, existing_distance, _previous = labels[label_id]
+                if existing_cost <= cost + 1e-12 and existing_distance <= distance_km + 1e-12:
+                    return None
+            for label_id in list(existing_ids):
+                if label_id not in active_labels:
+                    continue
+                _node, existing_cost, existing_distance, _previous = labels[label_id]
+                if cost <= existing_cost + 1e-12 and distance_km <= existing_distance + 1e-12:
+                    active_labels.discard(label_id)
+            label_id = next_label_id
+            next_label_id += 1
+            labels[label_id] = (node_id, cost, distance_km, previous_label)
+            active_labels.add(label_id)
+            labels_by_node[node_id].append(label_id)
+            heapq.heappush(queue, (cost, label_id))
+            return label_id
+
+        for node_id, raw_cost in source_node_costs.items():
+            if node_id not in self.nodes:
+                continue
+            cost = max(0.0, float(raw_cost))
+            distance = max(0.0, float(source_path_distances_km.get(node_id, 0.0)))
+            add_label(node_id, cost, distance, None)
+
+        best_target_label: int | None = None
+        best_target_total = float("inf")
+        expanded = 0
+        while queue:
+            current_cost, label_id = heapq.heappop(queue)
+            if label_id not in active_labels:
+                continue
+            node_id, stored_cost, current_distance, _previous = labels[label_id]
+            if current_cost > stored_cost + 1e-12 or current_cost >= best_target_total:
+                continue
+            expanded += 1
+            if expanded % 256 == 0 and should_cancel is not None and should_cancel():
+                raise RouteSearchCancelled()
+
+            if node_id in target_ids:
+                terminal_distance = max(0.0, float(target_path_distances_km.get(node_id, 0.0)))
+                total_distance = current_distance + terminal_distance
+                total_cost = current_cost + max(0.0, float(target_node_costs.get(node_id, 0.0)))
+                if total_distance <= max_length + 1e-9 and total_cost < best_target_total:
+                    best_target_total = total_cost
+                    best_target_label = label_id
+
+            source = self.nodes[node_id]
+            for neighbor_id, base_weight in self.adjacency.get(node_id, []):
+                target = self.nodes[neighbor_id]
+                if edge_filter is not None and not edge_filter(source, target):
+                    continue
+                edge_distance = haversine_km(source.lat, source.lon, target.lat, target.lon)
+                candidate_distance = current_distance + max(0.0, edge_distance)
+                if candidate_distance > max_length + 1e-9:
+                    continue
+                candidate_edge_cost = edge_cost(source, target, base_weight)
+                if not math.isfinite(candidate_edge_cost) or candidate_edge_cost < 0:
+                    continue
+                add_label(
+                    neighbor_id,
+                    current_cost + float(candidate_edge_cost),
+                    candidate_distance,
+                    label_id,
+                )
+
+        if best_target_label is None:
+            return []
+        node_ids: List[str] = []
+        chain_label_ids: List[int] = []
+        current_label: int | None = best_target_label
+        while current_label is not None:
+            node_id, _cost, _distance, previous_label = labels[current_label]
+            node_ids.append(node_id)
+            chain_label_ids.append(current_label)
+            current_label = previous_label
+        node_ids.reverse()
+        chain_label_ids.reverse()
+        return [
+            RouteStep(
+                node_id=node.node_id,
+                segment_id=node.segment_id,
+                segment_seq=node.segment_seq,
+                lat=node.lat,
+                lon=node.lon,
+                via=node.via,
+                comuna=node.comuna,
+                peso=labels[label_id][1],
+                tipo_evento=node.tipo_evento,
+                duracion_hrs=node.duracion_hrs,
+                dia_semana=node.dia_semana,
+                franja_horaria=node.franja_horaria,
+                velocidad_kmh=node.velocidad_kmh,
+                road_class=node.road_class,
+                oneway=node.oneway,
+            )
+            for node_id, label_id in zip(node_ids, chain_label_ids)
+            for node in [self.nodes[node_id]]
+        ]
+
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])

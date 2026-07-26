@@ -634,6 +634,25 @@ class RoutingService:
                 destination_snap.target_node_costs,
                 objective,
             )
+            if (
+                objective == "fluent"
+                and geographic_limit_km is not None
+                and hasattr(self.graph, "shortest_path_constrained")
+            ):
+                return self.graph.shortest_path_constrained(
+                    source_node_costs=source_costs,
+                    target_node_costs=target_costs,
+                    source_path_distances_km=origin_snap.source_node_costs,
+                    target_path_distances_km=destination_snap.target_node_costs,
+                    edge_filter=_vehicle_edge_allowed,
+                    edge_cost=lambda source, target, distance: cost_function(
+                        source,
+                        target,
+                        distance,
+                    ).optimization_cost_min,
+                    max_path_length_km=geographic_limit_km,
+                    should_cancel=should_cancel,
+                )
             return self.graph.shortest_path(
                 (payload.origin.lat, payload.origin.lon),
                 (payload.destination.lat, payload.destination.lon),

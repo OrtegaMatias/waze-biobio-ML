@@ -613,6 +613,33 @@ def test_edge_weight_increases_with_penalty():
     assert penalized_cost > baseline_cost
 
 
+def test_constrained_dijkstra_keeps_non_dominated_cost_and_distance_labels():
+    nodes = {
+        "source": routing.GraphNode("source", "source", 0, 0.0, 0.0, "Referencia", 40.0, 0.0, "S", "Test"),
+        "detour": routing.GraphNode("detour", "detour", 0, 0.01, 0.0, "Referencia", 40.0, 0.0, "D", "Test"),
+        "merge": routing.GraphNode("merge", "merge", 0, 0.0, 0.001, "Referencia", 40.0, 0.0, "M", "Test"),
+        "target": routing.GraphNode("target", "target", 0, 0.0, 0.002, "Referencia", 40.0, 0.0, "T", "Test"),
+    }
+    adjacency = {
+        "source": [("detour", 0.1), ("merge", 5.0)],
+        "detour": [("merge", 0.1)],
+        "merge": [("target", 0.1)],
+        "target": [],
+    }
+    graph = routing.RouteGraph(nodes, adjacency, spatial_node_ids=list(nodes))
+
+    path = graph.shortest_path_constrained(
+        source_node_costs={"source": 0.0},
+        target_node_costs={"target": 0.0},
+        source_path_distances_km={"source": 0.0},
+        target_path_distances_km={"target": 0.0},
+        edge_cost=lambda _source, _target, supplied: supplied,
+        max_path_length_km=0.5,
+    )
+
+    assert [step.node_id for step in path] == ["source", "merge", "target"]
+
+
 def test_shortest_path_applies_preferences():
     nodes = {
         "start": routing.GraphNode("start", "seg_start", 0, 0.0, 0.0, "Referencia", 30.0, 0.1, "Inicio", "Test"),
