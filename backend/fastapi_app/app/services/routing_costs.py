@@ -11,9 +11,8 @@ DEFAULT_URBAN_SPEED_KMH = 40.0
 MAX_FALLBACK_URBAN_SPEED_KMH = 50.0
 MIN_DRIVING_SPEED_KMH = 5.0
 MAX_VALID_SPECIFIC_SPEED_KMH = 130.0
-FLUENCY_CONGESTION_WEIGHT = 2.0
 FLUENCY_STOP_MIN_PER_KM = 1.5
-ENVIRONMENT_CONGESTION_WEIGHT = 1.25
+ENVIRONMENT_CONGESTION_RELATIVE_WEIGHT = 0.65
 ENVIRONMENT_PM25_WEIGHT = 0.70
 ENVIRONMENT_ADVERSE_WEIGHT = 0.75
 ENVIRONMENT_MIN_EDGE_FACTOR = 0.35
@@ -97,6 +96,19 @@ def free_flow_speed_kmh(node: GraphNode) -> float:
     road_class = str(getattr(node, "road_class", "") or "").strip().lower()
     fallback = ROAD_CLASS_SPEED_KMH.get(road_class, DEFAULT_URBAN_SPEED_KMH)
     return min(MAX_FALLBACK_URBAN_SPEED_KMH, max(MIN_DRIVING_SPEED_KMH, fallback))
+
+
+def congestion_avoidance_penalty_factor(score: float) -> float:
+    """Return a non-linear penalty: low is tolerable, orange is costly, red is exceptional."""
+
+    normalized = max(0.0, min(1.0, _finite(score) or 0.0))
+    if normalized < 0.35:
+        return normalized * 2.0
+    if normalized < 0.65:
+        progress = (normalized - 0.35) / 0.30
+        return 1.5 + 3.5 * progress
+    progress = (normalized - 0.65) / 0.35
+    return 7.0 + 13.0 * progress
 
 
 class RoutingCostModel:
@@ -184,7 +196,7 @@ class RoutingCostModel:
         return EdgeCostBreakdown(
             base_time_min=base_time,
             congestion_delay_min=delay,
-            congestion_penalty_min=contextual_time * score * FLUENCY_CONGESTION_WEIGHT,
+            congestion_penalty_min=contextual_time * congestion_avoidance_penalty_factor(score),
             stop_penalty_min=proportional_stop,
         )
 
@@ -203,7 +215,11 @@ class RoutingCostModel:
             if self.wellbeing_factor
             else 1.0
         )
-        congestion_penalty = contextual_time * score * ENVIRONMENT_CONGESTION_WEIGHT
+        congestion_penalty = (
+            contextual_time
+            * congestion_avoidance_penalty_factor(score)
+            * ENVIRONMENT_CONGESTION_RELATIVE_WEIGHT
+        )
         pm25_penalty = contextual_time * (pm25_factor - 1.0) * ENVIRONMENT_PM25_WEIGHT
         adverse_penalty = contextual_time * (adverse_factor - 1.0) * ENVIRONMENT_ADVERSE_WEIGHT
         gross_cost = contextual_time + congestion_penalty + pm25_penalty + adverse_penalty

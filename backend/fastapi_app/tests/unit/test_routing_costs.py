@@ -6,6 +6,7 @@ from algorithms.recommenders import routing
 from backend.fastapi_app.app.services.routing_costs import (
     ENVIRONMENT_MIN_EDGE_FACTOR,
     RoutingCostModel,
+    congestion_avoidance_penalty_factor,
     free_flow_speed_kmh,
 )
 
@@ -56,6 +57,33 @@ def test_fluent_cost_equals_fastest_when_the_block_has_no_congestion():
     fluent = model.fluent(source, target, 1.0)
 
     assert fluent.optimization_cost_min == fastest.optimization_cost_min
+
+
+def test_congestion_penalty_prioritizes_avoiding_orange_and_red():
+    green = congestion_avoidance_penalty_factor(0.25)
+    orange = congestion_avoidance_penalty_factor(0.50)
+    red = congestion_avoidance_penalty_factor(0.80)
+
+    assert 0.0 < green < orange < red
+    assert orange >= green * 5.0
+    assert red >= orange * 2.0
+
+
+def test_fluent_and_environmental_costs_strongly_penalize_red_congestion():
+    source = _node("a", 0.0)
+    target = _node("b", 0.01)
+    model = RoutingCostModel(
+        congestion_scores={"b": 0.8},
+        congestion_speeds_kmh={"b": 10.0},
+        segment_lengths_km={"block-a": 1.0},
+    )
+
+    fastest = model.fastest(source, target, 1.0)
+    fluent = model.fluent(source, target, 1.0)
+    environmental = model.environmental(source, target, 1.0)
+
+    assert fluent.optimization_cost_min > fastest.optimization_cost_min * 10.0
+    assert environmental.optimization_cost_min > fastest.optimization_cost_min * 7.0
 
 
 def test_environmental_benefits_never_make_an_edge_free_or_negative():
