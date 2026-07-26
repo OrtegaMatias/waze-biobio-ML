@@ -540,6 +540,7 @@ def _build_plan_response(route: RouteResponse, payload: PlanRouteRequest) -> Pla
             pm25_exposure=variant.pm25_exposure,
             urban_wellbeing=variant.urban_wellbeing,
             healthy_route_score=variant.healthy_route_score,
+            optimization_trace=variant.optimization_trace,
             cycleway_coverage=cycleway_coverage,
             bicycle_suggestion=_bicycle_suggestion_for_variant(variant, cycleway_coverage),
         )

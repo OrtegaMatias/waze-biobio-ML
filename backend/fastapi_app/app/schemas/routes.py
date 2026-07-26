@@ -410,6 +410,7 @@ class UserRouteCard(BaseModel):
     pm25_exposure: Pm25Exposure | None = None
     urban_wellbeing: UrbanWellbeingAnalysis | None = None
     healthy_route_score: float | None = Field(None, ge=0.0, le=100.0)
+    optimization_trace: RouteOptimizationTrace | None = None
     cycleway_coverage: CyclewayCoverage | None = None
     bicycle_suggestion: str | None = None
     contextual_messages: List[ContextualMobilityMessage] = Field(default_factory=list)

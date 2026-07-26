@@ -151,12 +151,16 @@ def test_direct_route_generation_ignores_legacy_collaborative_preferences(monkey
         avoid_accidents=False,
     )
 
-    service.compute_route(payload)
+    route = service.compute_route(payload)
 
     assert len(dummy_graph.calls) == 3
     assert all(not call.get("via_factors") for call in dummy_graph.calls)
     assert all(call.get("edge_cost") is not None for call in dummy_graph.calls)
     assert all(call.get("use_heuristic") is False for call in dummy_graph.calls)
+    assert route.reference.optimization_trace is not None
+    assert route.reference.optimization_trace.objective == "fastest"
+    assert route.least_congestion.optimization_trace.objective == "fluent"
+    assert route.healthiest.optimization_trace.objective == "environmental"
 
 
 def test_environmental_factors_are_reused_for_duplicate_coordinates(monkeypatch):
