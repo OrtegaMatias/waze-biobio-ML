@@ -2205,6 +2205,7 @@ class RoutingService:
         route_vias: set[str],
         route_segment_ids: set[str],
         active_congestion_lines: List[dict],
+        route_path: List[routing.RouteStep] | None = None,
     ) -> tuple[List[SegmentImpact], RouteCongestionCoverage]:
         impacts: List[SegmentImpact] = []
         seen: set[str] = set()
@@ -2221,15 +2222,43 @@ class RoutingService:
             if not self._route_matches_congestion_feature(properties, route_vias, route_segment_ids):
                 continue
             line = self._congestion_line_points(feature)
-            distance_m = self._polyline_distance_m(route_geometry, line)
+            matched_route_geometries = [route_geometry]
+            if route_path:
+                feature_via = self._normalize_road_name(str(properties.get("via") or ""))
+                local_pairs: List[List[Dict[str, float]]] = []
+                for previous, current in zip(route_path, route_path[1:]):
+                    matches_segment = segment_id in {previous.segment_id, current.segment_id}
+                    matches_via = bool(
+                        feature_via
+                        and feature_via not in {"sin nombre", "unknown", "desconocida"}
+                        and feature_via == self._normalize_road_name(previous.via)
+                        and feature_via == self._normalize_road_name(current.via)
+                    )
+                    if matches_segment or matches_via:
+                        local_pairs.append(
+                            [
+                                {"lat": previous.lat, "lon": previous.lon},
+                                {"lat": current.lat, "lon": current.lon},
+                            ]
+                        )
+                if not local_pairs:
+                    continue
+                matched_route_geometries = local_pairs
+            distance_m = min(
+                self._polyline_distance_m(local_geometry, line)
+                for local_geometry in matched_route_geometries
+            )
             if distance_m > ACTIVE_CONGESTION_MATCH_TOLERANCE_M:
                 continue
             seen.add(segment_id)
             score = float(properties.get("score") or 0.0)
-            affected_length_m = self._route_length_near_polyline_m(
-                route_geometry,
-                line,
-                ACTIVE_CONGESTION_MATCH_TOLERANCE_M,
+            affected_length_m = sum(
+                self._route_length_near_polyline_m(
+                    local_geometry,
+                    line,
+                    ACTIVE_CONGESTION_MATCH_TOLERANCE_M,
+                )
+                for local_geometry in matched_route_geometries
             )
             impact_factor = min(1.0, affected_length_m / ACTIVE_CONGESTION_FULL_IMPACT_M)
             impact_factor = max(ACTIVE_CONGESTION_MIN_IMPACT_FACTOR, impact_factor)
@@ -2324,6 +2353,7 @@ class RoutingService:
             route_vias,
             route_segment_ids,
             active_congestion_lines or [],
+            route_path=path,
         )
         existing_segment_ids = {segment.segment_id for segment in scored_segments}
         for impact in active_impacts:

@@ -1373,6 +1373,61 @@ def test_active_congestion_perpendicular_street_does_not_count_in_route_coverage
     assert coverage.congested_pct == 0.0
 
 
+def test_route_coverage_matches_the_local_street_instead_of_any_route_via():
+    service = routing_service.RoutingService()
+    route_geometry = [
+        {"lat": -36.83300, "lon": -73.05210},
+        {"lat": -36.83100, "lon": -73.05210},
+    ]
+    route_path = [
+        routing.RouteStep(
+            "start", "route-lincoyan", 0, -36.83300, -73.05210,
+            "Lincoyan", "Concepcion", 0.0,
+        ),
+        routing.RouteStep(
+            "end", "route-lincoyan", 1, -36.83100, -73.05210,
+            "Lincoyan", "Concepcion", 1.0,
+        ),
+        routing.RouteStep(
+            "far-a", "route-carrera", 0, -36.84000, -73.07000,
+            "Avenida Los Carrera", "Concepcion", 2.0,
+        ),
+        routing.RouteStep(
+            "far-b", "route-carrera", 1, -36.84100, -73.07100,
+            "Avenida Los Carrera", "Concepcion", 3.0,
+        ),
+    ]
+    crossing_line = {
+        "type": "Feature",
+        "properties": {
+            "segment_id": "red-los-carrera",
+            "via": "Av. Los Carrera",
+            "comuna": "Concepcion",
+            "level": "high",
+            "recency": "actual",
+            "score": 80.0,
+        },
+        "geometry": {
+            "type": "LineString",
+            "coordinates": [
+                [-73.05300, -36.83200],
+                [-73.05100, -36.83200],
+            ],
+        },
+    }
+
+    impacts, coverage = service._active_congestion_segment_impacts(
+        route_geometry,
+        {service._normalize_road_name("Lincoyan"), service._normalize_road_name("Av. Los Carrera")},
+        {"route-lincoyan", "route-carrera"},
+        [crossing_line],
+        route_path=route_path,
+    )
+
+    assert impacts == []
+    assert coverage.high_m == 0.0
+
+
 def test_destination_snap_uses_mid_block_perpendicular_and_oneway_target(monkeypatch):
     service = routing_service.RoutingService()
     events = pd.DataFrame(
