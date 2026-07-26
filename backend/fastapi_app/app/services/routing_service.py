@@ -40,7 +40,7 @@ from .urban_wellbeing_service import get_urban_wellbeing_service
 
 logger = logging.getLogger(__name__)
 CACHE_DIR = Path(__file__).resolve().parents[4] / "data" / "cache"
-GRAPH_CACHE_VERSION = 7
+GRAPH_CACHE_VERSION = 8
 MAX_POINT_SNAP_KM = 0.5
 ON_STREET_SNAP_TOLERANCE_KM = 0.008
 GEOMETRY_SIMPLIFY_TOLERANCE_M = 12.0

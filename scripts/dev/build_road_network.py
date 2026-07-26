@@ -19,17 +19,39 @@ DEFAULT_OUTPUT = PROJECT_ROOT / "data" / "processed" / "road_network.csv"
 DEFAULT_PLACE = "Región del Biobío, Chile"
 
 
-def parse_maxspeed(value) -> float:
+ROAD_CLASS_DEFAULT_SPEED_KMH = {
+    "motorway": 50.0,
+    "motorway_link": 50.0,
+    "trunk": 50.0,
+    "trunk_link": 50.0,
+    "primary": 50.0,
+    "primary_link": 45.0,
+    "secondary": 45.0,
+    "secondary_link": 40.0,
+    "tertiary": 40.0,
+    "tertiary_link": 35.0,
+    "residential": 30.0,
+    "living_street": 20.0,
+    "service": 20.0,
+    "unclassified": 30.0,
+}
+
+
+def parse_maxspeed(value, highway: str = "") -> tuple[float, str]:
+    fallback = min(50.0, ROAD_CLASS_DEFAULT_SPEED_KMH.get(str(highway or "").lower(), 40.0))
     if value is None:
-        return 40.0
+        return fallback, "road_class"
     if isinstance(value, (list, tuple, set)):
-        value = next(iter(value), 40.0)
+        value = next(iter(value), fallback)
     if isinstance(value, str):
         value = value.replace("km/h", "").replace("mph", "").strip()
     try:
-        return float(value)
+        parsed = float(value)
+        if parsed <= 0 or parsed > 130:
+            return fallback, "road_class"
+        return parsed, "osm_maxspeed"
     except (TypeError, ValueError):
-        return 40.0
+        return fallback, "road_class"
 
 
 def flatten_coords(geometry) -> List[Tuple[float, float]]:
@@ -91,7 +113,8 @@ def iter_edge_rows(G, place_label: str) -> Iterable[dict]:
         name = data.get("name") or data.get("name:es") or "Sin nombre"
         length_m = float(data.get("length") or 0.0)
         length_km = length_m / 1000
-        maxspeed = parse_maxspeed(data.get("maxspeed"))
+        highway = str(data.get("highway") or "")
+        maxspeed, maxspeed_source = parse_maxspeed(data.get("maxspeed"), highway)
         duration_hours = length_km / max(maxspeed, 5.0) if length_km > 0 else 0.0
         if isinstance(data.get("osmid"), (list, tuple, set)):
             osmid = next(iter(data["osmid"]))
@@ -117,6 +140,9 @@ def iter_edge_rows(G, place_label: str) -> Iterable[dict]:
                 "fecha": "2025-01-01",
                 "segment_id": segment_id,
                 "oneway": oneway_flag,
+                "highway": highway,
+                "motor_vehicle": str(data.get("motor_vehicle") or data.get("access") or ""),
+                "maxspeed_source": maxspeed_source,
             }
 
 

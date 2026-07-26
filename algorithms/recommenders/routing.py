@@ -51,6 +51,8 @@ class GraphNode:
     dia_semana: str = ""
     franja_horaria: str = ""
     oneway: bool = False
+    road_class: str = ""
+    motor_vehicle: str = ""
 
 
 @dataclass
@@ -67,6 +69,9 @@ class RouteStep:
     duracion_hrs: float = 0.0
     dia_semana: str = ""
     franja_horaria: str = ""
+    velocidad_kmh: float = 0.0
+    road_class: str = ""
+    oneway: bool = False
 
 
 class RouteGraph:
@@ -332,6 +337,8 @@ class RouteGraph:
                 dia_semana=str(getattr(row, "dia_semana", "") or ""),
                 franja_horaria=str(getattr(row, "franja_horaria", "") or ""),
                 oneway=bool(getattr(row, "oneway", False)),
+                road_class=str(getattr(row, "highway", "") or ""),
+                motor_vehicle=str(getattr(row, "motor_vehicle", "") or ""),
             )
             key = (round(lat, 5), round(lon, 5))
             coord_groups[key].append(node_id)
@@ -515,12 +522,22 @@ class RouteGraph:
         geographic_path_limit_km: Optional[float] = None,
         use_heuristic: bool = True,
         should_cancel: Optional[Callable[[], bool]] = None,
+        edge_cost: Optional[Callable[[GraphNode, GraphNode, float], float]] = None,
+        source_path_distances_km: Optional[Dict[str, float]] = None,
+        target_path_distances_km: Optional[Dict[str, float]] = None,
     ) -> List[RouteStep]:
         if should_cancel is not None and should_cancel():
             raise RouteSearchCancelled()
         if source_node_costs:
             source_candidates = [
-                (self.nodes[node_id], max(0.0, float(cost)))
+                (
+                    self.nodes[node_id],
+                    max(0.0, float(cost)),
+                    max(
+                        0.0,
+                        float((source_path_distances_km or {}).get(node_id, cost)),
+                    ),
+                )
                 for node_id, cost in source_node_costs.items()
                 if node_id in self.nodes and math.isfinite(float(cost))
             ]
@@ -528,10 +545,18 @@ class RouteGraph:
             source_candidates = self._filter_snap_candidates(
                 self.nearest_nodes(*origin, limit=SOURCE_CANDIDATES)
             )
-        source_ids = {node.node_id for node, _ in source_candidates}
+            source_candidates = [(node, distance, distance) for node, distance in source_candidates]
+        source_ids = {node.node_id for node, _, _ in source_candidates}
         if target_node_costs:
             target_candidates = [
-                (self.nodes[node_id], max(0.0, float(cost)))
+                (
+                    self.nodes[node_id],
+                    max(0.0, float(cost)),
+                    max(
+                        0.0,
+                        float((target_path_distances_km or {}).get(node_id, cost)),
+                    ),
+                )
                 for node_id, cost in target_node_costs.items()
                 if node_id in self.nodes and math.isfinite(float(cost))
             ]
@@ -543,9 +568,16 @@ class RouteGraph:
                     limit=TARGET_CANDIDATES,
                 )
             )
+            target_candidates = [(node, distance, distance) for node, distance in target_candidates]
         if not target_candidates and not target_node_costs:
-            target_candidates = self._filter_snap_candidates(self.nearest_nodes(*destination, limit=1))
-        target_cost_lookup = {node.node_id: max(0.0, float(cost)) for node, cost in target_candidates}
+            raw_targets = self._filter_snap_candidates(self.nearest_nodes(*destination, limit=1))
+            target_candidates = [(node, distance, distance) for node, distance in raw_targets]
+        target_cost_lookup = {
+            node.node_id: max(0.0, float(cost)) for node, cost, _distance in target_candidates
+        }
+        target_distance_lookup = {
+            node.node_id: max(0.0, float(distance)) for node, _cost, distance in target_candidates
+        }
         target_ids = set(target_cost_lookup)
         distances: Dict[str, float] = {}
         path_lengths_km: Dict[str, float] = {}
@@ -571,6 +603,10 @@ class RouteGraph:
             heuristic_factor *= 0.5
         if urban_wellbeing_factor is not None:
             heuristic_factor *= 0.65
+        if edge_cost is not None:
+            # A custom generalized cost is not necessarily bounded by geographic
+            # distance. Falling back to Dijkstra keeps the result exact.
+            heuristic_factor = 0.0
         if not use_heuristic or not math.isfinite(heuristic_factor) or heuristic_factor <= 0:
             heuristic_factor = 0.0
         heuristic_factor = min(1.0, heuristic_factor)
@@ -605,11 +641,11 @@ class RouteGraph:
                 - target_heuristic_correction,
             )
 
-        for source_node, snap_distance in source_candidates:
-            initial_cost = max(0.0, snap_distance)
+        for source_node, snap_cost, snap_distance_km in source_candidates:
+            initial_cost = max(0.0, snap_cost)
             if initial_cost < distances.get(source_node.node_id, float("inf")):
                 distances[source_node.node_id] = initial_cost
-                path_lengths_km[source_node.node_id] = initial_cost
+                path_lengths_km[source_node.node_id] = max(0.0, snap_distance_km)
                 previous[source_node.node_id] = None
                 queue.append(
                     (
@@ -744,7 +780,7 @@ class RouteGraph:
             if node_id in target_ids:
                 route_length_km = path_lengths_km.get(
                     node_id, float("inf")
-                ) + target_cost_lookup.get(node_id, 0.0)
+                ) + target_distance_lookup.get(node_id, 0.0)
                 if (
                     geographic_path_limit_km is not None
                     and route_length_km > max(0.0, float(geographic_path_limit_km)) + 1e-9
@@ -772,7 +808,12 @@ class RouteGraph:
                     and candidate_path_length_km > max(0.0, float(geographic_path_limit_km)) + 1e-9
                 ):
                     continue
-                if apply_penalties:
+                if edge_cost is not None:
+                    candidate_cost = edge_cost(current_node, neighbor_node, base_weight)
+                    if not math.isfinite(candidate_cost) or candidate_cost < 0:
+                        continue
+                    adjusted_weight = float(candidate_cost)
+                elif apply_penalties:
                     penalty = (
                         max((current_node.penalty_factor + neighbor_node.penalty_factor) / 2, 1.0)
                         if apply_historical_penalties
@@ -786,25 +827,28 @@ class RouteGraph:
                 else:
                     penalty = 1.0
                     speed_factor = 1.0
-                preference = preference_factor(neighbor_node.via)
-                incident = incident_factor(neighbor_node)
-                pollution = pollution_factor(neighbor_node)
-                wellbeing = wellbeing_factor(neighbor_node)
+                preference = preference_factor(neighbor_node.via) if edge_cost is None else 1.0
+                incident = incident_factor(neighbor_node) if edge_cost is None else 1.0
+                pollution = pollution_factor(neighbor_node) if edge_cost is None else 1.0
+                wellbeing = wellbeing_factor(neighbor_node) if edge_cost is None else 1.0
                 edge_factor = 1.0
                 if edge_cost_factor is not None:
                     candidate_factor = edge_cost_factor(current_node, neighbor_node)
                     if math.isfinite(candidate_factor):
                         edge_factor = max(1.0, float(candidate_factor))
-                adjusted_weight = (
-                    base_weight
-                    * penalty
-                    * speed_factor
-                    * preference
-                    * incident
-                    * pollution
-                    * wellbeing
-                    * edge_factor
-                )
+                if edge_cost is None:
+                    adjusted_weight = (
+                        base_weight
+                        * penalty
+                        * speed_factor
+                        * preference
+                        * incident
+                        * pollution
+                        * wellbeing
+                        * edge_factor
+                    )
+                else:
+                    adjusted_weight *= edge_factor
                 new_dist = current_dist + adjusted_weight
                 if new_dist < distances.get(neighbor, float("inf")):
                     distances[neighbor] = new_dist
@@ -865,6 +909,9 @@ class RouteGraph:
                     duracion_hrs=node.duracion_hrs,
                     dia_semana=node.dia_semana,
                     franja_horaria=node.franja_horaria,
+                    velocidad_kmh=node.velocidad_kmh,
+                    road_class=node.road_class,
+                    oneway=node.oneway,
                 )
             )
             current = previous.get(current)
