@@ -277,6 +277,8 @@ class RouteOptimizationTrace(BaseModel):
     adverse_environment_penalty_min: float = 0.0
     urban_benefit_min: float = 0.0
     optimization_cost_min: float = 0.0
+    pm25_data_available: bool | None = None
+    urban_data_available: bool | None = None
 
 
 class RouteVariant(BaseModel):

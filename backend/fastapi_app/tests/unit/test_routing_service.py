@@ -1382,6 +1382,10 @@ def test_destination_snap_uses_mid_block_perpendicular_and_oneway_target(monkeyp
     assert route.reference.road_geometry[-1].lon == pytest.approx(0.005, abs=1e-6)
     assert route.reference.access_geometry[-1][0].lat == pytest.approx(0.0, abs=1e-6)
     assert route.reference.access_geometry[-1][0].lon == pytest.approx(0.005, abs=1e-6)
+    assert any("No hay datos PM2.5" in reason for reason in route.healthiest.why_changed)
+    assert any("No hay datos de entorno urbano" in reason for reason in route.healthiest.why_changed)
+    assert route.healthiest.optimization_trace.pm25_data_available is False
+    assert route.healthiest.optimization_trace.urban_data_available is False
 
 
 def test_road_snap_stops_when_plan_is_cancelled():

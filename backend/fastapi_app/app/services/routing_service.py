@@ -2637,6 +2637,29 @@ class RoutingService:
             logger.warning("No se pudo estimar bienestar urbano para la ruta: %s", exc)
             urban_wellbeing = None
 
+        pm25_data_available = bool(
+            pm25_exposure.get("available", False)
+            if isinstance(pm25_exposure, dict)
+            else getattr(pm25_exposure, "available", False)
+        )
+        urban_data_available = bool(
+            urban_wellbeing.get("available", False)
+            if isinstance(urban_wellbeing, dict)
+            else getattr(urban_wellbeing, "available", False)
+        )
+        if variant_name == "healthiest":
+            if not pm25_data_available:
+                why_changed.append(
+                    "No hay datos PM2.5 para la fecha y hora seleccionadas; "
+                    "ese componente ambiental se mantuvo neutro."
+                )
+            if not urban_data_available:
+                why_changed.append(
+                    "No hay datos de entorno urbano disponibles; "
+                    "ese componente ambiental se mantuvo neutro."
+                )
+            why_changed = why_changed[:4]
+
         optimization_trace = None
         if cost_totals is not None and cost_objective in {"fastest", "fluent", "environmental"}:
             optimization_trace = RouteOptimizationTrace(
@@ -2653,6 +2676,8 @@ class RoutingService:
                 ),
                 urban_benefit_min=round(cost_totals.urban_benefit_min, 3),
                 optimization_cost_min=round(cost_totals.optimization_cost_min, 3),
+                pm25_data_available=pm25_data_available,
+                urban_data_available=urban_data_available,
             )
         return RouteVariant(
             distance_km=round(distance, 2),
