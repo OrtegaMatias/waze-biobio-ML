@@ -301,6 +301,10 @@ def test_environmental_zone_cost_allows_green_and_prioritizes_avoiding_orange_an
 
     assert 1.0 < green < orange < red
     assert 1.0 < remembered_red < orange
+    assert green == pytest.approx(1.082857, rel=1e-5)
+    assert orange == pytest.approx(3.0)
+    assert red == pytest.approx(5.142857, rel=1e-5)
+    assert remembered_red == pytest.approx(2.035714, rel=1e-5)
 
 
 def test_environmental_waypoint_uses_one_shared_road_anchor(monkeypatch):
