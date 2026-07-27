@@ -67,13 +67,15 @@ ALTERNATIVE_OVERLAP_PENALTY = 3.0
 ALTERNATIVE_MAX_DISTANCE_RATIO = 2.0
 ALTERNATIVE_MAX_EXTRA_MIN = 15.0
 ALTERNATIVE_MAX_TIME_RATIO = 1.50
+SHORT_ENVIRONMENTAL_ROUTE_MAX_MIN = 5.0
+SHORT_ENVIRONMENTAL_MAX_TIME_RATIO = 3.0
 ACTIVE_CONGESTION_MATCH_TOLERANCE_M = 45.0
 ACTIVE_CONGESTION_NODE_TOLERANCE_M = 55.0
 ACTIVE_CONGESTION_FULL_IMPACT_M = 180.0
 ACTIVE_CONGESTION_MIN_IMPACT_FACTOR = 0.12
 ENVIRONMENT_LOW_ZONE_PENALTY = (0.04, 0.10)
-ENVIRONMENT_MEDIUM_ZONE_PENALTY = (1.50, 2.50)
-ENVIRONMENT_HIGH_ZONE_PENALTY = (3.50, 5.00)
+ENVIRONMENT_MEDIUM_ZONE_PENALTY = (12.00, 20.00)
+ENVIRONMENT_HIGH_ZONE_PENALTY = (28.00, 40.00)
 DAY_ALIASES = {
     "lunes": "Monday",
     "martes": "Tuesday",
@@ -702,17 +704,23 @@ class RoutingService:
             origin_snap,
             destination_snap,
         )
-        alternative_time_limit_min = fastest_totals.travel_time_min * ALTERNATIVE_MAX_TIME_RATIO
+        fluent_time_limit_min = fastest_totals.travel_time_min * ALTERNATIVE_MAX_TIME_RATIO
+        environmental_time_ratio = (
+            SHORT_ENVIRONMENTAL_MAX_TIME_RATIO
+            if fastest_totals.travel_time_min <= SHORT_ENVIRONMENTAL_ROUTE_MAX_MIN
+            else ALTERNATIVE_MAX_TIME_RATIO
+        )
+        environmental_time_limit_min = fastest_totals.travel_time_min * environmental_time_ratio
 
         ensure_active()
         logger.info("Generando Circulacion mas fluida con costo temporal y congestion exacta...")
-        fluent_path = search("fluent", alternative_time_limit_min)
+        fluent_path = search("fluent", fluent_time_limit_min)
         if not fluent_path:
             fluent_path = list(fastest_path)
 
         ensure_active()
         logger.info("Generando Menor exposicion ambiental con costo ambiental directo...")
-        environmental_path = search("environmental", alternative_time_limit_min)
+        environmental_path = search("environmental", environmental_time_limit_min)
         if not environmental_path:
             environmental_path = list(fastest_path)
 

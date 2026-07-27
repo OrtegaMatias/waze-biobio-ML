@@ -302,9 +302,9 @@ def test_environmental_zone_cost_allows_green_and_prioritizes_avoiding_orange_an
     assert 1.0 < green < orange < red
     assert 1.0 < remembered_red < orange
     assert green == pytest.approx(1.082857, rel=1e-5)
-    assert orange == pytest.approx(3.0)
-    assert red == pytest.approx(5.142857, rel=1e-5)
-    assert remembered_red == pytest.approx(2.035714, rel=1e-5)
+    assert orange == pytest.approx(17.0)
+    assert red == pytest.approx(34.142857, rel=1e-5)
+    assert remembered_red == pytest.approx(9.285714, rel=1e-5)
 
 
 def test_environmental_waypoint_uses_one_shared_road_anchor(monkeypatch):
@@ -637,6 +637,70 @@ def test_least_congestion_variant_is_dedicated_penalized_route(monkeypatch):
     assert service.graph.calls[1]["max_resource_cost"] == pytest.approx(15.0)
     assert service.graph.calls[2].get("edge_resource_cost") is not None
     assert service.graph.calls[2]["max_resource_cost"] == pytest.approx(15.0)
+
+
+def test_short_trip_expands_only_environmental_time_limit(monkeypatch):
+    service = routing_service.RoutingService()
+    path = [
+        routing.RouteStep(
+            node_id="a",
+            segment_id="seg",
+            segment_seq=0,
+            lat=-36.0,
+            lon=-73.0,
+            via="Inicio",
+            comuna="Test",
+            peso=0.0,
+            tipo_evento="Referencia",
+            duracion_hrs=0.0,
+        ),
+        routing.RouteStep(
+            node_id="b",
+            segment_id="seg",
+            segment_seq=1,
+            lat=-36.001,
+            lon=-73.001,
+            via="Destino",
+            comuna="Test",
+            peso=1.0,
+            tipo_evento="Referencia",
+            duracion_hrs=0.0,
+        ),
+    ]
+
+    class DummyGraph:
+        nodes = {"node": None}
+
+        def __init__(self):
+            self.constrained_limits = []
+
+        def shortest_path(self, *_args, **_kwargs):
+            return path
+
+        def shortest_path_constrained(self, **kwargs):
+            self.constrained_limits.append(kwargs["max_resource_cost"])
+            return path
+
+    service.graph = DummyGraph()
+    service.segment_lookup = {"seg": {0: (-36.0, -73.0), 1: (-36.001, -73.001)}}
+    monkeypatch.setattr(service, "_ensure_fresh_data", lambda: None)
+    monkeypatch.setattr(
+        service,
+        "_path_cost_totals",
+        lambda *_args, **_kwargs: routing_service.RouteCostTotals(base_time_min=4.0),
+    )
+
+    service.compute_route(
+        RouteRequest(
+            origin=RoutePoint(lat=-36.0, lon=-73.0),
+            destination=RoutePoint(lat=-36.001, lon=-73.001),
+            congestion_date=None,
+            day_of_week="Wednesday",
+            departure_hour=8.0,
+        )
+    )
+
+    assert service.graph.constrained_limits == pytest.approx([6.0, 12.0])
 
 
 def test_cerro_caracol_blocks_internal_edges_but_allows_victor_lamas():
