@@ -141,6 +141,16 @@ npm install
 npm run dev
 ```
 
+En desarrollo, el planificador muestra el botón `Costos internos` encima de `Ver paso a paso`. El control queda
+desactivado hasta calcular una ruta y abre el desglose técnico de `optimization_trace`. Las compilaciones de
+producción lo excluyen por defecto. Para habilitarlo de forma deliberada en una compilación interna, define
+`VITE_ENABLE_INTERNAL_ROUTING_COSTS=true` antes de ejecutar el build. Con Docker Compose en PowerShell:
+
+```powershell
+$env:VITE_ENABLE_INTERNAL_ROUTING_COSTS="true"
+docker compose up --build -d
+```
+
 ## Pruebas
 
 ```bash

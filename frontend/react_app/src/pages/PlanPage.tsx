@@ -25,6 +25,7 @@ import {
   WELLBEING_LAYER_OPTIONS,
   type WellbeingVisibility,
 } from "../components/PlanningMap";
+import { InternalRoutingCostsDialog } from "../components/InternalRoutingCostsDialog";
 import type {
   CongestionDateCoverage,
   CyclewayFeature,
@@ -60,6 +61,8 @@ const ONBOARDING_SEEN_KEY = "wbm_onboarding_seen";
 const PLANNER_HELP_SEEN_KEY = "wbm_planner_help_seen";
 const DEFAULT_MAP_STYLE_URL = "local-basic";
 const DEFAULT_HISTORY_DATE = "2025-03-13";
+const INTERNAL_ROUTING_COSTS_ENABLED =
+  import.meta.env.DEV || import.meta.env.VITE_ENABLE_INTERNAL_ROUTING_COSTS === "true";
 const WEEKDAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 const DAY_HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 const MONTH_LABELS = [
@@ -1189,6 +1192,7 @@ export function PlanPage() {
   const [readiness, setReadiness] = useState<ReadinessStatus | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding());
   const [onboardingStep, setOnboardingStep] = useState(0);
+  const [internalCostsOpen, setInternalCostsOpen] = useState(false);
   const [planner, setPlanner] = useState<PlannerState>({
     origin: null,
     destination: null,
@@ -1665,6 +1669,12 @@ export function PlanPage() {
     return () => planAbortControllerRef.current?.abort();
   }, []);
 
+  useEffect(() => {
+    if (!plan) {
+      setInternalCostsOpen(false);
+    }
+  }, [plan]);
+
   async function handlePlan() {
     const origin = planner.origin;
     const destination = planner.destination;
@@ -1961,10 +1971,25 @@ export function PlanPage() {
             Define origen y destino, elige una preferencia y revisa el contexto urbano antes de salir.
           </p>
         </div>
+        {INTERNAL_ROUTING_COSTS_ENABLED ? (
+          <button
+            className="secondary-link internal-costs-trigger"
+            type="button"
+            disabled={!deferredPlan?.routes.some((route) => route.optimization_trace)}
+            title={deferredPlan ? "Abrir diagnóstico interno" : "Calcula una ruta para ver sus costos internos"}
+            onClick={() => setInternalCostsOpen(true)}
+          >
+            Costos internos
+          </button>
+        ) : null}
         <button className="secondary-link" type="button" onClick={openOnboarding}>
           Ver paso a paso
         </button>
       </section>
+
+      {INTERNAL_ROUTING_COSTS_ENABLED && internalCostsOpen && deferredPlan ? (
+        <InternalRoutingCostsDialog routes={deferredPlan.routes} onClose={() => setInternalCostsOpen(false)} />
+      ) : null}
 
       {showOnboarding ? (
         <section className="onboarding-overlay" role="presentation">

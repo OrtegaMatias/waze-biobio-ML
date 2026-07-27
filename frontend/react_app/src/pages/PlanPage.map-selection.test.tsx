@@ -81,6 +81,10 @@ describe("PlanPage map point selection", () => {
 
     expect(screen.getByTestId("origin-marker")).toHaveTextContent("none");
     expect(screen.getByTestId("destination-marker")).toHaveTextContent("none");
+    const internalCostsButton = screen.getByRole("button", { name: "Costos internos" });
+    const onboardingButton = screen.getByRole("button", { name: "Ver paso a paso" });
+    expect(internalCostsButton).toBeDisabled();
+    expect(internalCostsButton.nextElementSibling).toBe(onboardingButton);
     expect(screen.getByRole("button", { name: /marca el origen en el mapa/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /selecciona origen y destino/i })).toBeDisabled();
     expect(screen.getByRole("dialog", { name: /c.mo usar el planificador/i })).toBeInTheDocument();
