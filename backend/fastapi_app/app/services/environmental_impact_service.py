@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import json
 import logging
 import math
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ CONGESTION_REGIONAL_PATH = ROOT_DIR / "data_analysis" / "congestion_clean.csv"
 RAIN_NETWORK_PATH = ROOT_DIR / "data_processed" / "gran_concepcion_rain_network_hourly.csv"
 WIND_NETWORK_PATH = ROOT_DIR / "data_processed" / "gran_concepcion_wind_network_hourly.csv"
 SINCA_MANIFEST_PATH = ROOT_DIR / "data" / "air_quality" / "sinca_biobio_hourly_2021plus" / "manifest.csv"
+ENVIRONMENTAL_NORMALIZATION_PATH = ROOT_DIR / "data_analysis" / "environmental_normalization_v1.json"
 ENVIRONMENTAL_YEAR = 2025
 MAX_POINTS = 280
 CONGESTION_CACHE_DIR = ROOT_DIR / "data" / "cache"
@@ -49,6 +51,17 @@ MEMORY_PREVIOUS_HOUR_ADVERSE_WEATHER_WEIGHT = 0.10
 MEMORY_TWO_HOURS_WEIGHT = 0.10
 MEMORY_LOW_WIND_MPS = 1.30
 INFLUENCE_BAND_FRACTIONS = (0.25, 0.50, 0.75, 1.00)
+BUILTIN_NORMALIZATION_REFERENCE = {
+    "version": "environmental-normalization-v1",
+    "reference_period": {
+        "start": "2021-01-01T00:00:00",
+        "end_exclusive": "2025-01-01T00:00:00",
+    },
+    "variables": {
+        "pm25": {"p10": 3.0, "p50": 10.0, "p90": 36.0, "sample_size": 274986},
+        "wind_speed": {"p10": 0.79712, "p50": 1.821, "p90": 3.45762, "sample_size": 35063},
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -208,6 +221,7 @@ class EnvironmentalImpactService:
         rain_path: Path = RAIN_NETWORK_PATH,
         wind_path: Path = WIND_NETWORK_PATH,
         radiation_manifest_path: Path = SINCA_MANIFEST_PATH,
+        normalization_path: Path = ENVIRONMENTAL_NORMALIZATION_PATH,
         year: int = ENVIRONMENTAL_YEAR,
         include_radiation: bool = False,
     ) -> None:
@@ -215,6 +229,7 @@ class EnvironmentalImpactService:
         self.rain_path = rain_path
         self.wind_path = wind_path
         self.radiation_manifest_path = radiation_manifest_path
+        self.normalization_path = normalization_path
         self.year = year
         self.include_radiation = include_radiation
         self._congestion: pd.DataFrame | None = None
@@ -222,6 +237,51 @@ class EnvironmentalImpactService:
         self._wind: pd.DataFrame | None = None
         self._radiation: pd.DataFrame | None = None
         self._congestion_hours: set[datetime] | None = None
+        self._normalization_reference: dict | None = None
+        self._normalization_source: str | None = None
+
+    @staticmethod
+    def _validate_normalization_reference(payload: dict) -> None:
+        if payload.get("version") != "environmental-normalization-v1":
+            raise ValueError("Version de referencia ambiental no soportada.")
+        variables = payload.get("variables") or {}
+        for variable in ("pm25", "wind_speed"):
+            reference = variables.get(variable) or {}
+            p10 = float(reference["p10"])
+            p50 = float(reference["p50"])
+            p90 = float(reference["p90"])
+            sample_size = int(reference["sample_size"])
+            if not all(math.isfinite(value) for value in (p10, p50, p90)):
+                raise ValueError(f"Referencia no finita para {variable}.")
+            if not p10 <= p50 <= p90 or p90 <= p10 or sample_size <= 0:
+                raise ValueError(f"Rango historico insuficiente para {variable}.")
+
+    def _load_normalization_reference(self) -> tuple[dict, str]:
+        if self._normalization_reference is not None and self._normalization_source is not None:
+            return self._normalization_reference, self._normalization_source
+        try:
+            payload = json.loads(self.normalization_path.read_text(encoding="utf-8"))
+            self._validate_normalization_reference(payload)
+            source = self.normalization_path.name
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "Referencia ambiental no disponible o invalida (%s); se usa fallback fijo incorporado.",
+                exc,
+            )
+            payload = BUILTIN_NORMALIZATION_REFERENCE
+            self._validate_normalization_reference(payload)
+            source = "builtin_environmental_normalization_v1_fallback"
+        self._normalization_reference = payload
+        self._normalization_source = source
+        return payload, source
+
+    def _normalization_variable(self, variable: str) -> dict:
+        payload, _source = self._load_normalization_reference()
+        return payload["variables"][variable]
+
+    def _normalization_range(self, variable: str) -> tuple[float, float]:
+        reference = self._normalization_variable(variable)
+        return float(reference["p10"]), float(reference["p90"])
 
     @staticmethod
     def _parse_timestamp(snapshot_date: str, hour: int, year: int) -> datetime:
@@ -1028,22 +1088,32 @@ class EnvironmentalImpactService:
         requested_at = timestamp.strftime("%Y-%m-%d %H:00:00")
         weather = self._weather_snapshot(timestamp)
         rows = self._matching_congestions_with_memory(timestamp, weather)
+        normalization_payload, normalization_source = self._load_normalization_reference()
+        pm25_reference = normalization_payload["variables"]["pm25"]
+        wind_reference = normalization_payload["variables"]["wind_speed"]
         try:
             air_quality_service = get_air_quality_service()
             pm25_snapshot = air_quality_service.station_snapshot(snapshot_date, hour)
-            try:
-                pm25_range = air_quality_service.local_pm25_range(self._congestion_hour_index(timestamp.hour))
-            except TypeError:
-                pm25_range = air_quality_service.local_pm25_range()
         except Exception:
             pm25_snapshot = None
-            pm25_range = None
-        wind_range = self._wind_range(timestamp.hour)
+        pm25_range = self._normalization_range("pm25")
+        wind_range = self._normalization_range("wind_speed")
+        fallback_labels: list[str] = []
+        if normalization_source.startswith("builtin_"):
+            fallback_labels.append("normalization_reference=builtin_fixed_v1")
+        if not getattr(pm25_snapshot, "stations", None):
+            fallback_labels.append("pm25=historical_p50")
+        if weather.wind_speed is None:
+            fallback_labels.append("wind=historical_p50")
+        if weather.rain_mm is None:
+            fallback_labels.append("rain=no_relief")
         data_source = ", ".join(
             [
                 self.congestion_path.name,
                 self.rain_path.name if self.rain_path.exists() else "rain_missing",
                 self.wind_path.name if self.wind_path.exists() else "wind_missing",
+                normalization_source,
+                *(fallback_labels or ["fallbacks=none"]),
             ]
         )
 
@@ -1108,6 +1178,12 @@ class EnvironmentalImpactService:
             lat = float(row.lat)
             lon = float(row.lon)
             pm25 = self._nearest_pm25(pm25_snapshot, lat, lon) if pm25_snapshot is not None else None
+            pm25_for_score = float(pm25_reference["p50"]) if pm25 is None else pm25
+            wind_for_score = (
+                float(wind_reference["p50"])
+                if weather.wind_speed is None
+                else weather.wind_speed
+            )
             congestion_score = (
                 float(row.weighted_congestion_score)
                 if hasattr(row, "weighted_congestion_score")
@@ -1118,10 +1194,10 @@ class EnvironmentalImpactService:
             )
             layer_score = self._layer_condition_score(
                 congestion_score=congestion_score,
-                pm25=pm25,
+                pm25=pm25_for_score,
                 pm25_range=pm25_range,
                 rain_mm=weather.rain_mm,
-                wind_speed=weather.wind_speed,
+                wind_speed=wind_for_score,
                 wind_range=wind_range,
             )
             candidates.append(
@@ -1177,8 +1253,8 @@ class EnvironmentalImpactService:
             method=(
                 "La nube representa impacto ambiental potencial asociado al trafico: PM2.5 medido "
                 "por estaciones, viento y lluvia "
-                "se reportan como variables directas usando minimos y maximos observados solo "
-                "en la misma hora seleccionada cuando hubo congestion historica. La nube incorpora "
+                "se reportan como variables directas y se normalizan con una referencia historica fija "
+                "y versionada 2021-2024 usando P10 y P90, independiente del dia consultado. La nube incorpora "
                 "memoria temporal calibrada con los datos locales: 25% para la hora previa, reducida "
                 "a 10% con lluvia o mayor ventilacion; dos horas previas aportan 10% solo sin lluvia "
                 "y con viento bajo. Las lineas muestran exclusivamente congestiones activas durante "
@@ -1187,9 +1263,8 @@ class EnvironmentalImpactService:
                 "cuentan una sola vez y solo se suman los aportes de congestion, cuya influencia "
                 "disminuye gradualmente al alejarse de cada calle; cada "
                 "ubicacion recibe un unico nivel ambiental final. El color de la nube compara presion ambiental "
-                "entre dias: PM2.5 relativo al rango local de esa hora con congestion, "
-                "baja ventilacion relativa al rango local de viento de esa hora con "
-                "congestion y congestion historica del segmento. El color de las lineas representa "
+                "entre dias: PM2.5 y baja ventilacion usan la misma referencia historica fija, junto con "
+                "la congestion historica del segmento. El color de las lineas representa "
                 "congestion segun velocidad, duracion y persistencia historica."
             ),
             data_source=data_source,

@@ -1,0 +1,25 @@
+{
+  "version": "environmental-normalization-v1",
+  "reference_period": {
+    "start": "2021-01-01T00:00:00",
+    "end_exclusive": "2025-01-01T00:00:00"
+  },
+  "variables": {
+    "pm25": {
+      "unit": "ug/m3",
+      "scope": "gran_concepcion_core_stations",
+      "sample_size": 274986,
+      "p10": 3.0,
+      "p50": 10.0,
+      "p90": 36.0
+    },
+    "wind_speed": {
+      "unit": "m/s",
+      "scope": "gran_concepcion_network_hourly",
+      "sample_size": 35063,
+      "p10": 0.79712,
+      "p50": 1.821,
+      "p90": 3.45762
+    }
+  }
+}
