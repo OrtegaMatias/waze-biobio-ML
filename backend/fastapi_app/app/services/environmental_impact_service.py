@@ -57,9 +57,25 @@ BUILTIN_NORMALIZATION_REFERENCE = {
         "start": "2021-01-01T00:00:00",
         "end_exclusive": "2025-01-01T00:00:00",
     },
+    "congestion_reference_period": {
+        "start": "2025-03-13T00:00:00",
+        "end_exclusive": "2025-08-23T00:00:00",
+    },
     "variables": {
         "pm25": {"p10": 3.0, "p50": 10.0, "p90": 36.0, "sample_size": 274986},
         "wind_speed": {"p10": 0.79712, "p50": 1.821, "p90": 3.45762, "sample_size": 35063},
+        "congestion_speed_kmh": {
+            "p10": 10.54,
+            "p50": 18.48,
+            "p90": 23.66,
+            "sample_size": 29529,
+        },
+        "congestion_duration_min": {
+            "p10": 15.0,
+            "p50": 30.0,
+            "p90": 109.8,
+            "sample_size": 29529,
+        },
     },
 }
 
@@ -245,7 +261,7 @@ class EnvironmentalImpactService:
         if payload.get("version") != "environmental-normalization-v1":
             raise ValueError("Version de referencia ambiental no soportada.")
         variables = payload.get("variables") or {}
-        for variable in ("pm25", "wind_speed"):
+        for variable in ("pm25", "wind_speed", "congestion_speed_kmh", "congestion_duration_min"):
             reference = variables.get(variable) or {}
             p10 = float(reference["p10"])
             p50 = float(reference["p50"])
@@ -617,15 +633,30 @@ class EnvironmentalImpactService:
         nearest = min(stations, key=lambda station: _haversine_km(lat, lon, station.lat, station.lon))
         return float(nearest.pm25)
 
-    @staticmethod
-    def _congestion_score(speed_kmh: float | None, duration_min: float | None) -> float:
-        speed_score: float | None = None
+    def _congestion_score(self, speed_kmh: float | None, duration_min: float | None) -> float:
+        components: list[float] = []
         if speed_kmh is not None and math.isfinite(speed_kmh):
-            speed_score = _clamp((35.0 - speed_kmh) / 30.0, 0.08, 1.0)
-        duration_score = _clamp(float(duration_min or 0.0) / 60.0, 0.08, 1.0)
-        if speed_score is None:
-            return duration_score
-        return max(speed_score, duration_score * 0.7)
+            components.append(
+                _local_component(
+                    speed_kmh,
+                    self._normalization_range("congestion_speed_kmh"),
+                    invert=True,
+                )
+            )
+        if duration_min is not None and math.isfinite(duration_min):
+            components.append(
+                _local_component(
+                    duration_min,
+                    self._normalization_range("congestion_duration_min"),
+                )
+            )
+        if not components:
+            return 0.0
+        # Severity (low speed) and temporal extent (duration) are separate
+        # congestion dimensions. Equal contribution is explicit and provisional:
+        # it ensures that a slow and long event scores above an event that is only
+        # extreme in one dimension, without allowing either signal to hide the other.
+        return _clamp(sum(components) / len(components))
 
     @staticmethod
     def _score(
@@ -1265,7 +1296,8 @@ class EnvironmentalImpactService:
                 "ubicacion recibe un unico nivel ambiental final. El color de la nube compara presion ambiental "
                 "entre dias: PM2.5 y baja ventilacion usan la misma referencia historica fija, junto con "
                 "la congestion historica del segmento. El color de las lineas representa "
-                "congestion segun velocidad, duracion y persistencia historica."
+                "congestion segun velocidad baja y duracion, normalizadas con P10 y P90 historicos "
+                "y combinadas con igual aporte provisional, mas su persistencia temporal."
             ),
             data_source=data_source,
         )

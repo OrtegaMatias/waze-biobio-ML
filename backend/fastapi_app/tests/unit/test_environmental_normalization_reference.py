@@ -34,12 +34,33 @@ def test_environmental_reference_uses_only_fixed_2021_2024_period(tmp_path):
         ),
         encoding="utf-8",
     )
+    congestion_path = tmp_path / "congestion.csv"
+    congestion_path.write_text(
+        "\n".join(
+            [
+                "segment_id,velocidad_kmh,duracion_min,datetime_inicio",
+                "a,5,15,2025-03-13 06:00:00",
+                "b,10,30,2025-04-01 08:00:00",
+                "c,20,60,2025-06-01 12:00:00",
+                "d,25,120,2025-08-22 20:00:00",
+                "outside,1,999,2025-08-23 00:00:00",
+            ]
+        ),
+        encoding="utf-8",
+    )
 
-    reference = build_reference(pm25_path=pm25_path, wind_path=wind_path)
+    reference = build_reference(
+        pm25_path=pm25_path,
+        wind_path=wind_path,
+        congestion_path=congestion_path,
+    )
 
     assert reference["version"] == "environmental-normalization-v1"
     assert reference["variables"]["pm25"]["sample_size"] == 4
     assert reference["variables"]["wind_speed"]["sample_size"] == 4
+    assert reference["variables"]["congestion_speed_kmh"]["sample_size"] == 4
+    assert reference["variables"]["congestion_duration_min"]["sample_size"] == 4
+    assert reference["variables"]["congestion_duration_min"]["p90"] < 999
     assert reference["variables"]["pm25"]["p90"] < 999
     assert reference["variables"]["wind_speed"]["p90"] < 99
 
@@ -55,9 +76,18 @@ def test_environmental_reference_rejects_insufficient_historical_range(tmp_path)
         "timestamp,wind_speed_mean\n2024-01-01 00:00:00,1\n2024-01-02 00:00:00,2\n",
         encoding="utf-8",
     )
+    congestion_path = tmp_path / "congestion.csv"
+    congestion_path.write_text(
+        "segment_id,velocidad_kmh,duracion_min,datetime_inicio\na,10,15,2025-04-01 08:00:00\n",
+        encoding="utf-8",
+    )
 
     try:
-        build_reference(pm25_path=pm25_path, wind_path=wind_path)
+        build_reference(
+            pm25_path=pm25_path,
+            wind_path=wind_path,
+            congestion_path=congestion_path,
+        )
     except ValueError as exc:
         assert "insuficiente" in str(exc)
     else:

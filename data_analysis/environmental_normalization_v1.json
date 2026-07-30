@@ -4,6 +4,10 @@
     "start": "2021-01-01T00:00:00",
     "end_exclusive": "2025-01-01T00:00:00"
   },
+  "congestion_reference_period": {
+    "start": "2025-03-13T00:00:00",
+    "end_exclusive": "2025-08-23T00:00:00"
+  },
   "variables": {
     "pm25": {
       "unit": "ug/m3",
@@ -20,6 +24,22 @@
       "p10": 0.79712,
       "p50": 1.821,
       "p90": 3.45762
+    },
+    "congestion_speed_kmh": {
+      "unit": "km/h",
+      "scope": "gran_concepcion_core_congestion_events",
+      "sample_size": 29529,
+      "p10": 10.54,
+      "p50": 18.48,
+      "p90": 23.66
+    },
+    "congestion_duration_min": {
+      "unit": "min",
+      "scope": "gran_concepcion_core_congestion_events",
+      "sample_size": 29529,
+      "p10": 15.0,
+      "p50": 30.0,
+      "p90": 109.8
     }
   }
 }

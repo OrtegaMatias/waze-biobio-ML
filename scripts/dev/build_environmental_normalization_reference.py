@@ -10,9 +10,12 @@ import pandas as pd
 ROOT_DIR = Path(__file__).resolve().parents[2]
 PM25_PATH = ROOT_DIR / "data_processed" / "gran_concepcion_pm25_core_hourly_clean.csv"
 WIND_PATH = ROOT_DIR / "data_processed" / "gran_concepcion_wind_network_hourly.csv"
+CONGESTION_PATH = ROOT_DIR / "data_analysis" / "congestion_clean_gran_concepcion_core.csv"
 DEFAULT_OUTPUT_PATH = ROOT_DIR / "data_analysis" / "environmental_normalization_v1.json"
 REFERENCE_START = pd.Timestamp("2021-01-01 00:00:00")
 REFERENCE_END_EXCLUSIVE = pd.Timestamp("2025-01-01 00:00:00")
+CONGESTION_REFERENCE_START = pd.Timestamp("2025-03-13 00:00:00")
+CONGESTION_REFERENCE_END_EXCLUSIVE = pd.Timestamp("2025-08-23 00:00:00")
 REFERENCE_VERSION = "environmental-normalization-v1"
 
 
@@ -48,12 +51,37 @@ def _variable_payload(values: pd.Series, *, unit: str, scope: str) -> dict:
     }
 
 
-def build_reference(pm25_path: Path = PM25_PATH, wind_path: Path = WIND_PATH) -> dict:
+def _congestion_values(path: Path) -> pd.DataFrame:
+    frame = pd.read_csv(
+        path,
+        usecols=["segment_id", "velocidad_kmh", "duracion_min", "datetime_inicio"],
+    )
+    frame["datetime_inicio"] = pd.to_datetime(frame["datetime_inicio"], errors="coerce")
+    frame = frame[
+        frame["datetime_inicio"].between(
+            CONGESTION_REFERENCE_START,
+            CONGESTION_REFERENCE_END_EXCLUSIVE,
+            inclusive="left",
+        )
+    ]
+    return frame.drop_duplicates(subset=["segment_id"], keep="first")
+
+
+def build_reference(
+    pm25_path: Path = PM25_PATH,
+    wind_path: Path = WIND_PATH,
+    congestion_path: Path = CONGESTION_PATH,
+) -> dict:
+    congestion = _congestion_values(congestion_path)
     return {
         "version": REFERENCE_VERSION,
         "reference_period": {
             "start": REFERENCE_START.isoformat(),
             "end_exclusive": REFERENCE_END_EXCLUSIVE.isoformat(),
+        },
+        "congestion_reference_period": {
+            "start": CONGESTION_REFERENCE_START.isoformat(),
+            "end_exclusive": CONGESTION_REFERENCE_END_EXCLUSIVE.isoformat(),
         },
         "variables": {
             "pm25": _variable_payload(
@@ -65,6 +93,16 @@ def build_reference(pm25_path: Path = PM25_PATH, wind_path: Path = WIND_PATH) ->
                 _reference_values(wind_path, "wind_speed_mean"),
                 unit="m/s",
                 scope="gran_concepcion_network_hourly",
+            ),
+            "congestion_speed_kmh": _variable_payload(
+                pd.to_numeric(congestion["velocidad_kmh"], errors="coerce").dropna(),
+                unit="km/h",
+                scope="gran_concepcion_core_congestion_events",
+            ),
+            "congestion_duration_min": _variable_payload(
+                pd.to_numeric(congestion["duracion_min"], errors="coerce").dropna(),
+                unit="min",
+                scope="gran_concepcion_core_congestion_events",
             ),
         },
     }
