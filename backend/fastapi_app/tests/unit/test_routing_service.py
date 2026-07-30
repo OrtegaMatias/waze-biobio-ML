@@ -348,6 +348,32 @@ def test_least_congestion_variant_is_dedicated_penalized_route(monkeypatch):
     assert "urban_wellbeing_factor" not in service.graph.calls[1]
 
 
+def test_cerro_caracol_blocks_internal_edges_but_allows_victor_lamas():
+    def node(node_id: str, lat: float, lon: float, via: str) -> routing.GraphNode:
+        return routing.GraphNode(
+            node_id=node_id,
+            segment_id=node_id,
+            segment_seq=0,
+            lat=lat,
+            lon=lon,
+            tipo_evento="Referencia",
+            velocidad_kmh=30.0,
+            duracion_hrs=0.1,
+            via=via,
+            comuna="Concepción",
+        )
+
+    outside = node("outside", -36.8280, -73.0470, "Cochrane")
+    inside = node("inside", -36.8360, -73.0470, "Veteranos del 79")
+    victor_lamas = node("victor", -36.8360, -73.0470, "Víctor Lamas")
+
+    assert routing_service._cerro_caracol_edge_allowed(outside, outside)
+    assert not routing_service._cerro_caracol_edge_allowed(inside, inside)
+    assert routing_service._cerro_caracol_edge_allowed(outside, victor_lamas)
+    assert routing_service._cerro_caracol_edge_cost_factor(inside, inside) > 1.0
+    assert routing_service._cerro_caracol_edge_cost_factor(outside, victor_lamas) == 1.0
+
+
 def _healthy_candidate(
     *,
     lat: float,

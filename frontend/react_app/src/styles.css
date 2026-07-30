@@ -5310,6 +5310,11 @@ input[type="range"] {
   transform: translate(-8px, -108%);
 }
 
+.onboarding-focus-recommendation .preview-callout-note {
+  max-width: min(310px, 32%);
+  transform: translate(12px, -50%);
+}
+
 .onboarding-focus-layers .preview-callout-note {
   max-width: min(360px, 40%);
 }
