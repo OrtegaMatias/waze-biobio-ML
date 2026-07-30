@@ -5,6 +5,7 @@ Utilidades para cargar y transformar los datos del Biobío.
 
 from __future__ import annotations
 
+import filecmp
 from functools import lru_cache
 import json
 from pathlib import Path
@@ -23,6 +24,7 @@ RAW_DIR = ROOT_DIR / "data" / "raw"
 PROCESSED_DIR = ROOT_DIR / "data" / "processed"
 
 CONGESTION_PATH = RAW_DIR / "CONGESTIONES.csv"
+ACCIDENT_PATH = RAW_DIR / "ACCIDENTES.csv"
 USER_RATINGS_PATH = PROCESSED_DIR / "user_ratings.csv"
 ROAD_NETWORK_PATH = PROCESSED_DIR / "road_network.csv"
 _CURRENT_USER_RATINGS_PATH = USER_RATINGS_PATH
@@ -95,14 +97,24 @@ def _file_signature(path: Path) -> float:
         return 0.0
 
 
-def data_version() -> Tuple[str, str, float, float]:
+def data_version() -> Tuple[str, str, float, float, float]:
     """Sello temporal para invalidar caches cuando cambian los datos base."""
     return (
         _CURRENT_DATA_PROFILE,
         PENALTY_MODEL_VERSION,
         _file_signature(CONGESTION_PATH),
+        _file_signature(ACCIDENT_PATH),
         _file_signature(ROAD_NETWORK_PATH),
     )
+
+
+def incident_sources_are_duplicates() -> bool:
+    if not ACCIDENT_PATH.exists() or not CONGESTION_PATH.exists():
+        return False
+    try:
+        return filecmp.cmp(ACCIDENT_PATH, CONGESTION_PATH, shallow=False)
+    except OSError:
+        return False
 
 
 def _hour_bucket(hour: float) -> str:
@@ -210,11 +222,17 @@ def _build_penalty_lookup(events: pd.DataFrame):
     return tree, penalties
 
 
-def _apply_penalties(reference: pd.DataFrame, lookup) -> pd.DataFrame:
+def _apply_penalties(
+    reference: pd.DataFrame,
+    lookup,
+    target_column: str = "penalty_factor",
+) -> pd.DataFrame:
     if reference.empty:
         return reference
     ref = reference.copy()
-    ref["penalty_factor"] = ref["penalty_factor"].fillna(1.0)
+    if target_column not in ref.columns:
+        ref[target_column] = 1.0
+    ref[target_column] = ref[target_column].fillna(1.0)
     if not lookup:
         return ref
     coords = ref[["lat", "lon"]].astype(float).to_numpy()
@@ -225,11 +243,11 @@ def _apply_penalties(reference: pd.DataFrame, lookup) -> pd.DataFrame:
     radius = PENALTY_RADIUS_M / EARTH_RADIUS_M
     ref_coords = np.radians(coords[mask])
     neighbor_indices = tree.query_radius(ref_coords, r=radius, return_distance=False)
-    penalized = ref["penalty_factor"].to_numpy()
+    penalized = ref[target_column].to_numpy()
     for idx_ref, neighbors in zip(np.where(mask)[0], neighbor_indices):
         if len(neighbors):
             penalized[idx_ref] = max(penalized[idx_ref], penalties[neighbors].max())
-    ref["penalty_factor"] = penalized
+    ref[target_column] = penalized
     return ref
 
 
@@ -276,6 +294,7 @@ def _prepare_dataframe(df: pd.DataFrame, label: str) -> pd.DataFrame:
     }.get(label, label.title())
     df["tipo_evento"] = tipo_evento
     df["penalty_factor"] = 1.0
+    df["accident_penalty_factor"] = 1.0
     if tipo_evento == "Accidente":
         df["penalty_factor"] = ACCIDENT_PENALTY
     elif tipo_evento == "Congestión":
@@ -317,8 +336,18 @@ def load_raw_events() -> pd.DataFrame:
 
 
 @lru_cache(maxsize=2)
-def _load_raw_events(signature: Tuple[str, str, float, float]) -> pd.DataFrame:
-    return load_congestion_events()
+def _load_raw_events(signature: Tuple[str, str, float, float, float]) -> pd.DataFrame:
+    cached = _load_cached_dataframe("all_incidents", signature)
+    if cached is not None:
+        return cached
+    frames = [load_congestion_events()]
+    accidents = load_accident_events()
+    if not accidents.empty:
+        frames.append(accidents)
+    events = pd.concat(frames, ignore_index=True)
+    events = events.sort_values(["segment_id", "segment_seq"]).reset_index(drop=True)
+    _store_cached_dataframe("all_incidents", signature, events)
+    return events
 
 
 def load_congestion_events() -> pd.DataFrame:
@@ -326,7 +355,7 @@ def load_congestion_events() -> pd.DataFrame:
 
 
 @lru_cache(maxsize=2)
-def _load_congestion_events(signature: Tuple[str, str, float, float]) -> pd.DataFrame:
+def _load_congestion_events(signature: Tuple[str, str, float, float, float]) -> pd.DataFrame:
     cached = _load_cached_dataframe("raw_events", signature)
     if cached is not None:
         return cached
@@ -337,12 +366,30 @@ def _load_congestion_events(signature: Tuple[str, str, float, float]) -> pd.Data
     return eventos
 
 
+def load_accident_events() -> pd.DataFrame:
+    return _load_accident_events(data_version())
+
+
+@lru_cache(maxsize=2)
+def _load_accident_events(signature: Tuple[str, str, float, float, float]) -> pd.DataFrame:
+    cached = _load_cached_dataframe("accident_events", signature)
+    if cached is not None:
+        return cached
+    if not ACCIDENT_PATH.exists() or incident_sources_are_duplicates():
+        return pd.DataFrame()
+    accidents = _prepare_dataframe(pd.read_csv(ACCIDENT_PATH), label="accidente")
+    accidents = _apply_dataset_profile(accidents)
+    events = accidents.sort_values(["segment_id", "segment_seq"]).reset_index(drop=True)
+    _store_cached_dataframe("accident_events", signature, events)
+    return events
+
+
 def load_route_network() -> pd.DataFrame:
     return _load_route_network(data_version())
 
 
 @lru_cache(maxsize=2)
-def _load_route_network(signature: Tuple[str, str, float, float]) -> pd.DataFrame:
+def _load_route_network(signature: Tuple[str, str, float, float, float]) -> pd.DataFrame:
     cached = _load_cached_dataframe("route_network", signature)
     if cached is not None:
         return cached
@@ -352,6 +399,13 @@ def _load_route_network(signature: Tuple[str, str, float, float]) -> pd.DataFram
     congestions = load_congestion_events()
     if not congestions.empty:
         reference = _apply_penalties(reference, _build_penalty_lookup(congestions))
+    accidents = load_accident_events()
+    if not accidents.empty:
+        reference = _apply_penalties(
+            reference,
+            _build_penalty_lookup(accidents),
+            target_column="accident_penalty_factor",
+        )
     reference = reference.sort_values(["segment_id", "segment_seq"]).reset_index(drop=True)
     _store_cached_dataframe("route_network", signature, reference)
     return reference
@@ -395,7 +449,7 @@ def load_segment_summary() -> pd.DataFrame:
 
 
 @lru_cache(maxsize=1)
-def _load_segment_summary(signature: Tuple[str, str, float, float]) -> pd.DataFrame:
+def _load_segment_summary(signature: Tuple[str, str, float, float, float]) -> pd.DataFrame:
     cached = _load_cached_dataframe("segment_summary", signature)
     if cached is not None:
         return cached
@@ -434,7 +488,7 @@ def load_transactions() -> pd.DataFrame:
 
 
 @lru_cache(maxsize=1)
-def _load_transactions(signature: Tuple[str, str, float, float]) -> pd.DataFrame:
+def _load_transactions(signature: Tuple[str, str, float, float, float]) -> pd.DataFrame:
     cached = _load_cached_dataframe("transactions", signature)
     if cached is not None:
         return cached
@@ -466,6 +520,7 @@ def set_data_profile(profile: str) -> None:
     _CURRENT_DATA_PROFILE = canonical_profile
     _load_raw_events.cache_clear()
     _load_congestion_events.cache_clear()
+    _load_accident_events.cache_clear()
     _load_route_network.cache_clear()
     _load_reference_network.cache_clear()
     _load_segment_summary.cache_clear()

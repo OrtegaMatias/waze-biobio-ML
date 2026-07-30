@@ -101,3 +101,18 @@ def test_apply_penalties_updates_reference():
     adjusted = data_loader._apply_penalties(reference, lookup)
 
     assert adjusted["penalty_factor"].max() == data_loader.ACCIDENT_PENALTY
+
+
+def test_apply_accident_penalties_uses_dedicated_column():
+    events = data_loader._prepare_dataframe(_base_raw_df(), label="accidente")
+    reference = data_loader._prepare_dataframe(_base_raw_df(), label="referencia")
+    lookup = data_loader._build_penalty_lookup(events)
+
+    adjusted = data_loader._apply_penalties(
+        reference,
+        lookup,
+        target_column="accident_penalty_factor",
+    )
+
+    assert adjusted["accident_penalty_factor"].max() == data_loader.ACCIDENT_PENALTY
+    assert adjusted["penalty_factor"].eq(1.0).all()

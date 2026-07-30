@@ -299,13 +299,13 @@ def test_routes_plan_returns_user_facing_contract(monkeypatch):
     main.app.dependency_overrides.clear()
     body = response.json()
     assert response.status_code == 200
-    assert body["selected_route_key"] == "least_congested"
+    assert body["selected_route_key"] == "fastest"
     assert len(body["routes"]) == 3
     assert body["routes"][0]["key"] == "fastest"
     assert body["routes"][1]["badges"][0]["key"] == "least_congestion"
     assert body["routes"][2]["badges"][0]["key"] == "healthiest"
     assert set(body["routes_by_type"]) == {"fastest", "least_congested", "healthiest"}
-    assert body["summary"]["eta_total_min"] == 10.5
+    assert body["summary"]["eta_total_min"] == 7.5
     assert body["hotspots"][0]["segment_id"] == "seg-1"
     assert body["routes"][0]["cycleway_coverage"]["data_source"] == "OpenStreetMap/Overpass"
     assert body["routes"][1]["active_mobility_estimate"]["auto_min"] == 10.5
@@ -417,7 +417,82 @@ def test_plan_response_keeps_healthiest_visible_when_geometry_matches_shortest(m
     assert [badge.key for badge in base_route.badges] == ["fastest"]
     assert [badge.key for badge in healthiest_route.badges] == ["healthiest"]
     assert healthiest_route.geometry == base_route.geometry
-    assert response.selected_route_key == "least_congested"
+    assert response.selected_route_key == "fastest"
+
+
+@pytest.mark.parametrize(
+    ("travel_style", "expected_key"),
+    [("fast", "fastest"), ("safe", "least_congested"), ("balanced", "fastest")],
+)
+def test_plan_response_selects_route_for_travel_style(monkeypatch, travel_style, expected_key):
+    reference = build_variant(via="Barros Arana", duration=8.5, delay=0.0, risk=10.0, offset=0.0, exposure=1)
+    least_congestion = build_variant(via="Costanera", duration=9.5, delay=0.0, risk=0.0, offset=0.7, exposure=0)
+    healthiest = build_variant(via="Paicavi", duration=9.0, delay=0.0, risk=3.0, offset=0.4, exposure=0)
+    route = RouteResponse(
+        reference=reference,
+        least_congestion=least_congestion,
+        ubcf=reference,
+        ibcf=healthiest,
+        healthiest=healthiest,
+        personalized=reference,
+        comparison=RouteComparison(
+            fastest_variant="reference",
+            safest_variant="least_congestion",
+            lowest_exposure_variant="healthiest",
+            best_balance_variant="reference",
+            deltas=[],
+        ),
+    )
+    monkeypatch.setattr(main, "_filter_hotspots", lambda **_kwargs: [])
+    monkeypatch.setattr(
+        main.cycleway_service,
+        "estimate_route_coverage",
+        lambda _geometry: {"available": False, "data_source": "test"},
+    )
+
+    response = main._build_plan_response(
+        route,
+        PlanRouteRequest(
+            origin=RoutePoint(lat=-36.82, lon=-73.04),
+            destination=RoutePoint(lat=-36.81, lon=-73.05),
+            travel_style=travel_style,
+        ),
+    )
+
+    assert response.selected_route_key == expected_key
+
+
+def test_plan_request_propagates_accident_preference():
+    payload = PlanRouteRequest(
+        origin=RoutePoint(lat=-36.82, lon=-73.04),
+        destination=RoutePoint(lat=-36.81, lon=-73.05),
+        avoid_congestion=False,
+        avoid_accidents=True,
+    )
+
+    internal = main._build_route_request_from_plan(payload, DummyRecommendationService())
+
+    assert internal.avoid_congestion is False
+    assert internal.avoid_accidents is True
+
+
+def test_plan_request_rejects_invalid_congestion_date(monkeypatch):
+    monkeypatch.setattr(main, "AUTO_BOOTSTRAP_ENABLED", False)
+    main.app.dependency_overrides[main.get_routing_service] = lambda: DummyRoutingService()
+    main.app.dependency_overrides[main.get_recommendation_service] = lambda: DummyRecommendationService()
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/routes/plan",
+            json={
+                "origin": {"lat": -36.82, "lon": -73.04},
+                "destination": {"lat": -36.81, "lon": -73.05},
+                "congestion_date": "2025-02-31",
+            },
+        )
+
+    main.app.dependency_overrides.clear()
+    assert response.status_code == 422
 
 
 def test_places_endpoints_return_normalized_results(monkeypatch):

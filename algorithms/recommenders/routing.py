@@ -43,6 +43,7 @@ class GraphNode:
     via: str
     comuna: str
     penalty_factor: float = 1.0
+    accident_penalty_factor: float = 1.0
     dia_semana: str = ""
     franja_horaria: str = ""
     oneway: bool = False
@@ -169,6 +170,10 @@ class RouteGraph:
     @classmethod
     def _is_congestion_event(cls, value: str) -> bool:
         return cls._normalized_text(value).startswith("congesti")
+
+    @classmethod
+    def _is_accident_event(cls, value: str) -> bool:
+        return cls._normalized_text(value).startswith("accident")
 
     @classmethod
     def _is_bridge_like(cls, node: GraphNode) -> bool:
@@ -318,6 +323,7 @@ class RouteGraph:
                 via=row.via,
                 comuna=row.comuna,
                 penalty_factor=float(getattr(row, "penalty_factor", 1.0) or 1.0),
+                accident_penalty_factor=float(getattr(row, "accident_penalty_factor", 1.0) or 1.0),
                 dia_semana=str(getattr(row, "dia_semana", "") or ""),
                 franja_horaria=str(getattr(row, "franja_horaria", "") or ""),
                 oneway=bool(getattr(row, "oneway", False)),
@@ -580,9 +586,10 @@ class RouteGraph:
             day = incident_ctx.get("day")
             hour_bucket = incident_ctx.get("hour_bucket")
             avoid_congestion = bool(incident_ctx.get("avoid_congestion"))
+            avoid_accidents = bool(incident_ctx.get("avoid_accidents"))
 
             # Si el usuario no pidió evitar nada, no aplicamos incidente extra
-            if not avoid_congestion:
+            if not avoid_congestion and not avoid_accidents:
                 return 1.0
 
             node_penalties = incident_ctx.get("node_penalties")
@@ -604,16 +611,25 @@ class RouteGraph:
                 and node.franja_horaria
                 and node.franja_horaria == hour_bucket
             )
-            has_penalty = bool(node.penalty_factor and node.penalty_factor > 1.0)
+            is_congestion = self._is_congestion_event(node.tipo_evento)
+            is_accident = self._is_accident_event(node.tipo_evento)
+            relevant_penalty = 1.0
+            if avoid_congestion and (is_congestion or not is_accident):
+                relevant_penalty = max(relevant_penalty, float(node.penalty_factor or 1.0))
+            if avoid_accidents:
+                relevant_penalty = max(relevant_penalty, float(node.accident_penalty_factor or 1.0))
+                if is_accident:
+                    relevant_penalty = max(relevant_penalty, float(node.penalty_factor or 1.0))
+            has_penalty = relevant_penalty > 1.0
 
             # Factor base ligado a la severidad histórica
             # p.ej. penalty_factor=1.5 -> base_incident=1.5
             base_incident = 1.0
             if has_penalty:
-                base_incident += (float(node.penalty_factor) - 1.0)
+                base_incident = relevant_penalty
 
             # --- Congestión ---
-            if avoid_congestion and self._is_congestion_event(node.tipo_evento):
+            if avoid_congestion and is_congestion:
                 # Match EXACTO día + franja: caso extremo (mantiene el comportamiento previo)
                 if matches_day and matches_hour:
                     return max(1.0, base_incident * 400.0)
@@ -626,8 +642,34 @@ class RouteGraph:
                 # Solo factor histórico suave (si lo hubiera)
                 return max(1.0, base_incident)
 
+            # --- Accidentes ---
+            if avoid_accidents and is_accident:
+                if matches_day and matches_hour:
+                    return max(1.0, base_incident * 500.0)
+                if matches_day or matches_hour or has_penalty:
+                    return max(1.0, base_incident * 6.0)
+                return max(1.0, base_incident)
+
             # Otros tipos de evento: solo factor histórico (si lo hay)
             return max(1.0, base_incident)
+
+        def historical_penalty(node: GraphNode) -> float:
+            if not incident_ctx:
+                return max(
+                    1.0,
+                    float(node.penalty_factor or 1.0),
+                    float(node.accident_penalty_factor or 1.0),
+                )
+            value = 1.0
+            avoid_congestion = bool(incident_ctx.get("avoid_congestion"))
+            avoid_accidents = bool(incident_ctx.get("avoid_accidents"))
+            if avoid_congestion and not self._is_accident_event(node.tipo_evento):
+                value = max(value, float(node.penalty_factor or 1.0))
+            if avoid_accidents:
+                value = max(value, float(node.accident_penalty_factor or 1.0))
+                if self._is_accident_event(node.tipo_evento):
+                    value = max(value, float(node.penalty_factor or 1.0))
+            return value
 
         while queue:
             current_dist, node_id = heapq.heappop(queue)
@@ -646,7 +688,10 @@ class RouteGraph:
                 if edge_filter is not None and not edge_filter(current_node, neighbor_node):
                     continue
                 if apply_penalties:
-                    penalty = max((current_node.penalty_factor + neighbor_node.penalty_factor) / 2, 1.0)
+                    penalty = max(
+                        (historical_penalty(current_node) + historical_penalty(neighbor_node)) / 2,
+                        1.0,
+                    )
                     speed_a = current_node.velocidad_kmh if math.isfinite(current_node.velocidad_kmh) else 0.0
                     speed_b = neighbor_node.velocidad_kmh if math.isfinite(neighbor_node.velocidad_kmh) else 0.0
                     avg_speed = (speed_a + speed_b) / 2 if speed_a > 0 and speed_b > 0 else max(speed_a, speed_b, 0.0)

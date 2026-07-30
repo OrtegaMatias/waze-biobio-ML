@@ -627,6 +627,52 @@ def test_congestion_penalty_forces_alternate_path():
     assert "Via Congestionada" not in vias
 
 
+def test_accident_penalty_only_applies_when_requested():
+    nodes = {
+        "start": routing.GraphNode("start", "seg_start", 0, 0.0, 0.0, "Referencia", 30.0, 0.1, "Inicio", "Test"),
+        "accident": routing.GraphNode(
+            "accident",
+            "segAccident",
+            1,
+            0.1,
+            0.0,
+            "Accidente",
+            30.0,
+            0.1,
+            "Via Accidente",
+            "Test",
+            penalty_factor=1.75,
+            accident_penalty_factor=1.75,
+            dia_semana="Monday",
+            franja_horaria="Punta AM (06-09h)",
+        ),
+        "alt": routing.GraphNode(
+            "alt", "segAlt", 1, 0.0, 0.1, "Referencia", 30.0, 0.1, "Via Alterna", "Test"
+        ),
+        "end": routing.GraphNode("end", "seg_end", 2, 0.2, 0.1, "Referencia", 30.0, 0.1, "Fin", "Test"),
+    }
+    adjacency = {
+        "start": [("accident", 1.0), ("alt", 1.0)],
+        "accident": [("end", 1.0)],
+        "alt": [("end", 1.0)],
+    }
+    graph = routing.RouteGraph(nodes=nodes, adjacency=adjacency)
+
+    unfiltered = graph.shortest_path(
+        (0.0, 0.0),
+        (0.2, 0.1),
+        incident_ctx={"day": "Monday", "hour_bucket": "Punta AM (06-09h)", "avoid_congestion": False, "avoid_accidents": False},
+    )
+    filtered = graph.shortest_path(
+        (0.0, 0.0),
+        (0.2, 0.1),
+        incident_ctx={"day": "Monday", "hour_bucket": "Punta AM (06-09h)", "avoid_congestion": False, "avoid_accidents": True},
+    )
+
+    assert "Via Accidente" in [step.via for step in unfiltered]
+    assert "Via Accidente" not in [step.via for step in filtered]
+
+
 def test_nearest_node_uses_spatial_index_and_exclude():
     df = _base_segment(oneway=False)
     graph = routing.RouteGraph.from_events(df)

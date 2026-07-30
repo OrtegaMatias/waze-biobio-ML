@@ -40,7 +40,7 @@ from .urban_wellbeing_service import get_urban_wellbeing_service
 
 logger = logging.getLogger(__name__)
 CACHE_DIR = Path(__file__).resolve().parents[4] / "data" / "cache"
-GRAPH_CACHE_VERSION = 7
+GRAPH_CACHE_VERSION = 8
 MAX_POINT_SNAP_KM = 0.5
 ON_STREET_SNAP_TOLERANCE_KM = 0.008
 GEOMETRY_SIMPLIFY_TOLERANCE_M = 12.0
@@ -554,27 +554,30 @@ class RoutingService:
             "day": day_value,
             "hour_bucket": hour_bucket,
             "include_congestion": True,
-            "include_accidents": False,
+            "include_accidents": payload.avoid_accidents,
             "match_filters": True,
         }
         routing_context = None
-        needs_context = payload.avoid_congestion
+        needs_context = payload.avoid_congestion or payload.avoid_accidents
         active_congestion_lines = self._active_congestion_lines(payload)
         if needs_context:
             routing_context = {
                 "day": day_value,
                 "hour_bucket": hour_bucket,
                 "avoid_congestion": payload.avoid_congestion,
-                "avoid_accidents": False,
+                "avoid_accidents": payload.avoid_accidents,
             }
-            node_penalties = self._active_congestion_node_penalties(active_congestion_lines)
-            if node_penalties:
-                routing_context["node_penalties"] = node_penalties
+            if payload.avoid_congestion:
+                node_penalties = self._active_congestion_node_penalties(active_congestion_lines)
+                if node_penalties:
+                    routing_context["node_penalties"] = node_penalties
 
         # Log detallado sobre penalizaciones
         penalty_status = []
         if payload.avoid_congestion:
             penalty_status.append("Congestion historica por severidad y contexto")
+        if payload.avoid_accidents:
+            penalty_status.append("Accidentes historicos por contexto")
         if not penalty_status:
             penalty_status.append("NINGUNA - Rutas solo diferirán por preferencias CF")
 
@@ -1564,10 +1567,19 @@ class RoutingService:
         route_geometry: List[Dict[str, float]] | None = None,
         active_congestion_lines: List[dict] | None = None,
     ) -> tuple[IncidentExposure, float, List[str], List[SegmentImpact], List[PreferredViaImpact], RouteCongestionCoverage]:
+        include_congestion = bool((context or {}).get("include_congestion", True))
+        include_accidents = bool((context or {}).get("include_accidents", False))
         incident_steps_by_segment = {
             step.segment_id: step
             for step in path
-            if self._is_congestion_event(step.tipo_evento)
+            if (
+                include_congestion
+                and self._is_congestion_event(step.tipo_evento)
+            )
+            or (
+                include_accidents
+                and self._is_accident_event(step.tipo_evento)
+            )
         }
         matched_steps_by_segment = {
             step.segment_id: step
@@ -1576,12 +1588,12 @@ class RoutingService:
         }
         incident_steps = list(incident_steps_by_segment.values())
         matched_steps = list(matched_steps_by_segment.values())
-        congestion_steps = list(incident_steps)
-        accident_steps: List[routing.RouteStep] = []
+        congestion_steps = [step for step in incident_steps if self._is_congestion_event(step.tipo_evento)]
+        accident_steps = [step for step in incident_steps if self._is_accident_event(step.tipo_evento)]
 
         scored_segments: List[SegmentImpact] = []
         for step in matched_steps:
-            type_weight = 1.3
+            type_weight = 1.6 if self._is_accident_event(step.tipo_evento) else 1.3
             base_minutes = max(float(step.duracion_hrs or 0.0) * 60, 5.0)
             impact_score = round(type_weight * base_minutes / 10.0, 2)
             scored_segments.append(
@@ -1649,11 +1661,17 @@ class RoutingService:
     def _incident_reason(step: routing.RouteStep) -> str:
         if RoutingService._is_congestion_event(step.tipo_evento):
             return f"Congestión histórica en {step.franja_horaria or 'franja no definida'}."
-        return "Segmento con historial de congestion."
+        if RoutingService._is_accident_event(step.tipo_evento):
+            return f"Accidente histórico en {step.franja_horaria or 'franja no definida'}."
+        return "Segmento con historial de incidentes."
 
     @staticmethod
     def _is_congestion_event(value: str | None) -> bool:
         return str(value or "").strip().lower().startswith("congesti")
+
+    @staticmethod
+    def _is_accident_event(value: str | None) -> bool:
+        return str(value or "").strip().lower().startswith("accident")
 
     @staticmethod
     def _preferred_via_impacts(
@@ -1888,12 +1906,15 @@ class RoutingService:
         extra_minutes = 0.0
         if context:
             include_congestion = bool(context.get("include_congestion", True))
+            include_accidents = bool(context.get("include_accidents", False))
             match_filters = bool(context.get("match_filters", True))
             day_value = str(context.get("day") or "").lower() if match_filters else ""
             hour_value = context.get("hour_bucket") if match_filters else None
             buckets: Dict[Tuple[str, str, str], List[float]] = {}
             for step in path:
-                if not self._is_congestion_event(step.tipo_evento):
+                is_congestion = self._is_congestion_event(step.tipo_evento)
+                is_accident = self._is_accident_event(step.tipo_evento)
+                if not is_congestion and not is_accident:
                     continue
                 matches_day = True
                 if day_value:
@@ -1903,7 +1924,9 @@ class RoutingService:
                     matches_hour = bool(step.franja_horaria and step.franja_horaria == hour_value)
                 if not (matches_day and matches_hour):
                     continue
-                if self._is_congestion_event(step.tipo_evento) and not include_congestion:
+                if is_congestion and not include_congestion:
+                    continue
+                if is_accident and not include_accidents:
                     continue
                 key = (step.segment_id, step.tipo_evento, step.franja_horaria or "")
                 minutes = max(step.duracion_hrs, 0.1) * 60

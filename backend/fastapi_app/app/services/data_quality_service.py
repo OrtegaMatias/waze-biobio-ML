@@ -44,20 +44,25 @@ def inspect_data_quality() -> Dict[str, Any]:
 def _inspect_data_quality(signature) -> Dict[str, Any]:
     profile = canonicalize_data_profile(data_loader.get_data_profile())
     congestions = _load_profiled_raw(data_loader.CONGESTION_PATH, profile)
+    duplicate_sources = data_loader.incident_sources_are_duplicates()
+    accidents = pd.DataFrame(columns=congestions.columns)
+    if data_loader.ACCIDENT_PATH.exists() and not duplicate_sources:
+        accidents = _load_profiled_raw(data_loader.ACCIDENT_PATH, profile)
 
     warnings: List[str] = []
     notes: List[str] = []
 
-    duplicate_sources = False
-    combined = congestions.copy()
+    if duplicate_sources:
+        notes.append("ACCIDENTES.csv duplica exactamente CONGESTIONES.csv y no se contabiliza como una fuente independiente.")
+    combined = pd.concat([congestions, accidents], ignore_index=True)
     total_rows = len(combined)
     via_series = combined.get("via", pd.Series(dtype=str))
-    via_text = via_series.astype(str)
+    via_text = via_series.fillna("").astype(str).str.strip()
     missing_via = (
-        via_series.isna().sum()
-        + via_text.str.strip().eq("").sum()
-        + via_text.str.lower().eq("nan").sum()
-    )
+        via_series.isna()
+        | via_text.eq("")
+        | via_text.str.lower().eq("nan")
+    ).sum()
     missing_via_ratio = _safe_ratio(int(missing_via), total_rows)
     if missing_via_ratio > 0.01:
         warnings.append(f"Hay un {missing_via_ratio * 100:.1f}% de registros sin via utilizable.")
@@ -105,7 +110,7 @@ def _inspect_data_quality(signature) -> Dict[str, Any]:
         "missing_via_ratio": missing_via_ratio,
         "anomalous_communes": anomalous_communes[:10],
         "raw_counts": {
-            "accidents": 0,
+            "accidents": int(len(accidents)),
             "congestions": int(len(congestions)),
             "combined": int(total_rows),
         },
