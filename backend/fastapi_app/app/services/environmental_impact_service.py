@@ -13,6 +13,9 @@ from shapely.geometry import LineString, Point, mapping
 from shapely.ops import polygonize, unary_union
 from shapely.strtree import STRtree
 
+from algorithms.recommenders import data_loader
+from algorithms.recommenders.geo_profiles import filter_dataframe_for_profile
+
 from ..schemas.routes import (
     EnvironmentalImpactPoint,
     EnvironmentalImpactResponse,
@@ -26,13 +29,14 @@ logger = logging.getLogger(__name__)
 ROOT_DIR = Path(__file__).resolve().parents[4]
 CONGESTION_CORE_PATH = ROOT_DIR / "data_analysis" / "congestion_clean_gran_concepcion_core.csv"
 CONGESTION_REGIONAL_PATH = ROOT_DIR / "data_analysis" / "congestion_clean.csv"
+CONGESTION_RAW_PATH = data_loader.CONGESTION_PATH
 RAIN_NETWORK_PATH = ROOT_DIR / "data_processed" / "gran_concepcion_rain_network_hourly.csv"
 WIND_NETWORK_PATH = ROOT_DIR / "data_processed" / "gran_concepcion_wind_network_hourly.csv"
 SINCA_MANIFEST_PATH = ROOT_DIR / "data" / "air_quality" / "sinca_biobio_hourly_2021plus" / "manifest.csv"
 ENVIRONMENTAL_YEAR = 2025
 MAX_POINTS = 280
 CONGESTION_CACHE_DIR = ROOT_DIR / "data" / "cache"
-CONGESTION_CACHE_SCHEMA_VERSION = 2
+CONGESTION_CACHE_SCHEMA_VERSION = 3
 ZONE_BUFFER_METERS = {
     "low": 80.0,
     "medium": 120.0,
@@ -204,14 +208,17 @@ def _unproject_geometry(geometry, origin_lon: float, origin_lat: float) -> dict:
 class EnvironmentalImpactService:
     def __init__(
         self,
-        congestion_path: Path = CONGESTION_CORE_PATH,
+        congestion_path: Path | None = None,
         rain_path: Path = RAIN_NETWORK_PATH,
         wind_path: Path = WIND_NETWORK_PATH,
         radiation_manifest_path: Path = SINCA_MANIFEST_PATH,
         year: int = ENVIRONMENTAL_YEAR,
         include_radiation: bool = False,
     ) -> None:
-        self.congestion_path = congestion_path if congestion_path.exists() else CONGESTION_REGIONAL_PATH
+        # The calendar and the environmental layer must use the same versioned
+        # congestion source. Clean analysis files are optional local artifacts
+        # and may be absent or stale in a deployment.
+        self.congestion_path = congestion_path if congestion_path is not None else CONGESTION_RAW_PATH
         self.rain_path = rain_path
         self.wind_path = wind_path
         self.radiation_manifest_path = radiation_manifest_path
@@ -244,7 +251,7 @@ class EnvironmentalImpactService:
             return self._congestion
 
         cache_path: Path | None = None
-        if self.congestion_path in {CONGESTION_CORE_PATH, CONGESTION_REGIONAL_PATH}:
+        if self.congestion_path in {CONGESTION_CORE_PATH, CONGESTION_REGIONAL_PATH, CONGESTION_RAW_PATH}:
             stat = self.congestion_path.stat()
             cache_path = CONGESTION_CACHE_DIR / (
                 f"environmental-congestion-v{CONGESTION_CACHE_SCHEMA_VERSION}-"
@@ -297,6 +304,8 @@ class EnvironmentalImpactService:
         df["lat"] = pd.to_numeric(df.get("lat"), errors="coerce")
         df["lon"] = pd.to_numeric(df.get("lon"), errors="coerce")
         df = df.dropna(subset=["_start_ts", "lat", "lon"])
+        if self.congestion_path == CONGESTION_RAW_PATH:
+            df = filter_dataframe_for_profile(df, data_loader.get_data_profile())
         if "_end_ts" not in df.columns:
             df["_end_ts"] = pd.NaT
         missing_end = df["_end_ts"].isna()
