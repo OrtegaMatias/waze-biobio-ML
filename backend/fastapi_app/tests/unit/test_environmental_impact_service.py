@@ -194,6 +194,35 @@ def test_environmental_impact_uses_only_real_congestion_rows(tmp_path, monkeypat
     assert empty_snapshot.zones["features"] == []
 
 
+def test_environmental_impact_defaults_to_versioned_congestion_source(tmp_path, monkeypatch):
+    congestion_path = tmp_path / "CONGESTIONES.csv"
+    congestion_path.write_text(
+        "\n".join(
+            [
+                "segment_id,lat,lon,fecha,hora_inicio,hora_fin,velocidad_kmh,duracion_hrs,via,comuna",
+                "seg-1,-36.8200,-73.0400,2025-07-01,08:10,08:40,8,0.5,Centro,Concepcion",
+                "seg-1,-36.8210,-73.0410,2025-07-01,08:10,08:40,8,0.5,Centro,Concepcion",
+                "seg-2,-37.4600,-72.3500,2025-07-01,08:10,08:40,8,0.5,Centro,Los Angeles",
+                "seg-2,-37.4610,-72.3510,2025-07-01,08:10,08:40,8,0.5,Centro,Los Angeles",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(environmental_impact_service, "CONGESTION_RAW_PATH", congestion_path)
+    monkeypatch.setattr(environmental_impact_service, "get_air_quality_service", lambda: DummyAirQualityService())
+
+    service = EnvironmentalImpactService(
+        rain_path=tmp_path / "missing_rain.csv",
+        wind_path=tmp_path / "missing_wind.csv",
+    )
+    snapshot = service.build_snapshot("2025-07-01", 8)
+
+    assert service.congestion_path == congestion_path
+    assert snapshot.summary.available is True
+    assert snapshot.summary.point_count == 1
+    assert snapshot.summary.data_source.startswith("CONGESTIONES.csv")
+
+
 def test_environmental_impact_consolidates_identical_congestion_lines(tmp_path, monkeypatch):
     congestion_path = tmp_path / "congestion.csv"
     congestion_path.write_text(
