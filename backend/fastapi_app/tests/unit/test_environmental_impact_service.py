@@ -341,6 +341,24 @@ def test_environmental_reference_maps_p10_and_p90_to_bounds(tmp_path):
     assert environmental_impact_service._local_component(duration_range[1], duration_range) == 1.0
 
 
+def test_wind_labels_follow_local_bar_thirds(tmp_path):
+    service = EnvironmentalImpactService(
+        congestion_path=tmp_path / "missing.csv",
+        rain_path=tmp_path / "missing_rain.csv",
+        wind_path=tmp_path / "missing_wind.csv",
+    )
+    wind_range = service._normalization_range("wind_speed")
+    low, high = wind_range
+    span = high - low
+
+    assert environmental_impact_service._local_wind_label(None, wind_range) == "Sin dato"
+    assert environmental_impact_service._local_wind_label(low, wind_range) == "Viento suave"
+    assert environmental_impact_service._local_wind_label(low + span / 3.0, wind_range) == "Viento moderado"
+    assert environmental_impact_service._local_wind_label(low + 2.0 * span / 3.0, wind_range) == "Viento fuerte"
+    assert environmental_impact_service._local_wind_label(high, wind_range) == "Viento fuerte"
+    assert environmental_impact_service._local_wind_label(high * 2.0, wind_range) == "Viento fuerte"
+
+
 def test_congestion_score_combines_slow_speed_and_long_duration(tmp_path):
     service = EnvironmentalImpactService(
         congestion_path=tmp_path / "missing.csv",

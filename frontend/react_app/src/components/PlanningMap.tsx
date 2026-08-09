@@ -2399,8 +2399,8 @@ export function PlanningMap({
                     </dd>
                     <dt>Viento</dt>
                     <dd>
-                      Rangos: suave bajo 20 km/h, moderado entre 20 y 39 km/h y fuerte desde 39 km/h. Efecto: poco
-                      viento dificulta la dispersion; mas viento favorece la dispersion.
+                      Clasificacion local: suave en el tercio inferior de la barra, moderado en el tercio central y
+                      fuerte en el tercio superior. Poco viento dificulta la dispersion; mas viento la favorece.
                     </dd>
                     <dt>Lluvia</dt>
                     <dd>

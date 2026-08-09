@@ -144,6 +144,23 @@ def _local_component(value: float | None, value_range: tuple[float, float] | Non
     return 1.0 - normalized if invert else normalized
 
 
+def _local_wind_label(
+    wind_speed: float | None,
+    wind_range: tuple[float, float] | None,
+) -> str:
+    if wind_speed is None or wind_range is None:
+        return "Sin dato"
+    low, high = wind_range
+    if high <= low:
+        return "Sin dato"
+    normalized = _clamp((wind_speed - low) / (high - low))
+    if normalized < 1.0 / 3.0:
+        return "Viento suave"
+    if normalized < 2.0 / 3.0:
+        return "Viento moderado"
+    return "Viento fuerte"
+
+
 def _wind_kmh(wind_speed: float | None) -> float | None:
     return wind_speed * WIND_KMH_PER_MPS if wind_speed is not None else None
 
@@ -587,14 +604,7 @@ class EnvironmentalImpactService:
         pm25_range = pm25_range if pm25_range is not None else self._pm25_range()
         pm25_average = self._snapshot_pm25_average(pm25_snapshot)
 
-        if weather.wind_speed is None:
-            wind_label = "Sin dato"
-        elif wind_kmh is not None and wind_kmh >= 39.0:
-            wind_label = "Viento fuerte"
-        elif wind_kmh is not None and wind_kmh >= 20.0:
-            wind_label = "Viento moderado"
-        else:
-            wind_label = "Viento suave"
+        wind_label = _local_wind_label(weather.wind_speed, wind_range)
 
         if weather.global_radiation is None:
             sky_label = "Sin dato"

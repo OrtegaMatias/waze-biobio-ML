@@ -518,9 +518,9 @@ const ENVIRONMENT_CONDITION_INFO: Record<EnvironmentConditionKey, EnvironmentCon
     short:
       "Indica la velocidad del viento y, mientras más alta sea, mayor será la dispersión de contaminantes.",
     technical:
-      "Viento suave: menos de 20 km/h, menor dispersion. Viento moderado: 20 a menos de 39 km/h, ayuda a dispersar. Viento fuerte: desde 39 km/h, mayor dispersion.",
+      "La clasificacion es local: viento suave en el tercio inferior de la barra, moderado en el tercio central y fuerte en el tercio superior.",
     recommendation:
-      "La barra ordena intensidad: suave a la izquierda y fuerte a la derecha. Para colorear la nube ambiental, el viento se compara con sus minimos y maximos historicos disponibles para la misma hora.",
+      "La barra y la etiqueta usan el mismo rango historico P10-P90: suave a la izquierda y fuerte a la derecha. Para colorear la nube ambiental, el viento se compara con esa misma referencia local.",
   },
   rain: {
     label: "Lluvia",
