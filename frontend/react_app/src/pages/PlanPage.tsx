@@ -814,6 +814,12 @@ function durationDelta(candidate?: PlanRouteResponse["routes"][number], referenc
   return Number((candidate.duration_min - reference.duration_min).toFixed(1));
 }
 
+function formatDurationDifference(minutes: number): string {
+  const rounded = Math.max(0, Number(minutes.toFixed(1)));
+  const value = String(rounded).replace(".", ",");
+  return `${value} ${rounded === 1 ? "minuto" : "minutos"}`;
+}
+
 function routePm25(
   route: PlanRouteResponse["routes"][number],
   weather: EnvironmentalImpactResponse["summary"]["weather"] | null | undefined,
@@ -984,11 +990,13 @@ export function healthyEnvironmentMessage(
     return null;
   }
 
-  const detail = selectedAirIsPoor && healthiestAirIsBetter
-    ? "Si buscas reducir la exposición ambiental, considera la ruta saludable. Esta alternativa prioriza mejores condiciones del entorno durante el viaje."
-    : selectedRouteType === "fastest"
-      ? "Existe una alternativa saludable con un tiempo de viaje similar. Si puedes elegirla, esa ruta ofrece mejores condiciones urbanas y ambientales para el trayecto."
-      : "La alternativa saludable tiene un tiempo de viaje similar y puede ofrecer un entorno más favorable, con mayor presencia de áreas verdes, cuerpos de agua, ciclovías o puntos de reciclaje.";
+  const timeDifference = Math.max(0, healthierDelta ?? 0);
+  const differenceLabel = formatDurationDifference(timeDifference);
+  const detail = hasSimilarTime
+    ? timeDifference === 0
+      ? "Con el mismo tiempo de viaje, puedes elegir la ruta de menor exposición, que prioriza mejores condiciones ambientales y urbanas."
+      : `Por solo ${differenceLabel} adicionales, puedes considerar la ruta de menor exposición, que prioriza mejores condiciones ambientales y urbanas.`
+    : `La ruta de menor exposición requiere aproximadamente ${differenceLabel} adicionales, pero ofrece una reducción ambiental frente a la ruta seleccionada.`;
 
   return {
     id: selectedAirIsPoor && healthiestAirIsBetter
@@ -999,7 +1007,7 @@ export function healthyEnvironmentMessage(
     type: "recommendation",
     priority: selectedAirIsPoor && healthiestAirIsBetter ? "high" : "medium",
     action: {
-      label: "Seleccionar ruta saludable",
+      label: "Elegir ruta de menor exposición",
       targetRouteId: "healthiest",
     },
   };
@@ -1099,6 +1107,9 @@ function buildJourneyGuidance(
   const healthiest = allRoutes.find((candidate) => candidate.key === "healthiest");
   const healthyDelta = durationDelta(healthiest, route);
   const healthyHasSimilarTime = healthyDelta !== null && healthyDelta <= RECOMMENDED_ROUTE_MAX_EXTRA_MIN;
+  const healthyDifferenceLabel = healthyDelta === null
+    ? null
+    : formatDurationDifference(healthyDelta);
   const historicalContext = "Según las condiciones históricas del día y horario seleccionados";
 
   if (routeType === "healthiest") {
@@ -1131,8 +1142,12 @@ function buildJourneyGuidance(
   const respiratoryImpact = highExposure || elevatedExposure
     ? " Estas condiciones pueden afectar especialmente a personas con asma o sensibilidad respiratoria."
     : "";
-  const recommendation = healthiest
-    ? `Considera ${routeDisplayName("healthiest")} para reducir la exposición ambiental. Si este viaje es necesario y atraviesa sectores congestionados, mantén las ventanas cerradas y utiliza la recirculación del aire.`
+  const recommendation = healthiest && healthyDifferenceLabel
+    ? healthyHasSimilarTime
+      ? healthyDelta <= 0
+        ? "Sin aumentar el tiempo de viaje, puedes elegir la ruta de menor exposición."
+        : `Por solo ${healthyDifferenceLabel} adicionales, puedes considerar la ruta de menor exposición.`
+      : `La ruta de menor exposición requiere aproximadamente ${healthyDifferenceLabel} adicionales. Compara esa diferencia con la mejora ambiental antes de cambiar.`
     : "Si atraviesas sectores congestionados y eres sensible a la contaminación, mantén las ventanas cerradas y utiliza la recirculación del aire.";
   return {
     title: congestion === "Alto" || highExposure

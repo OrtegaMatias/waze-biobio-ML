@@ -135,10 +135,12 @@ describe("buildRouteInsightMessages", () => {
     expect(recommendation).toMatchObject({
       type: "recommendation",
       action: {
-        label: "Seleccionar ruta saludable",
+        label: "Elegir ruta de menor exposición",
         targetRouteId: "healthiest",
       },
     });
+    expect(recommendation?.detail).toContain("Por solo 3 minutos adicionales");
+    expect(recommendation?.detail).toContain("ruta de menor exposición");
   });
 
   it("does not force a recommendation when the healthy route is slower and does not reduce exposure", () => {
@@ -178,10 +180,13 @@ describe("buildRouteInsightMessages", () => {
 
     expect(result.find((message) => message.id === "recommend-healthiest-lower-exposure")).toMatchObject({
       action: {
-        label: "Seleccionar ruta saludable",
+        label: "Elegir ruta de menor exposición",
         targetRouteId: "healthiest",
       },
     });
+    expect(result.find((message) => message.id === "recommend-healthiest-lower-exposure")?.detail).toContain(
+      "8 minutos adicionales",
+    );
   });
 
   it("adds one weather message only when rain is present", () => {
