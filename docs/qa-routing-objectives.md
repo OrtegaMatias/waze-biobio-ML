@@ -23,7 +23,7 @@ Registrar cada resultado como **Aprobada**, **Fallida** o **Pendiente**.
 
 | Estado | Paso | Criterio de aceptación | Evidencia del 12-08-2026 |
 | --- | --- | --- | --- |
-| Pendiente | 1. Caso original de Cerro Caracol | La ruta no entra a senderos interiores; puede bordear el cerro por calles vehiculares y no realiza el rodeo artificial observado anteriormente. | Las pruebas unitarias del filtro pasan; falta inspección visual del recorrido original. |
+| Aprobada | 1. Caso original de Cerro Caracol | La ruta no entra a senderos interiores; puede bordear el cerro por calles vehiculares y no realiza el rodeo artificial observado anteriormente. | Pruebas unitarias aprobadas y validación visual confirmada por el usuario el 12-08-2026. |
 | Aprobada | 2. Llegar antes con congestión | Para una fecha/hora con congestión, minimiza el tiempo contextual; al cambiar fecha u hora se recalcula y puede cambiar la ruta o su duración. | Caso API del 01-07-2025, 17:00 y 18:00: las tres geometrías cambiaron; Llegar antes mantuvo el menor tiempo. |
 | Pendiente | 3. Circulación más fluida | Evita congestión roja y naranja cuando existe una alternativa cuyo tiempo no supera el 150 % de Llegar antes. | En el caso API observado coincidió justificadamente con Llegar antes; falta un caso visual con alternativa fluida distinta. |
 | Pendiente | 4. Menor exposición ambiental | Tolera verde, evita principalmente naranja y rojo, responde a PM2.5 y capas urbanas; no supera el 300 % en viajes de hasta 5 minutos ni el 150 % en viajes más largos. | En el caso API redujo la cobertura congestionada de 2,8 % a 1,5 % y respetó el límite corto; falta inspección visual de zonas naranja y roja. |
@@ -37,4 +37,4 @@ Registrar cada resultado como **Aprobada**, **Fallida** o **Pendiente**.
 
 - Estado: **Pendiente**.
 - Responsable: usuario responsable de la validación funcional.
-- Producción certificada: **No**, hasta aprobar los pasos 1, 3, 4, 6, 7 y 8 y registrar la aprobación final.
+- Producción certificada: **No**, hasta aprobar los pasos 3, 4, 6, 7 y 8 y registrar la aprobación final.
