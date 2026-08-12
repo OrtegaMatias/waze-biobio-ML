@@ -15,21 +15,41 @@ from .cycleway_service import NON_ROUTABLE_CYCLEWAY_CATEGORIES, load_cycleways
 
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_WELLBEING_PATH = PROJECT_ROOT / "data_processed" / "gran_concepcion_urban_wellbeing.geojson"
-DEFAULT_NEARBY_BUFFER_M = 30.0
-CYCLEWAY_COVERAGE_BUFFER_M = 15.0
-MIN_CYCLEWAY_ROUTE_RATIO = 0.35
+DEFAULT_NEARBY_BUFFER_M = 15.0
 WAYPOINT_SEARCH_BUFFER_M = 1_200.0
 WAYPOINT_MIN_OFFSET_M = 120.0
 WAYPOINT_MAX_DIRECT_RATIO = 1.20
 REFERENCE_LAT = -36.82
 
 CATEGORY_WEIGHTS = {
-    "green_space": 0.42,
-    "blue_space": 0.18,
-    "tree_cover": 0.12,
+    "green_space": 0.25,
+    "blue_space": 0.15,
+    "tree_cover": 0.35,
     "public_space": 0.10,
     "sustainability": 0.05,
-    "cycleway": 0.13,
+    "cycleway": 0.10,
+}
+
+# Operational contact thresholds. These buffers absorb map/road-centreline
+# imprecision; they are deliberately too small to count an element one block
+# away. Linear and areal features must also accompany the route for a minimum
+# distance so a single tangential touch is not presented as environmental
+# exposure along the trip.
+CATEGORY_CONTACT_BUFFER_M = {
+    "green_space": 10.0,
+    "blue_space": 15.0,
+    "tree_cover": 10.0,
+    "public_space": 10.0,
+    "sustainability": 10.0,
+    "cycleway": 5.0,
+}
+CATEGORY_MIN_CONTACT_LENGTH_M = {
+    "green_space": 50.0,
+    "blue_space": 50.0,
+    "tree_cover": 50.0,
+    "public_space": 20.0,
+    "sustainability": 0.0,
+    "cycleway": 100.0,
 }
 
 
@@ -157,24 +177,24 @@ class UrbanWellbeingService:
             self.waypoint_points.append(raw_geometry.representative_point())
         self.tree = STRtree(self.geometries) if self.geometries else None
 
-    def route_cost_factor(self, lat: float, lon: float, nearby_buffer_m: float = DEFAULT_NEARBY_BUFFER_M) -> float:
+    def route_cost_factor(self, lat: float, lon: float, nearby_buffer_m: float | None = None) -> float:
         if self.tree is None:
             return 1.0
         point = transform(_project_xy, Point(float(lon), float(lat)))
-        nearby = self.tree.query(point.buffer(nearby_buffer_m))
+        search_buffer_m = nearby_buffer_m or max(CATEGORY_CONTACT_BUFFER_M.values())
+        nearby = self.tree.query(point.buffer(search_buffer_m))
         benefit = 0.0
         for raw_index in nearby:
             index = int(raw_index)
             geometry = self.geometries[index]
-            distance = geometry.distance(point)
-            if distance > nearby_buffer_m:
-                continue
             properties = self.features[index].get("properties") or {}
             category = str(properties.get("category") or "")
-            if category == "cycleway":
+            contact_buffer_m = nearby_buffer_m or CATEGORY_CONTACT_BUFFER_M.get(category, DEFAULT_NEARBY_BUFFER_M)
+            distance = geometry.distance(point)
+            if distance > contact_buffer_m:
                 continue
             base_weight = float(properties.get("base_weight") or 1.0)
-            proximity = max(0.0, 1.0 - distance / nearby_buffer_m)
+            proximity = max(0.0, 1.0 - distance / contact_buffer_m)
             benefit = max(benefit, CATEGORY_WEIGHTS.get(category, 0.0) * base_weight * proximity)
         # The factor only generates candidates. Final selection evaluates complete routes.
         return round(max(0.65, 1.0 - benefit * 0.70), 4)
@@ -245,17 +265,18 @@ class UrbanWellbeingService:
     def evaluate_route(
         self,
         geometry: list[Any],
-        nearby_buffer_m: float = DEFAULT_NEARBY_BUFFER_M,
+        nearby_buffer_m: float | None = None,
     ) -> dict[str, Any]:
+        reported_buffer_m = nearby_buffer_m or max(CATEGORY_CONTACT_BUFFER_M.values())
         route_pairs = _route_pairs(geometry)
         if len(route_pairs) < 2:
-            return self._empty_analysis(nearby_buffer_m)
+            return self._empty_analysis(reported_buffer_m)
         route = transform(_project_xy, LineString(route_pairs))
         route_length = route.length
         if route_length <= 0 or self.tree is None:
-            return self._empty_analysis(nearby_buffer_m)
+            return self._empty_analysis(reported_buffer_m)
 
-        corridor = route.buffer(nearby_buffer_m)
+        corridor = route.buffer(reported_buffer_m)
         category_geometries: dict[str, list[Any]] = {key: [] for key in CATEGORY_WEIGHTS}
         nearby_features: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
@@ -268,10 +289,13 @@ class UrbanWellbeingService:
                 continue
             properties = feature.get("properties") or {}
             category = str(properties.get("category") or "")
-            influence_buffer = CYCLEWAY_COVERAGE_BUFFER_M if category == "cycleway" else nearby_buffer_m
+            influence_buffer = nearby_buffer_m or CATEGORY_CONTACT_BUFFER_M.get(category, DEFAULT_NEARBY_BUFFER_M)
             influence = feature_geometry.buffer(influence_buffer)
             covered_route = route.intersection(influence)
             if covered_route.is_empty:
+                continue
+            minimum_contact_m = CATEGORY_MIN_CONTACT_LENGTH_M.get(category, 0.0)
+            if not isinstance(feature_geometry, Point) and covered_route.length + 1e-9 < minimum_contact_m:
                 continue
             category_geometries[category].append(covered_route)
             feature_id = str(properties.get("feature_id") or f"feature-{index}")
@@ -295,10 +319,6 @@ class UrbanWellbeingService:
             covered_length = unary_union(intersections).length if intersections else 0.0
             ratios[category] = min(1.0, covered_length / route_length)
 
-        if ratios["cycleway"] < MIN_CYCLEWAY_ROUTE_RATIO:
-            ratios["cycleway"] = 0.0
-            nearby_features = [feature for feature in nearby_features if feature["category"] != "cycleway"]
-
         score = sum(CATEGORY_WEIGHTS[key] * ratios[key] for key in CATEGORY_WEIGHTS)
         top_features = sorted(
             nearby_features,
@@ -317,9 +337,9 @@ class UrbanWellbeingService:
             "sustainability_ratio": round(ratios["sustainability"], 3),
             "cycleway_ratio": round(ratios["cycleway"], 3),
             "nearby_feature_count": len(nearby_features),
-            "nearby_buffer_m": nearby_buffer_m,
+            "nearby_buffer_m": reported_buffer_m,
             "top_features": top_features,
-            "method": "Cobertura del corredor de ruta por elementos de bienestar urbano adyacentes al recorrido.",
+            "method": "Contacto efectivo de la ruta con elementos urbanos, usando distancias y longitudes minimas por categoria.",
             "data_source": "OpenStreetMap/Overpass, MINVU GeoIDE y fuentes abiertas complementarias",
         }
 
@@ -337,7 +357,7 @@ class UrbanWellbeingService:
             "nearby_feature_count": 0,
             "nearby_buffer_m": nearby_buffer_m,
             "top_features": [],
-            "method": "Cobertura del corredor de ruta por elementos de bienestar urbano adyacentes al recorrido.",
+            "method": "Contacto efectivo de la ruta con elementos urbanos, usando distancias y longitudes minimas por categoria.",
             "data_source": "OpenStreetMap/Overpass, MINVU GeoIDE y fuentes abiertas complementarias",
         }
 

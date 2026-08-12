@@ -25,6 +25,7 @@ import {
   WELLBEING_LAYER_OPTIONS,
   type WellbeingVisibility,
 } from "../components/PlanningMap";
+import { InternalRoutingCostsDialog } from "../components/InternalRoutingCostsDialog";
 import type {
   CongestionDateCoverage,
   CyclewayFeature,
@@ -35,7 +36,6 @@ import type {
   ReadinessStatus,
   RoutePoint,
   RouteType,
-  TravelStyle,
   UrbanWellbeingCategory,
   UrbanWellbeingFeature,
 } from "../types";
@@ -47,7 +47,6 @@ type PlannerState = {
   destination: RoutePoint | null;
   day_of_week: string;
   departure_hour: number;
-  travel_style: TravelStyle;
   avoid_congestion: boolean;
 };
 
@@ -62,6 +61,8 @@ const ONBOARDING_SEEN_KEY = "wbm_onboarding_seen";
 const PLANNER_HELP_SEEN_KEY = "wbm_planner_help_seen";
 const DEFAULT_MAP_STYLE_URL = "local-basic";
 const DEFAULT_HISTORY_DATE = "2025-03-13";
+const INTERNAL_ROUTING_COSTS_ENABLED =
+  import.meta.env.DEV || import.meta.env.VITE_ENABLE_INTERNAL_ROUTING_COSTS === "true";
 const WEEKDAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 const DAY_HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 const MONTH_LABELS = [
@@ -517,9 +518,9 @@ const ENVIRONMENT_CONDITION_INFO: Record<EnvironmentConditionKey, EnvironmentCon
     short:
       "Indica la velocidad del viento y, mientras más alta sea, mayor será la dispersión de contaminantes.",
     technical:
-      "Viento suave: menos de 20 km/h, menor dispersion. Viento moderado: 20 a menos de 39 km/h, ayuda a dispersar. Viento fuerte: desde 39 km/h, mayor dispersion.",
+      "La clasificacion es local: viento suave en el tercio inferior de la barra, moderado en el tercio central y fuerte en el tercio superior.",
     recommendation:
-      "La barra ordena intensidad: suave a la izquierda y fuerte a la derecha. Para colorear la nube ambiental, el viento se compara con sus minimos y maximos historicos disponibles para la misma hora.",
+      "La barra y la etiqueta usan el mismo rango historico P10-P90: suave a la izquierda y fuerte a la derecha. Para colorear la nube ambiental, el viento se compara con esa misma referencia local.",
   },
   rain: {
     label: "Lluvia",
@@ -813,6 +814,12 @@ function durationDelta(candidate?: PlanRouteResponse["routes"][number], referenc
   return Number((candidate.duration_min - reference.duration_min).toFixed(1));
 }
 
+function formatDurationDifference(minutes: number): string {
+  const rounded = Math.max(0, Number(minutes.toFixed(1)));
+  const value = String(rounded).replace(".", ",");
+  return `${value} ${rounded === 1 ? "minuto" : "minutos"}`;
+}
+
 function routePm25(
   route: PlanRouteResponse["routes"][number],
   weather: EnvironmentalImpactResponse["summary"]["weather"] | null | undefined,
@@ -983,11 +990,13 @@ export function healthyEnvironmentMessage(
     return null;
   }
 
-  const detail = selectedAirIsPoor && healthiestAirIsBetter
-    ? "Si buscas reducir la exposición ambiental, considera la ruta saludable. Esta alternativa prioriza mejores condiciones del entorno durante el viaje."
-    : selectedRouteType === "fastest"
-      ? "Existe una alternativa saludable con un tiempo de viaje similar. Si puedes elegirla, esa ruta ofrece mejores condiciones urbanas y ambientales para el trayecto."
-      : "La alternativa saludable tiene un tiempo de viaje similar y puede ofrecer un entorno más favorable, con mayor presencia de áreas verdes, cuerpos de agua, ciclovías o puntos de reciclaje.";
+  const timeDifference = Math.max(0, healthierDelta ?? 0);
+  const differenceLabel = formatDurationDifference(timeDifference);
+  const detail = hasSimilarTime
+    ? timeDifference === 0
+      ? "Con el mismo tiempo de viaje, puedes elegir la ruta de menor exposición, que prioriza mejores condiciones ambientales y urbanas."
+      : `Por solo ${differenceLabel} adicionales, puedes considerar la ruta de menor exposición, que prioriza mejores condiciones ambientales y urbanas.`
+    : `La ruta de menor exposición requiere aproximadamente ${differenceLabel} adicionales, pero ofrece una reducción ambiental frente a la ruta seleccionada.`;
 
   return {
     id: selectedAirIsPoor && healthiestAirIsBetter
@@ -998,7 +1007,7 @@ export function healthyEnvironmentMessage(
     type: "recommendation",
     priority: selectedAirIsPoor && healthiestAirIsBetter ? "high" : "medium",
     action: {
-      label: "Seleccionar ruta saludable",
+      label: "Elegir ruta de menor exposición",
       targetRouteId: "healthiest",
     },
   };
@@ -1098,6 +1107,9 @@ function buildJourneyGuidance(
   const healthiest = allRoutes.find((candidate) => candidate.key === "healthiest");
   const healthyDelta = durationDelta(healthiest, route);
   const healthyHasSimilarTime = healthyDelta !== null && healthyDelta <= RECOMMENDED_ROUTE_MAX_EXTRA_MIN;
+  const healthyDifferenceLabel = healthyDelta === null
+    ? null
+    : formatDurationDifference(healthyDelta);
   const historicalContext = "Según las condiciones históricas del día y horario seleccionados";
 
   if (routeType === "healthiest") {
@@ -1130,8 +1142,12 @@ function buildJourneyGuidance(
   const respiratoryImpact = highExposure || elevatedExposure
     ? " Estas condiciones pueden afectar especialmente a personas con asma o sensibilidad respiratoria."
     : "";
-  const recommendation = healthiest
-    ? `Considera ${routeDisplayName("healthiest")} para reducir la exposición ambiental. Si este viaje es necesario y atraviesa sectores congestionados, mantén las ventanas cerradas y utiliza la recirculación del aire.`
+  const recommendation = healthiest && healthyDifferenceLabel
+    ? healthyHasSimilarTime
+      ? healthyDelta <= 0
+        ? "Sin aumentar el tiempo de viaje, puedes elegir la ruta de menor exposición."
+        : `Por solo ${healthyDifferenceLabel} adicionales, puedes considerar la ruta de menor exposición.`
+      : `La ruta de menor exposición requiere aproximadamente ${healthyDifferenceLabel} adicionales. Compara esa diferencia con la mejora ambiental antes de cambiar.`
     : "Si atraviesas sectores congestionados y eres sensible a la contaminación, mantén las ventanas cerradas y utiliza la recirculación del aire.";
   return {
     title: congestion === "Alto" || highExposure
@@ -1191,12 +1207,12 @@ export function PlanPage() {
   const [readiness, setReadiness] = useState<ReadinessStatus | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding());
   const [onboardingStep, setOnboardingStep] = useState(0);
+  const [internalCostsOpen, setInternalCostsOpen] = useState(false);
   const [planner, setPlanner] = useState<PlannerState>({
     origin: null,
     destination: null,
     day_of_week: "Wednesday",
     departure_hour: 8,
-    travel_style: "balanced",
     avoid_congestion: true,
   });
   const [activePin, setActivePin] = useState<PinKey>("origin");
@@ -1255,6 +1271,7 @@ export function PlanPage() {
   const [openEnvironmentInfo, setOpenEnvironmentInfo] = useState<EnvironmentConditionKey | null>(null);
   const [expandedMetricInfo, setExpandedMetricInfo] = useState<RouteMetricKey | null>(null);
   const bootstrapRequestedRef = useRef(false);
+  const planAbortControllerRef = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState({ refresh: false, planning: false });
   const [error, setError] = useState<string | null>(null);
   const selectedRoute = selectedRouteType
@@ -1657,6 +1674,22 @@ export function PlanPage() {
     setJourneyDetailsVisible(false);
   }
 
+  function handleCancelPlan() {
+    planAbortControllerRef.current?.abort();
+    planAbortControllerRef.current = null;
+    setBusy((current) => ({ ...current, planning: false }));
+  }
+
+  useEffect(() => {
+    return () => planAbortControllerRef.current?.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!plan) {
+      setInternalCostsOpen(false);
+    }
+  }, [plan]);
+
   async function handlePlan() {
     const origin = planner.origin;
     const destination = planner.destination;
@@ -1664,12 +1697,21 @@ export function PlanPage() {
       setError("Selecciona el origen y el destino directamente en el mapa.");
       return;
     }
+    planAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    planAbortControllerRef.current = controller;
     setBusy((current) => ({ ...current, planning: true }));
     setError(null);
     try {
       if (!readiness?.ready) {
         await startBootstrap();
+        if (controller.signal.aborted) {
+          return;
+        }
         setReadiness(await getReadiness());
+        if (controller.signal.aborted) {
+          return;
+        }
       }
       const response = await planRoute({
         origin,
@@ -1677,10 +1719,12 @@ export function PlanPage() {
         congestion_date: selectedCongestionDate,
         day_of_week: planner.day_of_week,
         departure_hour: planner.departure_hour,
-        travel_style: planner.travel_style,
         avoid_congestion: planner.avoid_congestion,
         avoid_accidents: false,
-      });
+      }, controller.signal);
+      if (controller.signal.aborted) {
+        return;
+      }
       startTransition(() => {
         setPlan(response);
         setSelectedRouteType(null);
@@ -1692,9 +1736,14 @@ export function PlanPage() {
         setJourneyDetailsVisible(false);
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo planificar el viaje.");
+      if (!controller.signal.aborted) {
+        setError(err instanceof Error ? err.message : "No se pudo planificar el viaje.");
+      }
     } finally {
-      setBusy((current) => ({ ...current, planning: false }));
+      if (planAbortControllerRef.current === controller) {
+        planAbortControllerRef.current = null;
+        setBusy((current) => ({ ...current, planning: false }));
+      }
     }
   }
 
@@ -1937,10 +1986,25 @@ export function PlanPage() {
             Define origen y destino, elige una preferencia y revisa el contexto urbano antes de salir.
           </p>
         </div>
+        {INTERNAL_ROUTING_COSTS_ENABLED ? (
+          <button
+            className="secondary-link internal-costs-trigger"
+            type="button"
+            disabled={!deferredPlan?.routes.some((route) => route.optimization_trace)}
+            title={deferredPlan ? "Abrir diagnóstico interno" : "Calcula una ruta para ver sus costos internos"}
+            onClick={() => setInternalCostsOpen(true)}
+          >
+            Costos internos
+          </button>
+        ) : null}
         <button className="secondary-link" type="button" onClick={openOnboarding}>
           Ver paso a paso
         </button>
       </section>
+
+      {INTERNAL_ROUTING_COSTS_ENABLED && internalCostsOpen && deferredPlan ? (
+        <InternalRoutingCostsDialog routes={deferredPlan.routes} onClose={() => setInternalCostsOpen(false)} />
+      ) : null}
 
       {showOnboarding ? (
         <section className="onboarding-overlay" role="presentation">
@@ -2043,14 +2107,21 @@ export function PlanPage() {
                 : "Selecciona este bloque y luego el mapa"}
             </small>
           </button>
-          <button
-            className="primary-button planner-submit-button"
-            type="button"
-            onClick={handlePlan}
-            disabled={busy.planning || !readiness?.ready || !plannerComplete}
-          >
-            {busy.planning ? "Planificando…" : plannerComplete ? "Planificar viaje" : "Selecciona origen y destino"}
-          </button>
+          {busy.planning ? (
+            <div className="planner-submit-button planner-submit-progress" role="status" aria-live="polite">
+              <strong>Planificando…</strong>
+              <button type="button" onClick={handleCancelPlan}>Cancelar</button>
+            </div>
+          ) : (
+            <button
+              className="primary-button planner-submit-button"
+              type="button"
+              onClick={handlePlan}
+              disabled={!readiness?.ready || !plannerComplete}
+            >
+              {plannerComplete ? "Planificar viaje" : "Selecciona origen y destino"}
+            </button>
+          )}
         </div>
 
         <div className="planner-help" ref={plannerHelpRef}>

@@ -316,6 +316,12 @@ def _prepare_dataframe(df: pd.DataFrame, label: str) -> pd.DataFrame:
     df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
     df["oneway"] = df.get("oneway", False)
     df["oneway"] = df["oneway"].apply(_normalize_bool)
+    df["highway"] = df.get("highway", "")
+    df["highway"] = df["highway"].fillna("").astype(str)
+    df["motor_vehicle"] = df.get("motor_vehicle", "")
+    df["motor_vehicle"] = df["motor_vehicle"].fillna("").astype(str)
+    df["maxspeed_source"] = df.get("maxspeed_source", "legacy")
+    df["maxspeed_source"] = df["maxspeed_source"].fillna("legacy").astype(str)
     if "indice_coord" in df.columns:
         df["indice_coord"] = pd.to_numeric(df["indice_coord"], errors="coerce").fillna(0).astype(int)
         df = df.sort_values(["segment_id", "indice_coord"]).reset_index(drop=True)

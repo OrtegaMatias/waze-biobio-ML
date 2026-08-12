@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from algorithms.recommenders import routing
 
@@ -229,6 +230,137 @@ def test_shortest_path_respects_edge_filter():
     )
 
     assert [step.node_id for step in path] == ["source", "detour", "target"]
+
+
+def test_shortest_path_prunes_nodes_outside_geographic_path_limit():
+    def node(node_id: str, lat: float, lon: float) -> routing.GraphNode:
+        return routing.GraphNode(
+            node_id=node_id,
+            segment_id=node_id,
+            segment_seq=0,
+            lat=lat,
+            lon=lon,
+            tipo_evento="Referencia",
+            velocidad_kmh=30.0,
+            duracion_hrs=0.1,
+            via="Test",
+            comuna="Test",
+        )
+
+    nodes = {
+        "source": node("source", 0.0, 0.0),
+        "direct": node("direct", 0.0, 0.001),
+        "far": node("far", 0.02, 0.001),
+        "target": node("target", 0.0, 0.002),
+    }
+    graph = routing.RouteGraph(
+        nodes,
+        {
+            "source": [("direct", 5.0), ("far", 1.0)],
+            "direct": [("target", 5.0)],
+            "far": [("target", 1.0)],
+            "target": [],
+        },
+    )
+
+    path = graph.shortest_path(
+        (0.0, 0.0),
+        (0.0, 0.002),
+        apply_penalties=False,
+        source_node_costs={"source": 0.0},
+        target_node_costs={"target": 0.0},
+        geographic_path_limit_km=0.3,
+    )
+
+    assert [step.node_id for step in path] == ["source", "direct", "target"]
+
+
+def test_shortest_path_enforces_real_accumulated_distance_limit():
+    def node(node_id: str, lat: float, lon: float) -> routing.GraphNode:
+        return routing.GraphNode(
+            node_id, node_id, 0, lat, lon, "Referencia", 30.0, 0.1, node_id, "Test"
+        )
+
+    nodes = {
+        "source": node("source", 0.0, 0.0),
+        "direct": node("direct", 0.0, 0.001),
+        "detour-a": node("detour-a", 0.001, 0.0005),
+        "detour-b": node("detour-b", -0.001, 0.001),
+        "detour-c": node("detour-c", 0.001, 0.0015),
+        "target": node("target", 0.0, 0.002),
+    }
+    graph = routing.RouteGraph(
+        nodes,
+        {
+            "source": [("direct", 5.0), ("detour-a", 1.0)],
+            "direct": [("target", 5.0)],
+            "detour-a": [("detour-b", 1.0)],
+            "detour-b": [("detour-c", 1.0)],
+            "detour-c": [("target", 1.0)],
+            "target": [],
+        },
+    )
+
+    path = graph.shortest_path(
+        (0.0, 0.0),
+        (0.0, 0.002),
+        apply_penalties=False,
+        source_node_costs={"source": 0.0},
+        target_node_costs={"target": 0.0},
+        geographic_path_limit_km=0.3,
+    )
+
+    assert [step.node_id for step in path] == ["source", "direct", "target"]
+
+
+def test_shortest_path_can_ignore_global_historical_penalties():
+    def node(node_id: str, lat: float, lon: float, penalty: float = 1.0) -> routing.GraphNode:
+        return routing.GraphNode(
+            node_id,
+            node_id,
+            0,
+            lat,
+            lon,
+            "Referencia",
+            30.0,
+            0.1,
+            node_id,
+            "Test",
+            penalty_factor=penalty,
+        )
+
+    nodes = {
+        "source": node("source", 0.0, 0.0),
+        "historical": node("historical", 0.0, 0.001, penalty=2.75),
+        "clear-detour": node("clear-detour", 0.001, 0.001),
+        "target": node("target", 0.0, 0.002),
+    }
+    graph = routing.RouteGraph(
+        nodes,
+        {
+            "source": [("historical", 0.11), ("clear-detour", 0.16)],
+            "historical": [("target", 0.11)],
+            "clear-detour": [("target", 0.16)],
+            "target": [],
+        },
+    )
+    common = {
+        "source_node_costs": {"source": 0.0},
+        "target_node_costs": {"target": 0.0},
+        "incident_ctx": {"avoid_congestion": True},
+        "apply_penalties": True,
+    }
+
+    historical = graph.shortest_path((0.0, 0.0), (0.0, 0.002), **common)
+    contextual = graph.shortest_path(
+        (0.0, 0.0),
+        (0.0, 0.002),
+        **common,
+        apply_historical_penalties=False,
+    )
+
+    assert "clear-detour" in [step.node_id for step in historical]
+    assert "historical" in [step.node_id for step in contextual]
 
 
 def test_route_graph_penalizes_normalized_congestion_event_types():
@@ -481,6 +613,67 @@ def test_edge_weight_increases_with_penalty():
     assert penalized_cost > baseline_cost
 
 
+def test_constrained_dijkstra_keeps_non_dominated_cost_and_distance_labels():
+    nodes = {
+        "source": routing.GraphNode("source", "source", 0, 0.0, 0.0, "Referencia", 40.0, 0.0, "S", "Test"),
+        "detour": routing.GraphNode("detour", "detour", 0, 0.01, 0.0, "Referencia", 40.0, 0.0, "D", "Test"),
+        "merge": routing.GraphNode("merge", "merge", 0, 0.0, 0.001, "Referencia", 40.0, 0.0, "M", "Test"),
+        "target": routing.GraphNode("target", "target", 0, 0.0, 0.002, "Referencia", 40.0, 0.0, "T", "Test"),
+    }
+    adjacency = {
+        "source": [("detour", 0.1), ("merge", 5.0)],
+        "detour": [("merge", 0.1)],
+        "merge": [("target", 0.1)],
+        "target": [],
+    }
+    graph = routing.RouteGraph(nodes, adjacency, spatial_node_ids=list(nodes))
+
+    path = graph.shortest_path_constrained(
+        source_node_costs={"source": 0.0},
+        target_node_costs={"target": 0.0},
+        source_path_distances_km={"source": 0.0},
+        target_path_distances_km={"target": 0.0},
+        edge_cost=lambda _source, _target, supplied: supplied,
+        max_path_length_km=0.5,
+    )
+
+    assert [step.node_id for step in path] == ["source", "merge", "target"]
+
+
+def test_constrained_dijkstra_can_limit_contextual_time_instead_of_distance():
+    nodes = {
+        "source": routing.GraphNode("source", "source", 0, 0.0, 0.0, "Referencia", 40.0, 0.0, "S", "Test"),
+        "slow": routing.GraphNode("slow", "slow", 0, 0.001, 0.0, "Referencia", 40.0, 0.0, "Lenta", "Test"),
+        "fast": routing.GraphNode("fast", "fast", 0, 0.0, 0.001, "Referencia", 40.0, 0.0, "Rapida", "Test"),
+        "target": routing.GraphNode("target", "target", 0, 0.001, 0.001, "Referencia", 40.0, 0.0, "T", "Test"),
+    }
+    adjacency = {
+        "source": [("slow", 1.0), ("fast", 2.0)],
+        "slow": [("target", 1.0)],
+        "fast": [("target", 2.0)],
+        "target": [],
+    }
+    resource_minutes = {
+        ("source", "slow"): 6.0,
+        ("slow", "target"): 6.0,
+        ("source", "fast"): 2.0,
+        ("fast", "target"): 2.0,
+    }
+    graph = routing.RouteGraph(nodes, adjacency, spatial_node_ids=list(nodes))
+
+    path = graph.shortest_path_constrained(
+        source_node_costs={"source": 0.0},
+        target_node_costs={"target": 0.0},
+        source_resource_costs={"source": 0.0},
+        target_resource_costs={"target": 0.0},
+        edge_cost=lambda _source, _target, supplied: supplied,
+        edge_resource_cost=lambda source, target, _supplied: resource_minutes[(source.node_id, target.node_id)],
+        max_resource_cost=10.0,
+    )
+
+    assert [step.node_id for step in path] == ["source", "fast", "target"]
+
+
 def test_shortest_path_applies_preferences():
     nodes = {
         "start": routing.GraphNode("start", "seg_start", 0, 0.0, 0.0, "Referencia", 30.0, 0.1, "Inicio", "Test"),
@@ -682,3 +875,140 @@ def test_nearest_node_uses_spatial_index_and_exclude():
 
     assert source.node_id == "segA::0"
     assert target.node_id == "segA::1"
+
+
+def test_astar_matches_dijkstra_with_all_cost_factors():
+    def node(node_id: str, lat: float, lon: float, via: str) -> routing.GraphNode:
+        return routing.GraphNode(
+            node_id, node_id, 0, lat, lon, "Referencia", 30.0, 0.1, via, "Test"
+        )
+
+    nodes = {
+        "start": node("start", 0.0, 0.0, "Inicio"),
+        "direct": node("direct", 0.0, 0.001, "Ruta directa"),
+        "preferred": node("preferred", 0.001, 0.001, "Ruta preferida"),
+        "target": node("target", 0.0, 0.002, "Destino"),
+    }
+    graph = routing.RouteGraph(
+        nodes=nodes,
+        adjacency={
+            "start": [("direct", 0.12), ("preferred", 0.16)],
+            "direct": [("target", 0.12)],
+            "preferred": [("target", 0.16)],
+            "target": [],
+        },
+        minimum_geographic_weight_ratio=0.7,
+    )
+    kwargs = {
+        "source_node_costs": {"start": 0.0},
+        "target_node_costs": {"target": 0.0},
+        "via_factors": {"Ruta preferida": 0.5},
+        "air_quality_factor": lambda item: 0.8 if item.node_id == "preferred" else 1.0,
+        "urban_wellbeing_factor": lambda item: 0.7 if item.node_id == "preferred" else 1.0,
+        "apply_penalties": False,
+    }
+
+    astar = graph.shortest_path((0.0, 0.0), (0.0, 0.002), **kwargs)
+    dijkstra = graph.shortest_path((0.0, 0.0), (0.0, 0.002), **kwargs, use_heuristic=False)
+
+    assert [step.node_id for step in astar] == [step.node_id for step in dijkstra]
+    assert abs(astar[-1].peso - dijkstra[-1].peso) < 1e-12
+
+
+def test_astar_explores_fewer_edges_than_dijkstra():
+    def node(node_id: str, lat: float, lon: float) -> routing.GraphNode:
+        return routing.GraphNode(
+            node_id, node_id, 0, lat, lon, "Referencia", 30.0, 0.1, node_id, "Test"
+        )
+
+    nodes = {
+        f"main-{index}": node(f"main-{index}", 0.0, index * 0.001)
+        for index in range(11)
+    }
+    adjacency = {node_id: [] for node_id in nodes}
+    for index in range(10):
+        source = f"main-{index}"
+        target = f"main-{index + 1}"
+        adjacency[source].append(
+            (target, routing.haversine_km(nodes[source].lat, nodes[source].lon, nodes[target].lat, nodes[target].lon))
+        )
+    for index in range(20):
+        branch_id = f"branch-{index}"
+        nodes[branch_id] = node(branch_id, 0.003, 0.0)
+        branch_cost = routing.haversine_km(0.0, 0.0, nodes[branch_id].lat, nodes[branch_id].lon)
+        adjacency["main-0"].append((branch_id, branch_cost))
+        adjacency[branch_id] = [(branch_id, 0.01)]
+
+    graph = routing.RouteGraph(
+        nodes=nodes,
+        adjacency=adjacency,
+        minimum_geographic_weight_ratio=1.0,
+    )
+    astar_edges = 0
+    dijkstra_edges = 0
+
+    def count_astar(_source, _target):
+        nonlocal astar_edges
+        astar_edges += 1
+        return True
+
+    def count_dijkstra(_source, _target):
+        nonlocal dijkstra_edges
+        dijkstra_edges += 1
+        return True
+
+    common = {
+        "source_node_costs": {"main-0": 0.0},
+        "target_node_costs": {"main-10": 0.0},
+        "apply_penalties": False,
+    }
+    astar = graph.shortest_path((0.0, 0.0), (0.0, 0.01), **common, edge_filter=count_astar)
+    dijkstra = graph.shortest_path(
+        (0.0, 0.0),
+        (0.0, 0.01),
+        **common,
+        edge_filter=count_dijkstra,
+        use_heuristic=False,
+    )
+
+    assert [step.node_id for step in astar] == [step.node_id for step in dijkstra]
+    assert astar_edges < dijkstra_edges
+
+
+def test_astar_stops_when_the_caller_cancels():
+    nodes = {
+        f"node-{index}": routing.GraphNode(
+            f"node-{index}",
+            "segment",
+            index,
+            0.0,
+            index * 0.0001,
+            "Referencia",
+            30.0,
+            0.1,
+            "Ruta",
+            "Test",
+        )
+        for index in range(400)
+    }
+    adjacency = {node_id: [] for node_id in nodes}
+    for index in range(399):
+        source = f"node-{index}"
+        target = f"node-{index + 1}"
+        adjacency[source].append((target, 0.02))
+    graph = routing.RouteGraph(nodes=nodes, adjacency=adjacency)
+    cancellation_checks = 0
+
+    def should_cancel():
+        nonlocal cancellation_checks
+        cancellation_checks += 1
+        return cancellation_checks > 1
+
+    with pytest.raises(routing.RouteSearchCancelled):
+        graph.shortest_path(
+            (0.0, 0.0),
+            (0.0, 0.0399),
+            source_node_costs={"node-0": 0.0},
+            target_node_costs={"node-399": 0.0},
+            should_cancel=should_cancel,
+        )

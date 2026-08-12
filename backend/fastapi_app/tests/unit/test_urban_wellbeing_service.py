@@ -23,7 +23,7 @@ def test_route_only_scores_urban_features_adjacent_to_the_path(tmp_path):
                 },
                 "geometry": {
                     "type": "Polygon",
-                    "coordinates": [[[-73.0001, -36.0001], [-73.0001, -35.9999], [-72.9999, -35.9999], [-72.9999, -36.0001], [-73.0001, -36.0001]]],
+                    "coordinates": [[[-73.0004, -36.0001], [-73.0004, -35.9999], [-72.9996, -35.9999], [-72.9996, -36.0001], [-73.0004, -36.0001]]],
                 },
             },
             {
@@ -50,8 +50,90 @@ def test_route_only_scores_urban_features_adjacent_to_the_path(tmp_path):
         [{"lat": -36.0, "lon": -73.001}, {"lat": -36.0, "lon": -72.999}],
     )
 
-    assert result["nearby_buffer_m"] == 30.0
+    assert result["nearby_buffer_m"] == 15.0
     assert [feature["feature_id"] for feature in result["top_features"]] == ["park-next-to-route"]
+
+
+def test_short_tangential_contact_does_not_qualify_as_environmental_passage(tmp_path):
+    payload = {
+        "type": "FeatureCollection",
+        "name": "test",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {
+                    "feature_id": "tiny-park-contact",
+                    "name": "Contacto demasiado corto",
+                    "category": "green_space",
+                    "subtype": "park",
+                    "base_weight": 1.0,
+                    "source": "test",
+                },
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[-73.0001, -36.0001], [-73.0001, -35.9999], [-72.9999, -35.9999], [-72.9999, -36.0001], [-73.0001, -36.0001]]],
+                },
+            }
+        ],
+    }
+    path = tmp_path / "wellbeing.geojson"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = UrbanWellbeingService(str(path)).evaluate_route(
+        [{"lat": -36.0, "lon": -73.001}, {"lat": -36.0, "lon": -72.999}],
+    )
+
+    assert result["green_ratio"] == 0.0
+    assert result["top_features"] == []
+
+
+def test_point_feature_must_be_within_its_ten_meter_contact_limit(tmp_path):
+    payload = {
+        "type": "FeatureCollection",
+        "name": "test",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {
+                    "feature_id": "recycling-visible",
+                    "name": "Reciclaje junto a la calle",
+                    "category": "sustainability",
+                    "subtype": "recycling",
+                    "base_weight": 1.0,
+                    "source": "test",
+                },
+                "geometry": {"type": "Point", "coordinates": [-73.0, -35.99992]},
+            },
+            {
+                "type": "Feature",
+                "properties": {
+                    "feature_id": "recycling-too-far",
+                    "name": "Reciclaje fuera del limite",
+                    "category": "sustainability",
+                    "subtype": "recycling",
+                    "base_weight": 1.0,
+                    "source": "test",
+                },
+                "geometry": {"type": "Point", "coordinates": [-73.0, -35.99988]},
+            },
+        ],
+    }
+    path = tmp_path / "wellbeing.geojson"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = UrbanWellbeingService(str(path)).evaluate_route(
+        [{"lat": -36.0, "lon": -73.001}, {"lat": -36.0, "lon": -72.999}],
+    )
+
+    assert [feature["feature_id"] for feature in result["top_features"]] == ["recycling-visible"]
+
+
+def test_environmental_category_weights_are_normalized_and_prioritize_visible_greenery():
+    weights = urban_wellbeing_service.CATEGORY_WEIGHTS
+
+    assert sum(weights.values()) == 1.0
+    assert weights["tree_cover"] > weights["green_space"] > weights["blue_space"]
+    assert weights["sustainability"] == min(weights.values())
 
 
 def test_cycleways_can_be_used_as_urban_wellbeing_evidence(monkeypatch):

@@ -146,6 +146,20 @@ def test_air_quality_service_returns_real_station_snapshot_for_selected_hour(tmp
     assert snapshot.date_range == {"start": "2025-01-01", "end": "2025-01-01"}
     assert "2025" in snapshot.method
 
+    exact_exposure = service.estimate_route_exposure(
+        [RoutePoint(lat=-36.821, lon=-73.041)],
+        departure_hour=8,
+        snapshot_date="2025-01-01",
+    )
+    assert exact_exposure is not None
+    assert exact_exposure.stations[0].pm25 == 12.0
+    assert "fecha y hora seleccionadas" in exact_exposure.method
+    assert service.route_cost_factor_from_snapshot(snapshot, -36.821, -73.041) < service.route_cost_factor_from_snapshot(
+        snapshot,
+        -36.901,
+        -73.151,
+    )
+
 
 def test_air_quality_service_rejects_snapshot_dates_outside_2025(tmp_path):
     hourly_path = tmp_path / "pm25.csv"

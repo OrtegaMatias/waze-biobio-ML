@@ -277,6 +277,22 @@ class RouteCongestionCoverage(BaseModel):
     primary_via: str | None = None
 
 
+class RouteOptimizationTrace(BaseModel):
+    objective: Literal["fastest", "fluent", "environmental"]
+    cost_model_version: str = "direct-edge-cost-v1"
+    logical_segment_count: int = 0
+    base_time_min: float = 0.0
+    congestion_delay_min: float = 0.0
+    congestion_penalty_min: float = 0.0
+    stop_penalty_min: float = 0.0
+    pm25_penalty_min: float = 0.0
+    adverse_environment_penalty_min: float = 0.0
+    urban_benefit_min: float = 0.0
+    optimization_cost_min: float = 0.0
+    pm25_data_available: bool | None = None
+    urban_data_available: bool | None = None
+
+
 class RouteVariant(BaseModel):
     distance_km: float
     estimated_duration_min: float
@@ -294,6 +310,7 @@ class RouteVariant(BaseModel):
     top_penalized_segments: List[SegmentImpact] = Field(default_factory=list)
     top_preferred_vias: List[PreferredViaImpact] = Field(default_factory=list)
     congestion_coverage: RouteCongestionCoverage = Field(default_factory=RouteCongestionCoverage)
+    optimization_trace: RouteOptimizationTrace | None = None
 
 
 class RouteDelta(BaseModel):
@@ -344,7 +361,6 @@ class PlanRouteRequest(BaseModel):
     congestion_date: str | None = None
     day_of_week: str = Field("Monday")
     departure_hour: float = Field(8.0, ge=0.0, le=24.0)
-    travel_style: Literal["safe", "balanced", "fast"] = "balanced"
     avoid_congestion: bool = True
     avoid_accidents: bool = False
 
@@ -410,6 +426,7 @@ class UserRouteCard(BaseModel):
     pm25_exposure: Pm25Exposure | None = None
     urban_wellbeing: UrbanWellbeingAnalysis | None = None
     healthy_route_score: float | None = Field(None, ge=0.0, le=100.0)
+    optimization_trace: RouteOptimizationTrace | None = None
     cycleway_coverage: CyclewayCoverage | None = None
     bicycle_suggestion: str | None = None
     contextual_messages: List[ContextualMobilityMessage] = Field(default_factory=list)

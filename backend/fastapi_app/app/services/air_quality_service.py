@@ -382,11 +382,99 @@ class AirQualityService:
         # otherwise every edge in a clean area receives an unrelated distance bonus.
         return round(1.0 + _clamp(normalized) * PM25_ROUTE_PENALTY_STRENGTH, 3)
 
+    @staticmethod
+    def _ranked_snapshot_values(snapshot: Pm25SnapshotResponse, lat: float, lon: float):
+        return sorted(
+            (
+                (station, _haversine_km(lat, lon, station.lat, station.lon), float(station.pm25))
+                for station in snapshot.stations
+            ),
+            key=lambda item: item[1],
+        )
+
+    def route_cost_factor_from_snapshot(
+        self,
+        snapshot: Pm25SnapshotResponse,
+        lat: float,
+        lon: float,
+    ) -> float:
+        ranked = self._ranked_snapshot_values(snapshot, lat, lon)[:PM25_IDW_STATION_COUNT]
+        if not ranked:
+            return 1.0
+        weighted_sum = 0.0
+        total_weight = 0.0
+        for _station, distance_km, pm25 in ranked:
+            weight = 1.0 / ((distance_km + PM25_IDW_EPSILON_KM) ** PM25_IDW_POWER)
+            weighted_sum += pm25 * weight
+            total_weight += weight
+        pm25 = weighted_sum / total_weight if total_weight > 0 else ranked[0][2]
+        values = [float(station.pm25) for station in snapshot.stations]
+        min_pm25 = min(values)
+        max_pm25 = max(values)
+        absolute_score = _clamp(
+            (pm25 - PM25_CLEAN_BASELINE) / max(PM25_HIGH_REFERENCE - PM25_CLEAN_BASELINE, 1e-9)
+        )
+        relative_score = _clamp((pm25 - min_pm25) / max(max_pm25 - min_pm25, 5.0))
+        normalized = PM25_ABSOLUTE_SCORE_WEIGHT * absolute_score + PM25_RELATIVE_SCORE_WEIGHT * relative_score
+        return round(1.0 + _clamp(normalized) * PM25_ROUTE_PENALTY_STRENGTH, 3)
+
     def estimate_route_exposure(
         self,
         geometry: Iterable[RoutePoint],
         departure_hour: float | None,
+        snapshot_date: str | None = None,
     ) -> Pm25Exposure | None:
+        if snapshot_date:
+            snapshot = self.station_snapshot(snapshot_date, int(departure_hour or 0))
+            points = list(geometry)
+            if not snapshot.available or not points:
+                return None
+            sampled_points = _sample_points(points)
+            pm25_values: list[float] = []
+            station_hits: dict[str, tuple[object, float, int]] = {}
+            for point in sampled_points:
+                ranked = self._ranked_snapshot_values(snapshot, point.lat, point.lon)[:PM25_IDW_STATION_COUNT]
+                if not ranked:
+                    continue
+                weighted_sum = 0.0
+                total_weight = 0.0
+                for station, distance_km, pm25 in ranked:
+                    weight = 1.0 / ((distance_km + PM25_IDW_EPSILON_KM) ** PM25_IDW_POWER)
+                    weighted_sum += pm25 * weight
+                    total_weight += weight
+                    previous = station_hits.get(station.station_id)
+                    if previous is None:
+                        station_hits[station.station_id] = (station, distance_km, 1)
+                    else:
+                        station_hits[station.station_id] = (
+                            station,
+                            min(previous[1], distance_km),
+                            previous[2] + 1,
+                        )
+                if total_weight > 0:
+                    pm25_values.append(weighted_sum / total_weight)
+            if not pm25_values:
+                return None
+            average = round(sum(pm25_values) / len(pm25_values), 1)
+            stations = [
+                Pm25StationExposure(
+                    station_id=station.station_id,
+                    station_name=station.station_name,
+                    distance_km=round(distance_km, 2),
+                    pm25=round(float(station.pm25), 1),
+                    sample_points=sample_count,
+                )
+                for station, distance_km, sample_count in station_hits.values()
+            ]
+            stations.sort(key=lambda item: (-item.sample_points, item.distance_km))
+            return Pm25Exposure(
+                available=True,
+                average_pm25=average,
+                category=_category(average),
+                stations=stations[:5],
+                method="PM2.5 real de la fecha y hora seleccionadas, interpolado por IDW con las 3 estaciones mas cercanas.",
+                data_source=snapshot.data_source,
+            )
         profiles = self._get_profiles()
         points = list(geometry)
         if not profiles or not points:

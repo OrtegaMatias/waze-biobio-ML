@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Enrutador basado en Dijkstra sobre los segmentos del Biobío.
+Enrutador basado en A* sobre los segmentos del Biobío.
 """
 
 from __future__ import annotations
@@ -28,6 +28,11 @@ TARGET_CANDIDATES = 256
 MAX_DESTINATION_GAP_KM = 0.35
 MIN_CANDIDATE_WINDOW_KM = 0.05
 CANDIDATE_DISTANCE_MULTIPLIER = 3.0
+GRAPH_MIN_GEOGRAPHIC_WEIGHT_RATIO = 0.25
+
+
+class RouteSearchCancelled(Exception):
+    """Raised when a caller cancels an active graph search."""
 
 
 @dataclass
@@ -47,6 +52,8 @@ class GraphNode:
     dia_semana: str = ""
     franja_horaria: str = ""
     oneway: bool = False
+    road_class: str = ""
+    motor_vehicle: str = ""
 
 
 @dataclass
@@ -63,6 +70,9 @@ class RouteStep:
     duracion_hrs: float = 0.0
     dia_semana: str = ""
     franja_horaria: str = ""
+    velocidad_kmh: float = 0.0
+    road_class: str = ""
+    oneway: bool = False
 
 
 class RouteGraph:
@@ -71,15 +81,21 @@ class RouteGraph:
         nodes: Dict[str, GraphNode],
         adjacency: Dict[str, List[Tuple[str, float]]],
         spatial_node_ids: Optional[List[str]] = None,
+        minimum_geographic_weight_ratio: float = 0.0,
     ):
         self.nodes = nodes
         self.adjacency = adjacency
         self._spatial_node_ids: List[str] = list(spatial_node_ids or [])
+        self._minimum_geographic_weight_ratio = max(0.0, float(minimum_geographic_weight_ratio))
         self._ball_tree: BallTree | None = None
         self._rebuild_spatial_index()
 
     def __setstate__(self, state):
         self.__dict__.update(state)
+        if not hasattr(self, "_minimum_geographic_weight_ratio"):
+            # Cached graphs were created by ``from_events`` and obey this same
+            # geographic lower bound.
+            self._minimum_geographic_weight_ratio = GRAPH_MIN_GEOGRAPHIC_WEIGHT_RATIO
         self._rebuild_spatial_index()
 
     def _rebuild_spatial_index(self) -> None:
@@ -327,6 +343,8 @@ class RouteGraph:
                 dia_semana=str(getattr(row, "dia_semana", "") or ""),
                 franja_horaria=str(getattr(row, "franja_horaria", "") or ""),
                 oneway=bool(getattr(row, "oneway", False)),
+                road_class=str(getattr(row, "highway", "") or ""),
+                motor_vehicle=str(getattr(row, "motor_vehicle", "") or ""),
             )
             key = (round(lat, 5), round(lon, 5))
             coord_groups[key].append(node_id)
@@ -422,7 +440,12 @@ class RouteGraph:
             node_id: list(neighbors.items())
             for node_id, neighbors in adjacency_maps.items()
         }
-        return cls(nodes=nodes, adjacency=adjacency, spatial_node_ids=spatial_node_ids or node_ids)
+        return cls(
+            nodes=nodes,
+            adjacency=adjacency,
+            spatial_node_ids=spatial_node_ids or node_ids,
+            minimum_geographic_weight_ratio=GRAPH_MIN_GEOGRAPHIC_WEIGHT_RATIO,
+        )
 
     @staticmethod
     def _base_distance(a: GraphNode, b: GraphNode) -> float:
@@ -497,14 +520,30 @@ class RouteGraph:
         air_quality_factor: Optional[Callable[[GraphNode], float]] = None,
         urban_wellbeing_factor: Optional[Callable[[GraphNode], float]] = None,
         apply_penalties: bool = True,
+        apply_historical_penalties: bool = True,
         source_node_costs: Optional[Dict[str, float]] = None,
         target_node_costs: Optional[Dict[str, float]] = None,
         edge_filter: Optional[Callable[[GraphNode, GraphNode], bool]] = None,
         edge_cost_factor: Optional[Callable[[GraphNode, GraphNode], float]] = None,
+        geographic_path_limit_km: Optional[float] = None,
+        use_heuristic: bool = True,
+        should_cancel: Optional[Callable[[], bool]] = None,
+        edge_cost: Optional[Callable[[GraphNode, GraphNode, float], float]] = None,
+        source_path_distances_km: Optional[Dict[str, float]] = None,
+        target_path_distances_km: Optional[Dict[str, float]] = None,
     ) -> List[RouteStep]:
+        if should_cancel is not None and should_cancel():
+            raise RouteSearchCancelled()
         if source_node_costs:
             source_candidates = [
-                (self.nodes[node_id], max(0.0, float(cost)))
+                (
+                    self.nodes[node_id],
+                    max(0.0, float(cost)),
+                    max(
+                        0.0,
+                        float((source_path_distances_km or {}).get(node_id, cost)),
+                    ),
+                )
                 for node_id, cost in source_node_costs.items()
                 if node_id in self.nodes and math.isfinite(float(cost))
             ]
@@ -512,10 +551,18 @@ class RouteGraph:
             source_candidates = self._filter_snap_candidates(
                 self.nearest_nodes(*origin, limit=SOURCE_CANDIDATES)
             )
-        source_ids = {node.node_id for node, _ in source_candidates}
+            source_candidates = [(node, distance, distance) for node, distance in source_candidates]
+        source_ids = {node.node_id for node, _, _ in source_candidates}
         if target_node_costs:
             target_candidates = [
-                (self.nodes[node_id], max(0.0, float(cost)))
+                (
+                    self.nodes[node_id],
+                    max(0.0, float(cost)),
+                    max(
+                        0.0,
+                        float((target_path_distances_km or {}).get(node_id, cost)),
+                    ),
+                )
                 for node_id, cost in target_node_costs.items()
                 if node_id in self.nodes and math.isfinite(float(cost))
             ]
@@ -527,26 +574,113 @@ class RouteGraph:
                     limit=TARGET_CANDIDATES,
                 )
             )
+            target_candidates = [(node, distance, distance) for node, distance in target_candidates]
         if not target_candidates and not target_node_costs:
-            target_candidates = self._filter_snap_candidates(self.nearest_nodes(*destination, limit=1))
-        target_cost_lookup = {node.node_id: max(0.0, float(cost)) for node, cost in target_candidates}
+            raw_targets = self._filter_snap_candidates(self.nearest_nodes(*destination, limit=1))
+            target_candidates = [(node, distance, distance) for node, distance in raw_targets]
+        target_cost_lookup = {
+            node.node_id: max(0.0, float(cost)) for node, cost, _distance in target_candidates
+        }
+        target_distance_lookup = {
+            node.node_id: max(0.0, float(distance)) for node, _cost, distance in target_candidates
+        }
         target_ids = set(target_cost_lookup)
         distances: Dict[str, float] = {}
+        path_lengths_km: Dict[str, float] = {}
         previous: Dict[str, Optional[str]] = {}
-        queue: List[Tuple[float, str]] = []
+        queue: List[Tuple[float, float, str]] = []
         best_target = None
         best_target_total = float("inf")
 
-        for source_node, snap_distance in source_candidates:
-            initial_cost = max(0.0, snap_distance)
+        # A* must never overestimate the remaining adjusted route cost. Base
+        # graph edges cost at least 25% of their geodesic distance; the other
+        # multipliers below are the exact lower clamps used during expansion.
+        preference_floor = float(default_via_factor)
+        if via_factors:
+            preference_floor = min(
+                preference_floor,
+                *(float(value) for value in via_factors.values()),
+            )
+        heuristic_factor = self._minimum_geographic_weight_ratio
+        if apply_penalties:
+            heuristic_factor *= 0.3
+        heuristic_factor *= preference_floor
+        if air_quality_factor is not None:
+            heuristic_factor *= 0.5
+        if urban_wellbeing_factor is not None:
+            heuristic_factor *= 0.65
+        if edge_cost is not None:
+            # A custom generalized cost is not necessarily bounded by geographic
+            # distance. Falling back to Dijkstra keeps the result exact.
+            heuristic_factor = 0.0
+        if not use_heuristic or not math.isfinite(heuristic_factor) or heuristic_factor <= 0:
+            heuristic_factor = 0.0
+        heuristic_factor = min(1.0, heuristic_factor)
+        target_heuristic_correction = max(
+            (
+                heuristic_factor
+                * haversine_km(
+                    self.nodes[node_id].lat,
+                    self.nodes[node_id].lon,
+                    destination[0],
+                    destination[1],
+                )
+                - terminal_cost
+                for node_id, terminal_cost in target_cost_lookup.items()
+            ),
+            default=0.0,
+        )
+        target_heuristic_correction = max(0.0, target_heuristic_correction)
+
+        def remaining_cost_estimate(node: GraphNode) -> float:
+            if heuristic_factor == 0.0:
+                return 0.0
+            return max(
+                0.0,
+                heuristic_factor
+                * haversine_km(
+                    node.lat,
+                    node.lon,
+                    destination[0],
+                    destination[1],
+                )
+                - target_heuristic_correction,
+            )
+
+        for source_node, snap_cost, snap_distance_km in source_candidates:
+            initial_cost = max(0.0, snap_cost)
             if initial_cost < distances.get(source_node.node_id, float("inf")):
                 distances[source_node.node_id] = initial_cost
+                path_lengths_km[source_node.node_id] = max(0.0, snap_distance_km)
                 previous[source_node.node_id] = None
-                queue.append((initial_cost, source_node.node_id))
+                queue.append(
+                    (
+                        initial_cost + remaining_cost_estimate(source_node),
+                        initial_cost,
+                        source_node.node_id,
+                    )
+                )
 
         heapq.heapify(queue)
         nodes = self.nodes
         adjacency = self.adjacency
+        geographic_eligibility: Dict[str, bool] = {}
+
+        def within_geographic_limit(node: GraphNode) -> bool:
+            if geographic_path_limit_km is None:
+                return True
+            cached = geographic_eligibility.get(node.node_id)
+            if cached is not None:
+                return cached
+            lower_bound = haversine_km(origin[0], origin[1], node.lat, node.lon) + haversine_km(
+                node.lat,
+                node.lon,
+                destination[0],
+                destination[1],
+            )
+            eligible = lower_bound <= max(0.0, float(geographic_path_limit_km)) + 1e-9
+            geographic_eligibility[node.node_id] = eligible
+            return eligible
 
         def preference_factor(via: str) -> float:
             if via_factors:
@@ -614,12 +748,13 @@ class RouteGraph:
             is_congestion = self._is_congestion_event(node.tipo_evento)
             is_accident = self._is_accident_event(node.tipo_evento)
             relevant_penalty = 1.0
-            if avoid_congestion and (is_congestion or not is_accident):
-                relevant_penalty = max(relevant_penalty, float(node.penalty_factor or 1.0))
-            if avoid_accidents:
-                relevant_penalty = max(relevant_penalty, float(node.accident_penalty_factor or 1.0))
-                if is_accident:
+            if apply_historical_penalties:
+                if avoid_congestion and (is_congestion or not is_accident):
                     relevant_penalty = max(relevant_penalty, float(node.penalty_factor or 1.0))
+                if avoid_accidents:
+                    relevant_penalty = max(relevant_penalty, float(node.accident_penalty_factor or 1.0))
+                    if is_accident:
+                        relevant_penalty = max(relevant_penalty, float(node.penalty_factor or 1.0))
             has_penalty = relevant_penalty > 1.0
 
             # Factor base ligado a la severidad histórica
@@ -642,7 +777,7 @@ class RouteGraph:
                 # Solo factor histórico suave (si lo hubiera)
                 return max(1.0, base_incident)
 
-            # --- Accidentes ---
+            # Accidentes
             if avoid_accidents and is_accident:
                 if matches_day and matches_hour:
                     return max(1.0, base_incident * 500.0)
@@ -654,6 +789,8 @@ class RouteGraph:
             return max(1.0, base_incident)
 
         def historical_penalty(node: GraphNode) -> float:
+            if not apply_historical_penalties:
+                return 1.0
             if not incident_ctx:
                 return max(
                     1.0,
@@ -671,13 +808,25 @@ class RouteGraph:
                     value = max(value, float(node.penalty_factor or 1.0))
             return value
 
+        expanded_nodes = 0
         while queue:
-            current_dist, node_id = heapq.heappop(queue)
+            expanded_nodes += 1
+            if expanded_nodes % 256 == 0 and should_cancel is not None and should_cancel():
+                raise RouteSearchCancelled()
+            estimated_total, current_dist, node_id = heapq.heappop(queue)
             if current_dist > distances.get(node_id, float("inf")):
                 continue
-            if current_dist >= best_target_total:
+            if estimated_total >= best_target_total:
                 break
             if node_id in target_ids:
+                route_length_km = path_lengths_km.get(
+                    node_id, float("inf")
+                ) + target_distance_lookup.get(node_id, 0.0)
+                if (
+                    geographic_path_limit_km is not None
+                    and route_length_km > max(0.0, float(geographic_path_limit_km)) + 1e-9
+                ):
+                    continue
                 total_with_terminal = current_dist + target_cost_lookup.get(node_id, 0.0)
                 if total_with_terminal < best_target_total:
                     best_target_total = total_with_terminal
@@ -685,9 +834,27 @@ class RouteGraph:
             current_node = nodes[node_id]
             for neighbor, base_weight in adjacency.get(node_id, []):
                 neighbor_node = nodes[neighbor]
+                if not within_geographic_limit(neighbor_node):
+                    continue
                 if edge_filter is not None and not edge_filter(current_node, neighbor_node):
                     continue
-                if apply_penalties:
+                candidate_path_length_km = path_lengths_km.get(node_id, 0.0) + haversine_km(
+                    current_node.lat,
+                    current_node.lon,
+                    neighbor_node.lat,
+                    neighbor_node.lon,
+                )
+                if (
+                    geographic_path_limit_km is not None
+                    and candidate_path_length_km > max(0.0, float(geographic_path_limit_km)) + 1e-9
+                ):
+                    continue
+                if edge_cost is not None:
+                    candidate_cost = edge_cost(current_node, neighbor_node, base_weight)
+                    if not math.isfinite(candidate_cost) or candidate_cost < 0:
+                        continue
+                    adjusted_weight = float(candidate_cost)
+                elif apply_penalties:
                     penalty = max(
                         (historical_penalty(current_node) + historical_penalty(neighbor_node)) / 2,
                         1.0,
@@ -700,30 +867,41 @@ class RouteGraph:
                 else:
                     penalty = 1.0
                     speed_factor = 1.0
-                preference = preference_factor(neighbor_node.via)
-                incident = incident_factor(neighbor_node)
-                pollution = pollution_factor(neighbor_node)
-                wellbeing = wellbeing_factor(neighbor_node)
+                preference = preference_factor(neighbor_node.via) if edge_cost is None else 1.0
+                incident = incident_factor(neighbor_node) if edge_cost is None else 1.0
+                pollution = pollution_factor(neighbor_node) if edge_cost is None else 1.0
+                wellbeing = wellbeing_factor(neighbor_node) if edge_cost is None else 1.0
                 edge_factor = 1.0
                 if edge_cost_factor is not None:
                     candidate_factor = edge_cost_factor(current_node, neighbor_node)
                     if math.isfinite(candidate_factor):
                         edge_factor = max(1.0, float(candidate_factor))
-                adjusted_weight = (
-                    base_weight
-                    * penalty
-                    * speed_factor
-                    * preference
-                    * incident
-                    * pollution
-                    * wellbeing
-                    * edge_factor
-                )
+                if edge_cost is None:
+                    adjusted_weight = (
+                        base_weight
+                        * penalty
+                        * speed_factor
+                        * preference
+                        * incident
+                        * pollution
+                        * wellbeing
+                        * edge_factor
+                    )
+                else:
+                    adjusted_weight *= edge_factor
                 new_dist = current_dist + adjusted_weight
                 if new_dist < distances.get(neighbor, float("inf")):
                     distances[neighbor] = new_dist
+                    path_lengths_km[neighbor] = candidate_path_length_km
                     previous[neighbor] = node_id
-                    heapq.heappush(queue, (new_dist, neighbor))
+                    heapq.heappush(
+                        queue,
+                        (
+                            new_dist + remaining_cost_estimate(neighbor_node),
+                            new_dist,
+                            neighbor,
+                        ),
+                    )
 
         if best_target is None and not target_node_costs:
             reachable_target = None
@@ -771,11 +949,169 @@ class RouteGraph:
                     duracion_hrs=node.duracion_hrs,
                     dia_semana=node.dia_semana,
                     franja_horaria=node.franja_horaria,
+                    velocidad_kmh=node.velocidad_kmh,
+                    road_class=node.road_class,
+                    oneway=node.oneway,
                 )
             )
             current = previous.get(current)
         path.reverse()
         return path
+
+    def shortest_path_constrained(
+        self,
+        *,
+        source_node_costs: Dict[str, float],
+        target_node_costs: Dict[str, float],
+        edge_cost: Callable[[GraphNode, GraphNode, float], float],
+        source_path_distances_km: Optional[Dict[str, float]] = None,
+        target_path_distances_km: Optional[Dict[str, float]] = None,
+        max_path_length_km: Optional[float] = None,
+        source_resource_costs: Optional[Dict[str, float]] = None,
+        target_resource_costs: Optional[Dict[str, float]] = None,
+        edge_resource_cost: Optional[Callable[[GraphNode, GraphNode, float], float]] = None,
+        max_resource_cost: Optional[float] = None,
+        edge_filter: Optional[Callable[[GraphNode, GraphNode], bool]] = None,
+        should_cancel: Optional[Callable[[], bool]] = None,
+    ) -> List[RouteStep]:
+        """Resource-constrained Dijkstra with non-dominated cost/resource labels.
+
+        The legacy distance arguments remain supported, while callers can provide
+        an independent resource such as contextual travel time.
+        """
+
+        source_resources = source_resource_costs or source_path_distances_km or {}
+        target_resources = target_resource_costs or target_path_distances_km or {}
+        raw_max_resource = max_resource_cost if max_resource_cost is not None else max_path_length_km
+        if raw_max_resource is None:
+            raise ValueError("max_resource_cost es obligatorio para la busqueda restringida.")
+        max_resource = max(0.0, float(raw_max_resource))
+        target_ids = {
+            node_id
+            for node_id, cost in target_node_costs.items()
+            if node_id in self.nodes and math.isfinite(float(cost))
+        }
+        if not target_ids:
+            return []
+
+        labels: Dict[int, tuple[str, float, float, Optional[int]]] = {}
+        active_labels: Set[int] = set()
+        labels_by_node: Dict[str, List[int]] = defaultdict(list)
+        queue: List[tuple[float, int]] = []
+        next_label_id = 0
+
+        def add_label(node_id: str, cost: float, resource_cost: float, previous_label: Optional[int]) -> int | None:
+            nonlocal next_label_id
+            if resource_cost > max_resource + 1e-9:
+                return None
+            existing_ids = labels_by_node[node_id]
+            for label_id in existing_ids:
+                if label_id not in active_labels:
+                    continue
+                _node, existing_cost, existing_resource, _previous = labels[label_id]
+                if existing_cost <= cost + 1e-12 and existing_resource <= resource_cost + 1e-12:
+                    return None
+            for label_id in list(existing_ids):
+                if label_id not in active_labels:
+                    continue
+                _node, existing_cost, existing_resource, _previous = labels[label_id]
+                if cost <= existing_cost + 1e-12 and resource_cost <= existing_resource + 1e-12:
+                    active_labels.discard(label_id)
+            label_id = next_label_id
+            next_label_id += 1
+            labels[label_id] = (node_id, cost, resource_cost, previous_label)
+            active_labels.add(label_id)
+            labels_by_node[node_id].append(label_id)
+            heapq.heappush(queue, (cost, label_id))
+            return label_id
+
+        for node_id, raw_cost in source_node_costs.items():
+            if node_id not in self.nodes:
+                continue
+            cost = max(0.0, float(raw_cost))
+            resource = max(0.0, float(source_resources.get(node_id, 0.0)))
+            add_label(node_id, cost, resource, None)
+
+        best_target_label: int | None = None
+        best_target_total = float("inf")
+        expanded = 0
+        while queue:
+            current_cost, label_id = heapq.heappop(queue)
+            if label_id not in active_labels:
+                continue
+            node_id, stored_cost, current_resource, _previous = labels[label_id]
+            if current_cost > stored_cost + 1e-12 or current_cost >= best_target_total:
+                continue
+            expanded += 1
+            if expanded % 256 == 0 and should_cancel is not None and should_cancel():
+                raise RouteSearchCancelled()
+
+            if node_id in target_ids:
+                terminal_resource = max(0.0, float(target_resources.get(node_id, 0.0)))
+                total_resource = current_resource + terminal_resource
+                total_cost = current_cost + max(0.0, float(target_node_costs.get(node_id, 0.0)))
+                if total_resource <= max_resource + 1e-9 and total_cost < best_target_total:
+                    best_target_total = total_cost
+                    best_target_label = label_id
+
+            source = self.nodes[node_id]
+            for neighbor_id, base_weight in self.adjacency.get(node_id, []):
+                target = self.nodes[neighbor_id]
+                if edge_filter is not None and not edge_filter(source, target):
+                    continue
+                candidate_resource_increment = (
+                    edge_resource_cost(source, target, base_weight)
+                    if edge_resource_cost is not None
+                    else haversine_km(source.lat, source.lon, target.lat, target.lon)
+                )
+                if not math.isfinite(candidate_resource_increment) or candidate_resource_increment < 0:
+                    continue
+                candidate_resource = current_resource + float(candidate_resource_increment)
+                if candidate_resource > max_resource + 1e-9:
+                    continue
+                candidate_edge_cost = edge_cost(source, target, base_weight)
+                if not math.isfinite(candidate_edge_cost) or candidate_edge_cost < 0:
+                    continue
+                add_label(
+                    neighbor_id,
+                    current_cost + float(candidate_edge_cost),
+                    candidate_resource,
+                    label_id,
+                )
+
+        if best_target_label is None:
+            return []
+        node_ids: List[str] = []
+        chain_label_ids: List[int] = []
+        current_label: int | None = best_target_label
+        while current_label is not None:
+            node_id, _cost, _resource, previous_label = labels[current_label]
+            node_ids.append(node_id)
+            chain_label_ids.append(current_label)
+            current_label = previous_label
+        node_ids.reverse()
+        chain_label_ids.reverse()
+        return [
+            RouteStep(
+                node_id=node.node_id,
+                segment_id=node.segment_id,
+                segment_seq=node.segment_seq,
+                lat=node.lat,
+                lon=node.lon,
+                via=node.via,
+                comuna=node.comuna,
+                peso=labels[label_id][1],
+                tipo_evento=node.tipo_evento,
+                duracion_hrs=node.duracion_hrs,
+                dia_semana=node.dia_semana,
+                franja_horaria=node.franja_horaria,
+                velocidad_kmh=node.velocidad_kmh,
+                road_class=node.road_class,
+                oneway=node.oneway,
+            )
+            for node_id, label_id in zip(node_ids, chain_label_ids)
+            for node in [self.nodes[node_id]]
+        ]
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

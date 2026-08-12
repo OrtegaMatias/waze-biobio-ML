@@ -25,6 +25,7 @@ services:
       target: frontend
       args:
         VITE_BACKEND_URL: "${VITE_BACKEND_URL:-}"
+        VITE_ENABLE_INTERNAL_ROUTING_COSTS: "${VITE_ENABLE_INTERNAL_ROUTING_COSTS:-false}"
     environment:
       BACKEND_URL: "http://backend:8000"
     depends_on:

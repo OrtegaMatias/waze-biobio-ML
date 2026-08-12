@@ -82,8 +82,6 @@ export type TravelerProfileId =
   | "moderate_risk"
   | "risk_taker";
 
-export type TravelStyle = "safe" | "balanced" | "fast";
-
 export type RecommendationItem = {
   via: string;
   estimated_rating: number;
@@ -462,6 +460,20 @@ export type RouteCongestionCoverage = {
   primary_via?: string | null;
 };
 
+export type RouteOptimizationTrace = {
+  objective: "fastest" | "fluent" | "environmental";
+  cost_model_version: string;
+  logical_segment_count: number;
+  base_time_min: number;
+  congestion_delay_min: number;
+  congestion_penalty_min: number;
+  stop_penalty_min: number;
+  pm25_penalty_min: number;
+  adverse_environment_penalty_min: number;
+  urban_benefit_min: number;
+  optimization_cost_min: number;
+};
+
 export type PlanRouteCard = {
   key: RouteType;
   label: string;
@@ -484,6 +496,7 @@ export type PlanRouteCard = {
   pm25_exposure?: Pm25Exposure | null;
   urban_wellbeing?: UrbanWellbeingAnalysis | null;
   healthy_route_score?: number | null;
+  optimization_trace?: RouteOptimizationTrace | null;
   cycleway_coverage?: CyclewayCoverage | null;
   bicycle_suggestion?: string | null;
   contextual_messages?: ContextualMobilityMessage[];

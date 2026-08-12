@@ -169,25 +169,32 @@ def test_environmental_impact_uses_only_real_congestion_rows(tmp_path, monkeypat
     assert snapshot.summary.available is True
     assert snapshot.summary.point_count == 1
     assert snapshot.summary.weather.pm25 == 27.0
-    assert snapshot.summary.weather.pm25_min == 8.0
-    assert snapshot.summary.weather.pm25_max == 55.0
+    assert snapshot.summary.weather.pm25_min == 3.0
+    assert snapshot.summary.weather.pm25_max == 36.0
+    assert snapshot.summary.weather.wind_speed_min == 0.8
+    assert snapshot.summary.weather.wind_speed_max == 3.46
     assert snapshot.summary.weather.wind_speed_kmh == 1.8
     assert snapshot.summary.weather.has_rain is False
     assert snapshot.points[0].level == "high"
-    assert snapshot.points[0].congestion_level == "high"
+    assert snapshot.points[0].congestion_level == "medium"
     assert snapshot.points[0].pm25 == 42.0
     assert snapshot.points[0].message == "Alta presion ambiental por congestion y baja ventilacion."
     assert snapshot.zones["type"] == "FeatureCollection"
     assert snapshot.zones["features"]
     assert snapshot.zones["features"][0]["geometry"]["type"] in {"Polygon", "MultiPolygon"}
+    assert all(feature["properties"]["recency_weight"] == 1.0 for feature in snapshot.zones["features"])
     assert snapshot.congestion_lines["features"][0]["properties"]["recency"] == "actual"
     assert snapshot.congestion_lines["features"][0]["properties"]["observation_count"] == 1
-    assert snapshot.congestion_lines["features"][0]["properties"]["level"] == "high"
+    assert snapshot.congestion_lines["features"][0]["properties"]["level"] == "medium"
     assert snapshot.congestion_lines["features"][0]["properties"]["environmental_level"] == "high"
     assert snapshot.congestion_lines["features"][0]["properties"]["speed_kmh"] == 8.0
     assert snapshot.congestion_lines["features"][0]["properties"]["duration_min"] == 30.0
     assert residual_snapshot.summary.available is True
     assert residual_snapshot.points[0].score < snapshot.points[0].score
+    assert all(
+        0.0 < feature["properties"]["recency_weight"] < 1.0
+        for feature in residual_snapshot.zones["features"]
+    )
     assert residual_snapshot.congestion_lines["features"] == []
     assert empty_snapshot.summary.available is False
     assert empty_snapshot.points == []
@@ -283,7 +290,7 @@ def test_environmental_impact_orders_congestion_line_coordinates(tmp_path, monke
     ]
 
 
-def test_environmental_impact_levels_use_congestion_hour_minimum_and_maximum(tmp_path, monkeypatch):
+def test_environmental_impact_levels_use_fixed_historical_reference(tmp_path, monkeypatch):
     congestion_path = tmp_path / "congestion.csv"
     rain_path = tmp_path / "rain.csv"
     wind_path = tmp_path / "wind.csv"
@@ -323,19 +330,188 @@ def test_environmental_impact_levels_use_congestion_hour_minimum_and_maximum(tmp
     snapshot = service.build_snapshot("2025-01-01", 8)
 
     points_by_segment = {point.segment_id: point for point in snapshot.points}
-    assert points_by_segment["seg-low"].score == 50.1
+    assert points_by_segment["seg-low"].score == 58.7
     assert points_by_segment["seg-low"].level == "medium"
-    assert points_by_segment["seg-high"].score == 31.3
-    assert points_by_segment["seg-high"].level == "low"
+    assert points_by_segment["seg-high"].level in {"low", "medium"}
     assert points_by_segment["seg-low"].score > points_by_segment["seg-high"].score
     assert points_by_segment["seg-low"].congestion_level == "low"
-    assert points_by_segment["seg-high"].congestion_level == "medium"
+    assert points_by_segment["seg-high"].congestion_level == "low"
+    assert points_by_segment["seg-high"].congestion_score > points_by_segment["seg-low"].congestion_score
     line_levels = {
         feature["properties"]["segment_id"]: feature["properties"]["level"]
         for feature in snapshot.congestion_lines["features"]
     }
-    assert line_levels == {"seg-low": "low", "seg-high": "medium"}
-    assert "misma hora seleccionada cuando hubo congestion historica" in snapshot.summary.method
+    assert line_levels == {"seg-low": "low", "seg-high": "low"}
+    assert "referencia historica fija" in snapshot.summary.method
+    assert snapshot.summary.weather.pm25_min == 3.0
+    assert snapshot.summary.weather.pm25_max == 36.0
+
+
+def test_environmental_reference_maps_p10_and_p90_to_bounds(tmp_path):
+    service = EnvironmentalImpactService(
+        congestion_path=tmp_path / "missing.csv",
+        rain_path=tmp_path / "missing_rain.csv",
+        wind_path=tmp_path / "missing_wind.csv",
+    )
+    pm25_range = service._normalization_range("pm25")
+    wind_range = service._normalization_range("wind_speed")
+    speed_range = service._normalization_range("congestion_speed_kmh")
+    duration_range = service._normalization_range("congestion_duration_min")
+
+    assert environmental_impact_service._local_component(3.0, pm25_range) == 0.0
+    assert environmental_impact_service._local_component(36.0, pm25_range) == 1.0
+    assert environmental_impact_service._local_component(-100.0, pm25_range) == 0.0
+    assert environmental_impact_service._local_component(1000.0, pm25_range) == 1.0
+    assert environmental_impact_service._local_component(wind_range[0], wind_range, invert=True) == 1.0
+    assert environmental_impact_service._local_component(wind_range[1], wind_range, invert=True) == 0.0
+    assert environmental_impact_service._local_component(speed_range[0], speed_range, invert=True) == 1.0
+    assert environmental_impact_service._local_component(speed_range[1], speed_range, invert=True) == 0.0
+    assert environmental_impact_service._local_component(duration_range[0], duration_range) == 0.0
+    assert environmental_impact_service._local_component(duration_range[1], duration_range) == 1.0
+
+
+def test_wind_labels_follow_local_bar_thirds(tmp_path):
+    service = EnvironmentalImpactService(
+        congestion_path=tmp_path / "missing.csv",
+        rain_path=tmp_path / "missing_rain.csv",
+        wind_path=tmp_path / "missing_wind.csv",
+    )
+    wind_range = service._normalization_range("wind_speed")
+    low, high = wind_range
+    span = high - low
+
+    assert environmental_impact_service._local_wind_label(None, wind_range) == "Sin dato"
+    assert environmental_impact_service._local_wind_label(low, wind_range) == "Viento suave"
+    assert environmental_impact_service._local_wind_label(low + span / 3.0, wind_range) == "Viento moderado"
+    assert environmental_impact_service._local_wind_label(low + 2.0 * span / 3.0, wind_range) == "Viento fuerte"
+    assert environmental_impact_service._local_wind_label(high, wind_range) == "Viento fuerte"
+    assert environmental_impact_service._local_wind_label(high * 2.0, wind_range) == "Viento fuerte"
+
+
+def test_congestion_score_combines_slow_speed_and_long_duration(tmp_path):
+    service = EnvironmentalImpactService(
+        congestion_path=tmp_path / "missing.csv",
+        rain_path=tmp_path / "missing_rain.csv",
+        wind_path=tmp_path / "missing_wind.csv",
+    )
+
+    slow_short = service._congestion_score(speed_kmh=10.54, duration_min=15.0)
+    fast_long = service._congestion_score(speed_kmh=23.66, duration_min=109.8)
+    slow_long = service._congestion_score(speed_kmh=10.54, duration_min=109.8)
+    faster_long = service._congestion_score(speed_kmh=18.48, duration_min=109.8)
+    slow_medium = service._congestion_score(speed_kmh=10.54, duration_min=30.0)
+
+    assert slow_short == 0.5
+    assert fast_long == 0.5
+    assert slow_long == 1.0
+    assert slow_long > slow_short
+    assert slow_long > fast_long
+    assert slow_long > faster_long
+    assert slow_long > slow_medium
+
+
+def test_congestion_score_uses_available_dimension_when_the_other_is_missing(tmp_path):
+    service = EnvironmentalImpactService(
+        congestion_path=tmp_path / "missing.csv",
+        rain_path=tmp_path / "missing_rain.csv",
+        wind_path=tmp_path / "missing_wind.csv",
+    )
+
+    assert service._congestion_score(speed_kmh=10.54, duration_min=None) == 1.0
+    assert service._congestion_score(speed_kmh=None, duration_min=109.8) == 1.0
+    assert service._congestion_score(speed_kmh=None, duration_min=None) == 0.0
+
+
+def test_environmental_reference_fallback_is_fixed_and_reported(tmp_path, monkeypatch):
+    congestion_path = tmp_path / "congestion.csv"
+    congestion_path.write_text(
+        "\n".join(
+            [
+                "segment_id,lat,lon,datetime_inicio,datetime_fin,velocidad_kmh,duracion_min,via,comuna",
+                "seg-1,-36.82,-73.04,2025-01-01 08:00:00,2025-01-01 08:30:00,10,30,Centro,Concepcion",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(environmental_impact_service, "get_air_quality_service", lambda: DummyAirQualityService())
+    service = EnvironmentalImpactService(
+        congestion_path=congestion_path,
+        rain_path=tmp_path / "missing_rain.csv",
+        wind_path=tmp_path / "missing_wind.csv",
+        normalization_path=tmp_path / "missing_reference.json",
+    )
+
+    snapshot = service.build_snapshot("2025-01-01", 8)
+
+    assert snapshot.summary.weather.pm25_min == 3.0
+    assert snapshot.summary.weather.pm25_max == 36.0
+    assert "normalization_reference=builtin_fixed_v1" in snapshot.summary.data_source
+    assert "wind=historical_p50" in snapshot.summary.data_source
+    assert "rain=no_relief" in snapshot.summary.data_source
+
+
+class DailyExtremeAirQualityService:
+    def station_snapshot(self, snapshot_date: str, _hour: int):
+        daily_extreme = 5.0 if snapshot_date == "2025-01-01" else 500.0
+        return SimpleNamespace(
+            average_pm25=25.0,
+            stations=[
+                SimpleNamespace(lat=-36.82, lon=-73.04, pm25=25.0),
+                SimpleNamespace(lat=-38.00, lon=-75.00, pm25=daily_extreme),
+            ],
+        )
+
+
+def test_same_conditions_keep_same_score_across_dates_despite_daily_extremes(tmp_path, monkeypatch):
+    congestion_path = tmp_path / "congestion.csv"
+    congestion_path.write_text(
+        "\n".join(
+            [
+                "segment_id,lat,lon,datetime_inicio,datetime_fin,velocidad_kmh,duracion_min,via,comuna",
+                "seg-day-1,-36.82,-73.04,2025-01-01 08:00:00,2025-01-01 08:30:00,10,30,Centro,Concepcion",
+                "seg-day-2,-36.82,-73.04,2025-02-01 08:00:00,2025-02-01 08:30:00,10,30,Centro,Concepcion",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    wind_path = tmp_path / "wind.csv"
+    wind_path.write_text(
+        "\n".join(
+            [
+                "timestamp,wind_speed_mean",
+                "2025-01-01 08:00:00,1.5",
+                "2025-02-01 08:00:00,1.5",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    rain_path = tmp_path / "rain.csv"
+    rain_path.write_text(
+        "\n".join(
+            [
+                "timestamp,rain_mm_mean,wet_station_count",
+                "2025-01-01 08:00:00,0,0",
+                "2025-02-01 08:00:00,0,0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        environmental_impact_service,
+        "get_air_quality_service",
+        lambda: DailyExtremeAirQualityService(),
+    )
+    service = EnvironmentalImpactService(
+        congestion_path=congestion_path,
+        rain_path=rain_path,
+        wind_path=wind_path,
+    )
+
+    first = service.build_snapshot("2025-01-01", 8)
+    second = service.build_snapshot("2025-02-01", 8)
+
+    assert first.points[0].pm25 == second.points[0].pm25 == 25.0
+    assert first.points[0].score == second.points[0].score
 
 
 def test_environmental_impact_rejects_dates_outside_2025(tmp_path):

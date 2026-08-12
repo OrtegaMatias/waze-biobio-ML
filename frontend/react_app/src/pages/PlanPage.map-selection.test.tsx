@@ -81,6 +81,10 @@ describe("PlanPage map point selection", () => {
 
     expect(screen.getByTestId("origin-marker")).toHaveTextContent("none");
     expect(screen.getByTestId("destination-marker")).toHaveTextContent("none");
+    const internalCostsButton = screen.getByRole("button", { name: "Costos internos" });
+    const onboardingButton = screen.getByRole("button", { name: "Ver paso a paso" });
+    expect(internalCostsButton).toBeDisabled();
+    expect(internalCostsButton.nextElementSibling).toBe(onboardingButton);
     expect(screen.getByRole("button", { name: /marca el origen en el mapa/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /selecciona origen y destino/i })).toBeDisabled();
     expect(screen.getByRole("dialog", { name: /c.mo usar el planificador/i })).toBeInTheDocument();
@@ -105,10 +109,46 @@ describe("PlanPage map point selection", () => {
     await waitFor(() => expect(planButton).toBeEnabled());
 
     fireEvent.click(planButton);
-    await waitFor(() => expect(planRoute).toHaveBeenCalledWith(expect.objectContaining({
-      origin: { lat: -36.81, lon: -73.02 },
-      destination: { lat: -36.79, lon: -73.07 },
-    })));
+    await waitFor(() => expect(planRoute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        origin: { lat: -36.81, lon: -73.02 },
+        destination: { lat: -36.79, lon: -73.07 },
+      }),
+      expect.any(AbortSignal),
+    ));
+  });
+
+  it("shows Cancelar inside the planning box and aborts the active request", async () => {
+    vi.mocked(planRoute).mockImplementation((_args, signal) => new Promise((_resolve, reject) => {
+      signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+    }));
+
+    render(
+      <MemoryRouter>
+        <PlanPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Elegir primer punto" }));
+    fireEvent.click(screen.getByRole("button", { name: "Elegir segundo punto" }));
+    const planButton = await screen.findByRole("button", { name: /planificar viaje/i });
+    await waitFor(() => expect(planButton).toBeEnabled());
+
+    fireEvent.click(planButton);
+
+    const planningLabel = await screen.findByText("Planificando…");
+    const planningStatus = planningLabel.closest("[role='status']");
+    expect(planningStatus).toBeInTheDocument();
+    const cancelButton = screen.getByRole("button", { name: "Cancelar" });
+    expect(planningStatus).toContainElement(cancelButton);
+
+    const signal = vi.mocked(planRoute).mock.calls[0][1];
+    expect(signal?.aborted).toBe(false);
+    fireEvent.click(cancelButton);
+
+    expect(signal?.aborted).toBe(true);
+    await waitFor(() => expect(screen.getByRole("button", { name: /planificar viaje/i })).toBeEnabled());
+    expect(screen.queryByRole("button", { name: "Cancelar" })).not.toBeInTheDocument();
   });
 
   it("swaps partial and complete points together with their map markers", async () => {

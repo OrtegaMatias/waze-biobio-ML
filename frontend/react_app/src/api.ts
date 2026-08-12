@@ -13,7 +13,6 @@ import type {
   RecommendationItem,
   RouteResponse,
   TravelerProfileId,
-  TravelStyle,
   UrbanWellbeingCollection,
 } from "./types";
 
@@ -112,13 +111,13 @@ export function planRoute(args: {
   congestion_date?: string;
   day_of_week: string;
   departure_hour: number;
-  travel_style: TravelStyle;
   avoid_congestion: boolean;
   avoid_accidents: boolean;
-}): Promise<PlanRouteResponse> {
+}, signal?: AbortSignal): Promise<PlanRouteResponse> {
   return requestJson<PlanRouteResponse>("/routes/plan", {
     method: "POST",
     body: JSON.stringify(args),
+    signal,
   });
 }
 

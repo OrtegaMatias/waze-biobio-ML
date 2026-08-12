@@ -5,6 +5,7 @@ FastAPI principal para exponer la demo academica y la superficie producto.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import threading
@@ -16,12 +17,12 @@ from pathlib import Path
 from typing import List
 
 import pandas as pd
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from algorithms.recommenders import data_loader
+from algorithms.recommenders import data_loader, routing
 
 from .core import dataset
 from .core.demo_scenarios import DEMO_SCENARIOS
@@ -76,6 +77,8 @@ from .services.geocoding_service import (
     GeocodingService,
     get_geocoding_service,
 )
+from .services.plan_execution_service import PlanExecutionCoordinator
+from .services.plan_cache_service import PlanResultCache
 from .services.recommendation_service import RecommendationService, get_recommendation_service
 from .services.routing_service import RoutingService, get_routing_service
 
@@ -106,6 +109,23 @@ BICYCLE_SUGGESTION_TEXT = (
     "Esta ruta tiene buena cobertura de ciclovia y buena calidad del aire. "
     "Podrias considerar hacerla en bicicleta."
 )
+plan_execution_coordinator = PlanExecutionCoordinator[RouteResponse]()
+plan_result_cache = PlanResultCache[PlanRouteResponse](max_entries=32, ttl_seconds=900)
+
+
+def _plan_request_key(payload: PlanRouteRequest) -> tuple:
+    return (
+        data_loader.data_version(),
+        payload.origin.lat,
+        payload.origin.lon,
+        payload.destination.lat,
+        payload.destination.lon,
+        payload.congestion_date,
+        payload.day_of_week,
+        payload.departure_hour,
+        payload.avoid_congestion,
+        payload.avoid_accidents,
+    )
 
 
 def configure_logging() -> logging.Logger:
@@ -481,10 +501,23 @@ def _build_plan_response(route: RouteResponse, payload: PlanRouteRequest) -> Pla
         ("healthiest", "healthiest", healthiest_variant),
     ]
     routes: list[UserRouteCard] = []
+    visible_geometry_labels: dict[tuple[tuple[float, float], ...], str] = {}
     for route_key, badge_key, variant_key in semantic_targets:
         variant = variants[variant_key]
         badge = RouteBadge(key=badge_key, label=BADGE_LABELS[badge_key])
         cycleway_coverage = _cycleway_coverage_for_variant(variant)
+        geometry_key = tuple((round(point.lat, 6), round(point.lon, 6)) for point in variant.geometry)
+        why_changed = list(variant.why_changed)
+        matching_label = visible_geometry_labels.get(geometry_key)
+        if matching_label is not None:
+            explanation = (
+                f"Coincide con {matching_label}: el mismo trayecto obtuvo el mejor resultado "
+                f"para ambos criterios y no se encontro una alternativa valida que lo mejorara."
+            )
+            if explanation not in why_changed:
+                why_changed.insert(0, explanation)
+        else:
+            visible_geometry_labels[geometry_key] = USER_ROUTE_LABELS[route_key]
         card = UserRouteCard(
             key=route_key,
             label=USER_ROUTE_LABELS[route_key],
@@ -499,7 +532,7 @@ def _build_plan_response(route: RouteResponse, payload: PlanRouteRequest) -> Pla
             road_geometry=variant.road_geometry,
             access_geometry=variant.access_geometry,
             top_alerts=_variant_alerts(variant),
-            why_changed=variant.why_changed,
+            why_changed=why_changed,
             top_penalized_segments=variant.top_penalized_segments,
             top_preferred_vias=variant.top_preferred_vias,
             congestion_coverage=variant.congestion_coverage,
@@ -507,26 +540,14 @@ def _build_plan_response(route: RouteResponse, payload: PlanRouteRequest) -> Pla
             pm25_exposure=variant.pm25_exposure,
             urban_wellbeing=variant.urban_wellbeing,
             healthy_route_score=variant.healthy_route_score,
+            optimization_trace=variant.optimization_trace,
             cycleway_coverage=cycleway_coverage,
             bicycle_suggestion=_bicycle_suggestion_for_variant(variant, cycleway_coverage),
         )
         card.active_mobility_estimate = _active_mobility_estimate_for_card(card)
         card.contextual_messages = _contextual_messages_for_card(card)
         routes.append(card)
-    selected_key = {
-        "fast": "fastest",
-        "safe": "least_congested",
-    }.get(payload.travel_style)
-    if selected_key is None:
-        selected_key = next(
-            (
-                route_key
-                for route_key, _badge_key, variant_key in semantic_targets
-                if variant_key == route.comparison.best_balance_variant
-            ),
-            "least_congested",
-        )
-    selected = next((item for item in routes if item.key == selected_key), routes[0])
+    selected = next((item for item in routes if item.key == "least_congested"), routes[0])
     all_points = [point for item in routes for point in item.geometry]
     bounds = _bounds_from_points(all_points)
     hotspot_bbox = _expand_bounds(bounds)
@@ -692,24 +713,51 @@ def optimal_route(
 
 
 @app.post("/routes/plan", response_model=PlanRouteResponse, tags=["routes"])
-def plan_route(
+async def plan_route(
     payload: PlanRouteRequest,
+    request: Request,
     routing_service: RoutingService = Depends(get_routing_service),
     recommendation_service: RecommendationService = Depends(get_recommendation_service),
 ) -> PlanRouteResponse:
     _ensure_routing_ready(routing_service)
     start = time.perf_counter()
+    lease = None
+    client_cancelled = False
+    request_key = _plan_request_key(payload)
+    cached_response = plan_result_cache.get(request_key)
+    if cached_response is not None:
+        logger.info("POST /routes/plan -> resultado servido desde cache")
+        return cached_response
     try:
         internal_payload = _build_route_request_from_plan(payload, recommendation_service)
-        route = routing_service.compute_route(internal_payload)
+        lease = await plan_execution_coordinator.acquire(
+            request_key,
+            lambda should_cancel: routing_service.compute_route(internal_payload, should_cancel),
+        )
+        route_task = lease.task
+        while not route_task.done():
+            await asyncio.wait({route_task}, timeout=0.1)
+            if not route_task.done() and await request.is_disconnected():
+                client_cancelled = True
+                logger.info("POST /routes/plan cancelado por desconexión del cliente")
+                raise HTTPException(status_code=499, detail="Planificación cancelada.")
+        route = route_task.result()
+    except asyncio.CancelledError:
+        client_cancelled = True
+        raise
+    except routing.RouteSearchCancelled as exc:
+        raise HTTPException(status_code=499, detail="Planificación cancelada.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        if lease is not None:
+            await lease.release(cancelled=client_cancelled)
     response = _build_plan_response(route, payload)
+    plan_result_cache.set(request_key, response)
     duration = (time.perf_counter() - start) * 1000
     logger.info(
-        "POST /routes/plan -> rutas=%d estilo=%s en %.1f ms",
+        "POST /routes/plan -> rutas=%d en %.1f ms",
         len(response.routes),
-        payload.travel_style,
         duration,
     )
     return response
@@ -717,6 +765,7 @@ def plan_route(
 
 @app.post("/system/bootstrap", response_model=BootstrapStatus, tags=["meta"])
 def bootstrap() -> BootstrapStatus:
+    plan_result_cache.clear()
     return BootstrapStatus(**_start_bootstrap_thread(force=True))
 
 
@@ -734,7 +783,7 @@ CONGESTION_COVERAGE_FILES = {
 RAIN_DAILY_PATH = data_loader.ROOT_DIR / "data_processed" / "gran_concepcion_rain_daily.csv"
 
 
-def _build_hotspot_points() -> List[dict]:
+def _build_hotspot_points(limit: int = 10000) -> List[dict]:
     events = data_loader.load_congestion_events()
     event_type_series = (
         events["tipo_evento"]
@@ -746,43 +795,33 @@ def _build_hotspot_points() -> List[dict]:
         .str.strip()
         .str.lower()
     )
-    congestions = events[event_type_series == "congestion"].dropna(subset=["lat", "lon"])
+    congestions = events[event_type_series == "congestion"].dropna(subset=["lat", "lon"]).head(limit)
     if congestions.empty:
         return []
-    bucketed = []
-    for _, row in congestions.iterrows():
-        try:
-            hora_inicio = pd.to_datetime(row.get("hora_inicio"), format="%H:%M", errors="coerce")
-            hora_fin = pd.to_datetime(row.get("hora_fin"), format="%H:%M", errors="coerce")
-        except Exception:
-            hora_inicio = hora_fin = None
-        if pd.isna(hora_inicio):
-            hora_inicio = None
-        if pd.isna(hora_fin):
-            hora_fin = None
-        start_float = float(hora_inicio.hour + hora_inicio.minute / 60) if hora_inicio is not None else None
-        end_float = float(hora_fin.hour + hora_fin.minute / 60) if hora_fin is not None else None
-        speed = row.get("velocidad_kmh")
-        try:
-            speed_value = float(speed) if speed is not None else None
-        except Exception:
-            speed_value = None
-        weight = 0.5
-        if speed_value is not None and speed_value > 0:
-            weight = min(2.0, max(0.1, 1 / max(speed_value, 5)))
-        bucketed.append(
-            {
-                "lat": float(row["lat"]),
-                "lon": float(row["lon"]),
-                "weight": float(weight),
-                "day": str(row.get("dia_semana") or ""),
-                "bucket": str(row.get("franja_horaria") or ""),
-                "segment_id": str(row.get("segment_id") or ""),
-                "hora_inicio_float": start_float,
-                "hora_fin_float": end_float,
-            }
-        )
-    return bucketed
+    empty = pd.Series(index=congestions.index, dtype=object)
+    start = pd.to_datetime(congestions.get("hora_inicio", empty), format="%H:%M", errors="coerce")
+    end = pd.to_datetime(congestions.get("hora_fin", empty), format="%H:%M", errors="coerce")
+    speed = pd.to_numeric(congestions.get("velocidad_kmh", empty), errors="coerce")
+    valid_speed = speed.notna() & (speed > 0)
+    weights = pd.Series(0.5, index=congestions.index, dtype=float)
+    weights.loc[valid_speed] = (1.0 / speed.loc[valid_speed].clip(lower=5.0)).clip(lower=0.1, upper=2.0)
+
+    def text_column(name: str) -> pd.Series:
+        return congestions.get(name, empty).fillna("").astype(str)
+
+    result = pd.DataFrame(
+        {
+            "lat": pd.to_numeric(congestions["lat"], errors="coerce"),
+            "lon": pd.to_numeric(congestions["lon"], errors="coerce"),
+            "weight": weights,
+            "day": text_column("dia_semana"),
+            "bucket": text_column("franja_horaria"),
+            "segment_id": text_column("segment_id"),
+            "hora_inicio_float": (start.dt.hour + start.dt.minute / 60.0).astype(object).where(start.notna(), None),
+            "hora_fin_float": (end.dt.hour + end.dt.minute / 60.0).astype(object).where(end.notna(), None),
+        }
+    )
+    return result.to_dict(orient="records")
 
 
 def _cached_hotspots(limit: int) -> List[dict]:
@@ -790,7 +829,7 @@ def _cached_hotspots(limit: int) -> List[dict]:
     signature = data_loader.data_version()
     with _hotspot_cache_lock:
         if _hotspot_cache["signature"] != signature:
-            _hotspot_cache["points"] = _build_hotspot_points()
+            _hotspot_cache["points"] = _build_hotspot_points(limit)
             _hotspot_cache["signature"] = signature
         return list(_hotspot_cache["points"][:limit])
 

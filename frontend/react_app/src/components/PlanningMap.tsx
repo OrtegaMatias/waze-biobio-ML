@@ -1928,7 +1928,7 @@ export function PlanningMap({
           {projectedHotspots.map((point) => (
             <circle className="hotspot-svg-point" cx={point.x} cy={point.y} key={point.key} r={point.r} />
           ))}
-          {projectedCycleways.map((item) => (
+          {projectedCycleways.filter((item) => !item.evidence).map((item) => (
             <path
               className={`cycleway-svg-line cycleway-${item.category} ${item.evidence ? "cycleway-evidence" : ""}`}
               d={item.path}
@@ -2024,6 +2024,13 @@ export function PlanningMap({
                 />
               ))}
             </g>
+          ))}
+          {projectedCycleways.filter((item) => item.evidence).map((item) => (
+            <path
+              className={`cycleway-svg-line cycleway-${item.category} cycleway-evidence`}
+              d={item.path}
+              key={`cycleway-evidence-${item.key}`}
+            />
           ))}
           {projectedRoutes.map((item) => (
             <path
@@ -2392,8 +2399,8 @@ export function PlanningMap({
                     </dd>
                     <dt>Viento</dt>
                     <dd>
-                      Rangos: suave bajo 20 km/h, moderado entre 20 y 39 km/h y fuerte desde 39 km/h. Efecto: poco
-                      viento dificulta la dispersion; mas viento favorece la dispersion.
+                      Clasificacion local: suave en el tercio inferior de la barra, moderado en el tercio central y
+                      fuerte en el tercio superior. Poco viento dificulta la dispersion; mas viento la favorece.
                     </dd>
                     <dt>Lluvia</dt>
                     <dd>
