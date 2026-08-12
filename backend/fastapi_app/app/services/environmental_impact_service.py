@@ -157,10 +157,10 @@ def _local_wind_label(
     low, high = wind_range
     if high <= low:
         return "Sin dato"
-    normalized = _clamp((wind_speed - low) / (high - low))
-    if normalized < 1.0 / 3.0:
+    span = high - low
+    if wind_speed < low + span / 3.0:
         return "Viento suave"
-    if normalized < 2.0 / 3.0:
+    if wind_speed < low + 2.0 * span / 3.0:
         return "Viento moderado"
     return "Viento fuerte"
 
